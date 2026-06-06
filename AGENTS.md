@@ -12,3 +12,9 @@ For Python:
 
 For C++/Typescript:
 - You do the same as Python but for functions you name them in a `camelCase` fashion
+
+For agentic dycore optimization loops:
+- Read `roles/PROTOCOL.md` and `roles/ORCHESTRATOR.md` before starting the loop
+- Prefer role-specific subagents when the active Codex surface supports them
+- Use the templates in `roles/templates/` for `.logbook` artifacts
+- Keep fixed evaluation protocols unchanged during model-selection experiments

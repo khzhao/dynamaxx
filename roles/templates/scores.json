@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "short-kebab-case-name",
+  "candidate_model_name": "candidate_model",
+  "incumbent_model_name": "dinosaur",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "git-commit-hash",
+    "protocols": ["fast", "iteration", "validation"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": ""
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": null,
+    "candidate_fast_csv": null,
+    "candidate_iteration_json": null,
+    "candidate_iteration_csv": null,
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": null,
+    "incumbent_iteration_csv": null,
+    "incumbent_validation_json": null,
+    "incumbent_validation_csv": null
+  },
+  "primary_scores": {
+    "candidate_fast": null,
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": null,
+    "incumbent_validation": null,
+    "iteration_delta": null,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": null,
+    "candidate_issue_count": null,
+    "incumbent_failed": null,
+    "incumbent_issue_count": null
+  },
+  "gate_status": {
+    "fast_passed": null,
+    "iteration_promotes_to_validation": null,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": []
+  }
+}

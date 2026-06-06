@@ -38,4 +38,5 @@ wandb
 
 # Misc
 .DS_Store
+.logbook
 

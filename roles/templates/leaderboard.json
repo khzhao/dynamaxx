@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "incumbent_model_name": "dinosaur",
+  "incumbent_commit": "git-commit-hash",
+  "updated_at": "2026-06-16T00:00:00Z",
+  "iteration_primary_score": 0.0,
+  "validation_primary_score": 0.0,
+  "history_path": ".logbook/history/2026-06-16_00-00-00_slug",
+  "iteration_metrics_json": "outputs/eval/iteration_dinosaur.json",
+  "iteration_metrics_csv": "outputs/eval/iteration_dinosaur.csv",
+  "validation_metrics_json": "outputs/eval/validation_dinosaur.json",
+  "validation_metrics_csv": "outputs/eval/validation_dinosaur.csv",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "protocols": ["iteration", "validation"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "eval_code_commit": "git-commit-hash"
+  }
+}
