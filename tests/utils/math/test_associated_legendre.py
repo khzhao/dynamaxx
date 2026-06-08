@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from dynamaxx.utils.associated_legendre import (
+from dynamaxx.utils.math.associated_legendre import (
     equiangular_nodes,
     equiangular_nodes_with_poles,
     evaluate,
@@ -42,6 +42,21 @@ def test_evaluate_zero_pads_invalid_degree_order_pairs():
     for m in range(4):
         for l in range(m):
             np.testing.assert_allclose(values[m, :, l], jnp.zeros_like(x))
+
+
+def test_evaluate_is_orthonormal_under_gauss_legendre_quadrature():
+    nodes, weights = gauss_legendre_nodes(12)
+    values = np.asarray(evaluate(n_m=4, n_l=6, x=jnp.asarray(nodes)))
+
+    for m in range(values.shape[0]):
+        valid_values = values[m, :, m:]
+        gram_matrix = valid_values.T @ (weights[:, np.newaxis] * valid_values)
+
+        np.testing.assert_allclose(
+            gram_matrix,
+            np.eye(gram_matrix.shape[0]),
+            atol=2e-6,
+        )
 
 
 def test_evaluate_supports_multidimensional_x_and_jit():
