@@ -40,7 +40,7 @@ def test_spherical_grid_transform_roundtrip_matches_math_transform():
 
     nodal_values = grid.modal_to_nodal(modal_values)
     recovered_values = grid.nodal_to_modal(nodal_values)
-    expected_nodal_values = grid.spherical_harmonics.inverse_transform(modal_values)
+    expected_nodal_values = grid.spherical_harmonics.modal_to_nodal(modal_values)
 
     np.testing.assert_allclose(nodal_values, expected_nodal_values, atol=2e-6)
     np.testing.assert_allclose(recovered_values, modal_values, atol=2e-5)

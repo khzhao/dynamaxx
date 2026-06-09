@@ -84,8 +84,8 @@ class SphericalGrid:
 
     def modal_to_nodal(self, modal_values: jax.Array) -> jax.Array:
         """Map modal coefficients to nodal values."""
-        return self.spherical_harmonics.inverse_transform(modal_values)
+        return self.spherical_harmonics.modal_to_nodal(modal_values)
 
     def nodal_to_modal(self, nodal_values: jax.Array) -> jax.Array:
         """Map nodal values to modal coefficients."""
-        return self.spherical_harmonics.transform(nodal_values)
+        return self.spherical_harmonics.nodal_to_modal(nodal_values)

@@ -34,7 +34,7 @@ def test_real_spherical_harmonics_shapes_and_mask():
     assert transform.mask[3, 2]
 
 
-def test_inverse_transform_matches_basis_product_for_single_mode():
+def test_modal_to_nodal_matches_basis_product_for_single_mode():
     transform = RealSphericalHarmonics(
         total_wavenumbers=4,
         longitude_nodes=12,
@@ -43,7 +43,7 @@ def test_inverse_transform_matches_basis_product_for_single_mode():
     modal_values = jnp.zeros(transform.modal_shape)
     modal_values = modal_values.at[1, 2].set(1.0)
 
-    nodal_values = transform.inverse_transform(modal_values)
+    nodal_values = transform.modal_to_nodal(modal_values)
     expected = (
         transform.basis.fourier[:, 1, np.newaxis]
         * transform.basis.legendre[1, :, 2][np.newaxis, :]
@@ -75,7 +75,7 @@ def test_real_spherical_harmonic_basis_is_orthonormal_under_quadrature():
     )
 
 
-def test_transform_inverse_transform_roundtrip_for_valid_modes():
+def test_nodal_to_modal_roundtrip_for_valid_modes():
     transform = RealSphericalHarmonics(
         total_wavenumbers=4,
         longitude_nodes=16,
@@ -88,8 +88,8 @@ def test_transform_inverse_transform_roundtrip_for_valid_modes():
     modal_values[3, 3] = -1.25
     modal_values = jnp.asarray(modal_values)
 
-    nodal_values = transform.inverse_transform(modal_values)
-    recovered_values = transform.transform(nodal_values)
+    nodal_values = transform.modal_to_nodal(modal_values)
+    recovered_values = transform.nodal_to_modal(nodal_values)
 
     np.testing.assert_allclose(recovered_values, modal_values, atol=2e-5)
 
@@ -101,7 +101,7 @@ def test_transform_constant_field_has_only_constant_mode():
         latitude_nodes=8,
     )
     nodal_values = jnp.ones(transform.nodal_shape)
-    modal_values = transform.transform(nodal_values)
+    modal_values = transform.nodal_to_modal(nodal_values)
     expected = jnp.zeros(transform.modal_shape)
     expected = expected.at[0, 0].set(2 * jnp.sqrt(jnp.pi))
 
@@ -132,7 +132,7 @@ def test_transform_methods_work_inside_jit():
     )
     modal_values = jnp.zeros(transform.modal_shape).at[1, 2].set(1.0)
 
-    nodal_values = jax.jit(transform.inverse_transform)(modal_values)
-    recovered_values = jax.jit(transform.transform)(nodal_values)
+    nodal_values = jax.jit(transform.modal_to_nodal)(modal_values)
+    recovered_values = jax.jit(transform.nodal_to_modal)(nodal_values)
 
     np.testing.assert_allclose(recovered_values, modal_values, atol=2e-5)

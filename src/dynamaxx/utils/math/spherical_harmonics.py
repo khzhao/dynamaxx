@@ -29,7 +29,12 @@ def get_latitude_nodes(n: int, spacing: str = "gauss") -> tuple[np.ndarray, np.n
 
 @dataclass(frozen=True)
 class SphericalHarmonicBasis:
-    """Basis matrices and quadrature weights for real spherical harmonics."""
+    """Basis matrices and quadrature weights for real spherical harmonics.
+
+    The Fourier basis has shape (longitude_nodes, modal_m). The Legendre
+    basis has shape (modal_m, latitude_nodes, total_wavenumbers). The weights
+    have shape (longitude_nodes, latitude_nodes).
+    """
 
     fourier: np.ndarray
     legendre: np.ndarray
@@ -117,25 +122,51 @@ class RealSphericalHarmonics:
         m, l = np.meshgrid(*self.modal_axes, indexing="ij")
         return np.abs(m) <= l
 
-    def inverse_transform(self, modal_values: jax.Array) -> jax.Array:
-        """Map modal coefficients to nodal values."""
-        legendre_values = einsum(
+    def modal_to_nodal(self, modal_values: jax.Array) -> jax.Array:
+        """Map modal coefficients to nodal values.
+
+        The expected input shape is (*batch, modal_m, total_wavenumbers), where
+        modal_m = 2 * total_wavenumbers - 1. The returned array has shape
+        (*batch, longitude_nodes, latitude_nodes). This sums over modal
+        wavenumber axes m and l.
+        """
+        degree_summed_values = einsum(
             "mjl,...ml->...mj",
             self.basis.legendre,
             modal_values,
         )
-        return einsum("im,...mj->...ij", self.basis.fourier, legendre_values)
+        nodal_values = einsum(
+            "im,...mj->...ij",
+            self.basis.fourier,
+            degree_summed_values,
+        )
+        return nodal_values
 
-    def transform(self, nodal_values: jax.Array) -> jax.Array:
-        """Map nodal values to modal coefficients."""
-        weighted_values = self.basis.weights * nodal_values
-        fourier_values = einsum(
+    def nodal_to_modal(self, nodal_values: jax.Array) -> jax.Array:
+        """Map nodal values to modal coefficients.
+
+        The expected input shape is (*batch, longitude_nodes, latitude_nodes).
+        The returned array has shape (*batch, modal_m, total_wavenumbers),
+        where modal_m = 2 * total_wavenumbers - 1. This sums over nodal
+        longitude and latitude axes.
+        """
+        weighted_nodal_values = self.basis.weights * nodal_values
+        longitude_summed_values = einsum(
             "im,...ij->...mj",
             self.basis.fourier,
-            weighted_values,
+            weighted_nodal_values,
         )
-        return einsum("mjl,...mj->...ml", self.basis.legendre, fourier_values)
+        modal_values = einsum(
+            "mjl,...mj->...ml",
+            self.basis.legendre,
+            longitude_summed_values,
+        )
+        return modal_values
 
     def longitudinal_derivative(self, modal_values: jax.Array) -> jax.Array:
-        """Differentiate modal coefficients with respect to longitude."""
+        """Differentiate modal coefficients with respect to longitude.
+
+        The expected input shape is (*batch, modal_m, total_wavenumbers). The
+        returned array has the same shape.
+        """
         return fourier.real_basis_derivative(modal_values, axis=-2)
