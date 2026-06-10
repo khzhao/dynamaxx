@@ -1,6 +1,6 @@
 # Copyright 2026 dynamaxx
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any
@@ -12,14 +12,14 @@ import pandas as pd
 import xarray as xr
 
 from dynamaxx.dycore.grid import SphericalGrid
+from dynamaxx.utils.consts import WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 
-PROCESSED_ERA5_1P5DEG_6H_PATH = (
-    "s3://weathermaxx-data/weatherbench2/datasets/v1/"
-    "processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative/"
-)
+PROCESSED_ERA5_1P5DEG_6H_PATH = WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 
 STATE_VARIABLE = "state"
+CONSTANTS_VARIABLE = "constants"
 CHANNEL_COORDINATE = "channel"
+CONSTANT_CHANNEL_COORDINATE = "constant_channel"
 TIME_COORDINATE = "time"
 LONGITUDE_COORDINATE = "longitude"
 LATITUDE_COORDINATE = "latitude"
@@ -61,6 +61,11 @@ class WeatherBench2Source:
         """Time axis for a single Zarr source."""
         return self._time_axis(self.dataset)
 
+    @cached_property
+    def constants_dataset(self) -> xr.Dataset:
+        """Open the constants Zarr store for a processed dataset collection."""
+        return self._open_zarr(self.constants_path())
+
     @property
     def _is_collection(self) -> bool:
         return not self.path.rstrip("/").endswith(".zarr")
@@ -89,6 +94,10 @@ class WeatherBench2Source:
     def year_path(self, year: int) -> str:
         """Return the yearly Zarr path for this processed dataset collection."""
         return f"{self.path.rstrip('/')}/years/{year}.zarr"
+
+    def constants_path(self) -> str:
+        """Return the constants Zarr path for this processed dataset collection."""
+        return f"{self.path.rstrip('/')}/constants.zarr"
 
     def _open_zarr(self, path: str) -> xr.Dataset:
         options: dict[str, Any] = {
@@ -148,15 +157,17 @@ class WeatherBench2Source:
         self,
         time: Any,
         *,
+        channels: Sequence[str] | None = None,
         dtype: Any = jnp.float32,
     ) -> jax.Array:
         """Read one packed state as (channel, longitude, latitude)."""
-        return self.read_state_times([time], dtype=dtype)[0]
+        return self.read_state_times([time], channels=channels, dtype=dtype)[0]
 
     def read_state_times(
         self,
         times: Any,
         *,
+        channels: Sequence[str] | None = None,
         dtype: Any = jnp.float32,
     ) -> jax.Array:
         """Read exact times as (time, channel, longitude, latitude)."""
@@ -170,12 +181,20 @@ class WeatherBench2Source:
         sorted_times = times[read_order]
 
         if not self._is_collection:
+            channel_indices = self.channel_indices(channels) if channels else None
             indices = self._time_indices(self.time_axis, sorted_times)
-            return self._read_state_indices(self.dataset, indices, dtype=dtype)[
-                return_order
-            ]
+            state_values = self._read_state_indices(
+                self.dataset,
+                indices,
+                channel_indices=channel_indices,
+                dtype=dtype,
+            )
+            return state_values[return_order]
 
         years = np.asarray([pd.Timestamp(time).year for time in sorted_times])
+        channel_indices = (
+            self.channel_indices(channels, year=int(years[0])) if channels else None
+        )
         arrays = []
         for year in dict.fromkeys(years.tolist()):
             year_times = sorted_times[years == year]
@@ -184,6 +203,7 @@ class WeatherBench2Source:
                 self._read_state_indices(
                     self.open_year(year),
                     indices,
+                    channel_indices=channel_indices,
                     dtype=dtype,
                 )
             )
@@ -245,11 +265,13 @@ class WeatherBench2Source:
         *,
         steps: int,
         step_hours: int = 6,
+        channels: Sequence[str] | None = None,
         dtype: Any = jnp.float32,
     ) -> jax.Array:
         """Read a trajectory block as (time, channel, longitude, latitude)."""
         return self.read_state_times(
             self.trajectory_times(start_time, steps=steps, step_hours=step_hours),
+            channels=channels,
             dtype=dtype,
         )
 
@@ -303,6 +325,117 @@ class WeatherBench2Source:
         if level is None:
             return variable
         return f"{variable}_{int(level)}"
+
+    def spatial_coordinates(
+        self,
+        *,
+        time: Any | None = None,
+        year: int | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return longitude and latitude coordinates in degrees."""
+        dataset = self._dataset_for_selection(time=time, year=year)
+        assert LONGITUDE_COORDINATE in dataset.coords
+        assert LATITUDE_COORDINATE in dataset.coords
+        return (
+            np.asarray(dataset[LONGITUDE_COORDINATE].values, dtype=np.float64),
+            np.asarray(dataset[LATITUDE_COORDINATE].values, dtype=np.float64),
+        )
+
+    def area_weights(
+        self,
+        *,
+        time: Any | None = None,
+        year: int | None = None,
+    ) -> np.ndarray:
+        """Return spherical cell area weights with shape (longitude, latitude)."""
+        longitude, latitude = self.spatial_coordinates(time=time, year=year)
+        longitude_weight = 2 * np.pi / longitude.size
+        sin_latitude = np.sin(np.deg2rad(latitude))
+        latitude_edges = np.empty(latitude.size + 1, dtype=np.float64)
+        latitude_edges[0] = sin_latitude[0]
+        latitude_edges[-1] = sin_latitude[-1]
+        latitude_edges[1:-1] = 0.5 * (sin_latitude[:-1] + sin_latitude[1:])
+        latitude_weights = np.abs(np.diff(latitude_edges))
+        return np.broadcast_to(
+            longitude_weight * latitude_weights[np.newaxis, :],
+            (longitude.size, latitude.size),
+        )
+
+    def channel_values(
+        self,
+        *,
+        time: Any | None = None,
+        year: int | None = None,
+    ) -> np.ndarray:
+        """Return packed state channel names for a single dataset or year."""
+        dataset = self._dataset_for_selection(time=time, year=year)
+        assert CHANNEL_COORDINATE in dataset.coords
+        return np.asarray(dataset[CHANNEL_COORDINATE].values)
+
+    def channel_indices(
+        self,
+        channels: Sequence[str],
+        *,
+        time: Any | None = None,
+        year: int | None = None,
+    ) -> np.ndarray:
+        """Return integer indices for packed state channel names."""
+        channel_values = self.channel_values(time=time, year=year)
+        channel_to_index = {
+            str(channel_name): channel_index
+            for channel_index, channel_name in enumerate(channel_values)
+        }
+        missing_channels = [
+            channel_name
+            for channel_name in channels
+            if str(channel_name) not in channel_to_index
+        ]
+        assert not missing_channels, f"unknown channels {missing_channels}"
+        return np.asarray(
+            [channel_to_index[str(channel_name)] for channel_name in channels],
+            dtype=np.int64,
+        )
+
+    def constant_values(self) -> np.ndarray:
+        """Return available constant channel names."""
+        assert CONSTANT_CHANNEL_COORDINATE in self.constants_dataset.coords
+        return np.asarray(self.constants_dataset[CONSTANT_CHANNEL_COORDINATE].values)
+
+    def constant_indices(self, channels: Sequence[str]) -> np.ndarray:
+        """Return integer indices for constant channel names."""
+        constant_values = self.constant_values()
+        constant_to_index = {
+            str(channel_name): channel_index
+            for channel_index, channel_name in enumerate(constant_values)
+        }
+        missing_channels = [
+            channel_name
+            for channel_name in channels
+            if str(channel_name) not in constant_to_index
+        ]
+        assert not missing_channels, f"unknown constants {missing_channels}"
+        return np.asarray(
+            [constant_to_index[str(channel_name)] for channel_name in channels],
+            dtype=np.int64,
+        )
+
+    def read_constants(
+        self,
+        channels: Sequence[str],
+        *,
+        dtype: Any = jnp.float32,
+    ) -> jax.Array:
+        """Read constants as (constant, longitude, latitude)."""
+        indices = self.constant_indices(channels)
+        values = self.constants_dataset[CONSTANTS_VARIABLE].isel(
+            {CONSTANT_CHANNEL_COORDINATE: indices}
+        )
+        values = values.transpose(
+            CONSTANT_CHANNEL_COORDINATE,
+            LONGITUDE_COORDINATE,
+            LATITUDE_COORDINATE,
+        )
+        return jnp.asarray(values.to_numpy(), dtype=dtype)
 
     def field_to_grid(
         self,
@@ -374,9 +507,12 @@ class WeatherBench2Source:
         dataset: xr.Dataset,
         indices: np.ndarray,
         *,
+        channel_indices: np.ndarray | None = None,
         dtype: Any,
     ) -> jax.Array:
         state_values = dataset[STATE_VARIABLE].isel({TIME_COORDINATE: indices})
+        if channel_indices is not None:
+            state_values = state_values.isel({CHANNEL_COORDINATE: channel_indices})
         state_values = self._transpose_state(state_values)
         return jnp.asarray(state_values.to_numpy(), dtype=dtype)
 

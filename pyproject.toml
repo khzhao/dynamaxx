@@ -19,6 +19,9 @@ dependencies = [
     "zarr>=2.18.7,<3",
 ]
 
+[project.scripts]
+dynamaxx-eval = "dynamaxx.eval.cli:main"
+
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
@@ -103,3 +106,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: tests that touch external services or large runtime paths",
+    "s3: tests that read WeatherBench2 data from S3",
+]

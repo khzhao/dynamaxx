@@ -72,6 +72,30 @@ def _write_test_state_dataset_for_year(path, year: int, value: float):
     dataset.to_zarr(path, mode="w")
 
 
+def _write_test_constants_dataset(path):
+    constant_channel = np.array(["land_sea_mask", "orography"])
+    latitude = np.array([90.0, 0.0, -90.0])
+    longitude = np.array([0.0, 90.0, 180.0, 270.0])
+    values = np.zeros((constant_channel.size, longitude.size, latitude.size))
+    values[0] = 1.0
+    values[1] = np.arange(longitude.size)[:, np.newaxis]
+
+    dataset = xr.Dataset(
+        {
+            "constants": (
+                ("constant_channel", "longitude", "latitude"),
+                values,
+            ),
+        },
+        coords={
+            "constant_channel": constant_channel,
+            "latitude": latitude,
+            "longitude": longitude,
+        },
+    )
+    dataset.to_zarr(path, mode="w")
+
+
 def test_weatherbench2_source_uses_processed_project_dataset_path_by_default():
     assert WeatherBench2Source().path == PROCESSED_ERA5_1P5DEG_6H_PATH
 
@@ -130,6 +154,44 @@ def test_read_state_returns_channel_longitude_latitude_array(tmp_path):
     np.testing.assert_allclose(state_values[0, 2, 0], 270.0)
     np.testing.assert_allclose(state_values[1], 5000.0)
     assert state_values.dtype == jnp.float32
+
+
+def test_read_state_can_select_channels(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_test_state_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+
+    state_values = source.read_state(
+        np.datetime64("2020-01-01T06:00:00"),
+        channels=["constant", "2m_temperature"],
+    )
+
+    assert state_values.shape == (2, 4, 3)
+    np.testing.assert_allclose(state_values[0], 1.0)
+    np.testing.assert_allclose(state_values[1, 2, 0], 270.0)
+
+
+def test_channel_indices_resolve_packed_state_channels(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_test_state_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+
+    indices = source.channel_indices(["geopotential_500", "2m_temperature"])
+
+    np.testing.assert_array_equal(indices, np.array([1, 0]))
+
+
+def test_read_constants_returns_requested_constant_channels(tmp_path):
+    collection_path = tmp_path / "processed"
+    collection_path.mkdir()
+    _write_test_constants_dataset(collection_path / "constants.zarr")
+    source = WeatherBench2Source(path=str(collection_path))
+
+    values = source.read_constants(["orography", "land_sea_mask"])
+
+    assert values.shape == (2, 4, 3)
+    np.testing.assert_allclose(values[0, :, 0], np.arange(4))
+    np.testing.assert_allclose(values[1], 1.0)
 
 
 def test_read_state_range_returns_time_channel_longitude_latitude_array(tmp_path):
