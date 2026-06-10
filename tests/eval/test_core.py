@@ -2,14 +2,20 @@ import jax.numpy as jnp
 import numpy as np
 
 from dynamaxx.eval.core import (
-    DEFAULT_LEAD_DAYS,
     WeatherState,
     WeatherVariable,
-    candidate_year_case,
+)
+from dynamaxx.eval.protocols import (
+    DEFAULT_LEAD_DAYS,
+    PROTOCOL_FACTORIES,
+    create_case,
     daily_initial_times,
     fast_case,
     fixed_case,
     lead_days_to_steps,
+    test_case as oos_case,
+    train_case,
+    validation_case,
 )
 
 
@@ -28,11 +34,31 @@ def test_default_lead_days_are_daily_through_day_15():
     assert DEFAULT_LEAD_DAYS == tuple(range(1, 16))
 
 
-def test_fast_and_candidate_year_cases_use_default_daily_leads():
+def test_fixed_protocols_use_default_daily_leads():
     expected_steps = lead_days_to_steps(DEFAULT_LEAD_DAYS, step_hours=6)
 
     assert fast_case().lead_steps == expected_steps
-    assert candidate_year_case(2019).lead_steps == expected_steps
+    assert train_case().lead_steps == expected_steps
+    assert validation_case().lead_steps == expected_steps
+    assert oos_case().lead_steps == expected_steps
+
+
+def test_fixed_protocols_match_tuning_validation_test_split():
+    train = train_case()
+    validation = validation_case()
+    test = oos_case()
+
+    assert train.initial_times[0] == np.datetime64("2010-01-01")
+    assert train.initial_times[-1] == np.datetime64("2018-12-31")
+    assert validation.initial_times[0] == np.datetime64("2019-01-01")
+    assert validation.initial_times[-1] == np.datetime64("2019-12-31")
+    assert test.initial_times[0] == np.datetime64("2020-01-01")
+    assert test.initial_times[-1] == np.datetime64("2020-12-31")
+
+
+def test_protocol_registry_contains_only_fixed_eval_protocols():
+    assert tuple(PROTOCOL_FACTORIES) == ("fast", "train", "validation", "test")
+    assert create_case("validation").name == "validation"
 
 
 def test_daily_initial_times_returns_inclusive_range():

@@ -2,20 +2,28 @@
 
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
 
+from dynamaxx.data.weatherbench2 import WeatherBench2Source
+from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import EvalBatch, EvalCase, ForecastModel, WeatherState
 from dynamaxx.eval.diagnostics import (
     ForecastDiagnostics,
     diagnose_forecast,
     diagnose_metric_records,
 )
-from dynamaxx.eval.metrics import MetricRecord, score_components, score_states
+from dynamaxx.eval.metrics import (
+    MetricRecord,
+    MetricTotals,
+    merge_totals,
+    score_state_totals,
+    totals_to_records,
+)
 
 
 @dataclass(frozen=True)
@@ -54,53 +62,130 @@ class EvaluationResult:
         }
 
 
+@dataclass(frozen=True)
+class EvaluationTotals:
+    """Accumulated model and persistence metrics before record formatting."""
+
+    model_name: str
+    model_totals: tuple[MetricTotals, ...]
+    persistence_totals: tuple[MetricTotals, ...]
+    diagnostics: ForecastDiagnostics
+
+
 def evaluate_batch(model: ForecastModel, batch: EvalBatch) -> EvaluationResult:
     """Evaluate a model on a preloaded batch."""
-    case = batch.case
+    totals = evaluate_batch_totals(model, batch)
+    records = totals_to_records(
+        totals.model_totals,
+        totals.persistence_totals,
+    ) + totals_to_records(
+        totals.persistence_totals,
+        totals.persistence_totals,
+    )
+    metric_diagnostics = diagnose_metric_records(records)
+    diagnostics = ForecastDiagnostics(
+        issues=totals.diagnostics.issues + metric_diagnostics.issues,
+    )
+    return EvaluationResult(
+        case=batch.case,
+        model_name=model.name,
+        records=records,
+        diagnostics=diagnostics,
+    )
+
+
+def evaluate_batch_totals(
+    model: ForecastModel,
+    batch: EvalBatch,
+) -> EvaluationTotals:
+    """Evaluate one batch and return chunk-combinable metric totals."""
     forecast = model.forecast(batch.forecast_input)
     forecast_diagnostics = diagnose_forecast(forecast.values)
-    forecast_targets = forecast.select(case.target_channel_names)
-    truth_targets = batch.truth.select(case.target_channel_names)
+    forecast_targets = forecast.select(batch.case.target_channel_names)
+    truth_targets = batch.truth.select(batch.case.target_channel_names)
     initial_targets = batch.forecast_input.initial_state.select(
-        case.target_channel_names,
+        batch.case.target_channel_names,
     )
     persistence = persistence_state(
         initial_targets,
-        lead_count=len(case.lead_steps),
+        lead_count=len(batch.case.lead_steps),
     )
-    persistence_scores = score_components(
-        persistence.values,
-        truth_targets.values,
-        batch.area_weights,
-    )
-    persistence_rmse = persistence_scores["rmse"]
-
-    records = score_states(
+    model_totals = score_state_totals(
         forecast_targets,
         truth_targets,
         batch.area_weights,
         model_name=model.name,
-        variables=case.target_variables,
-        lead_hours=case.lead_hours,
-        persistence_rmse=persistence_rmse,
-    ) + score_states(
+        variables=batch.case.target_variables,
+        lead_hours=batch.case.lead_hours,
+    )
+    persistence_totals = score_state_totals(
         persistence,
         truth_targets,
         batch.area_weights,
         model_name="persistence",
-        variables=case.target_variables,
-        lead_hours=case.lead_hours,
-        persistence_rmse=persistence_rmse,
+        variables=batch.case.target_variables,
+        lead_hours=batch.case.lead_hours,
+    )
+    return EvaluationTotals(
+        model_name=model.name,
+        model_totals=model_totals,
+        persistence_totals=persistence_totals,
+        diagnostics=forecast_diagnostics,
+    )
+
+
+def evaluate_case(
+    model: ForecastModel,
+    source: WeatherBench2Source,
+    case: EvalCase,
+    *,
+    chunk_initial_count: int,
+) -> EvaluationResult:
+    """Evaluate a case in initialization-time chunks and aggregate metrics."""
+    assert chunk_initial_count >= 1
+    model_totals = []
+    persistence_totals = []
+    diagnostic_issues = []
+
+    for chunk_case in case_chunks(case, chunk_initial_count):
+        batch = build_weatherbench2_batch(source, chunk_case)
+        chunk_totals = evaluate_batch_totals(model, batch)
+        model_totals.extend(chunk_totals.model_totals)
+        persistence_totals.extend(chunk_totals.persistence_totals)
+        diagnostic_issues.extend(chunk_totals.diagnostics.issues)
+
+    merged_model_totals = merge_totals(tuple(model_totals))
+    merged_persistence_totals = merge_totals(tuple(persistence_totals))
+    records = totals_to_records(
+        merged_model_totals,
+        merged_persistence_totals,
+    ) + totals_to_records(
+        merged_persistence_totals,
+        merged_persistence_totals,
     )
     metric_diagnostics = diagnose_metric_records(records)
     diagnostics = ForecastDiagnostics(
-        issues=forecast_diagnostics.issues + metric_diagnostics.issues,
+        issues=tuple(diagnostic_issues) + metric_diagnostics.issues,
     )
     return EvaluationResult(
         case=case,
         model_name=model.name,
         records=records,
         diagnostics=diagnostics,
+    )
+
+
+def case_chunks(case: EvalCase, chunk_initial_count: int) -> tuple[EvalCase, ...]:
+    """Split a case into chunks along the initialization-time axis."""
+    assert chunk_initial_count >= 1
+    return tuple(
+        replace(
+            case,
+            initial_times=case.initial_times[
+                start_index : start_index + chunk_initial_count
+            ],
+        )
+        for start_index in range(0, case.initial_times.size, chunk_initial_count)
     )
 
 

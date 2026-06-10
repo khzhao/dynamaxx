@@ -13,10 +13,12 @@ from dynamaxx.eval.core import (
     ForecastInput,
     WeatherState,
     WeatherVariable,
-    fixed_case,
 )
+from dynamaxx.eval.protocols import fixed_case
 from dynamaxx.eval.runner import (
+    case_chunks,
     evaluate_batch,
+    evaluate_case,
     write_metric_csv,
     write_metric_json,
 )
@@ -69,7 +71,13 @@ class InputAwarePersistenceModel:
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
         assert forecast_input.forcing is not None
         assert forecast_input.forcing.variables == ("10m_u_component_of_wind",)
-        assert forecast_input.forcing.values.shape == (2, 1, 1, 4, 3)
+        assert forecast_input.forcing.values.shape == (
+            len(forecast_input.lead_steps),
+            forecast_input.initial_times.size,
+            1,
+            4,
+            3,
+        )
         assert set(forecast_input.static) == {
             "latitude",
             "coriolis",
@@ -154,6 +162,64 @@ def test_evaluate_batch_scores_candidate_and_baselines(tmp_path):
     assert not result.diagnostics.failed
     assert result.diagnostics.issues == ()
     np.testing.assert_allclose(result.primary_score, 0.0, atol=2e-5)
+
+
+def test_evaluate_case_chunks_match_single_batch_result(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_constant_forecast_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+    model = InputAwarePersistenceModel()
+    temperature = WeatherVariable("2m_temperature")
+    wind = WeatherVariable("10m_u_component_of_wind")
+    case = fixed_case(
+        "unit",
+        ["2020-01-01T00:00:00", "2020-01-01T00:00:00"],
+        lead_days=(0.25, 0.5),
+        prognostic_variables=(temperature,),
+        target_variables=(temperature,),
+        forcing_variables=(wind,),
+        static_variables=("latitude", "coriolis", "area_weights"),
+    )
+
+    single_batch_result = evaluate_batch(
+        model,
+        build_weatherbench2_batch(source, case),
+    )
+    chunked_result = evaluate_case(
+        model,
+        source,
+        case,
+        chunk_initial_count=1,
+    )
+
+    assert [record.asdict() for record in chunked_result.records] == [
+        record.asdict() for record in single_batch_result.records
+    ]
+    np.testing.assert_allclose(
+        chunked_result.primary_score,
+        single_batch_result.primary_score,
+    )
+
+
+def test_case_chunks_preserve_case_contract():
+    variables = (WeatherVariable("2m_temperature"),)
+    case = fixed_case(
+        "unit",
+        [
+            "2020-01-01T00:00:00",
+            "2020-01-02T00:00:00",
+            "2020-01-03T00:00:00",
+        ],
+        lead_days=(1,),
+        prognostic_variables=variables,
+        target_variables=variables,
+    )
+
+    chunks = case_chunks(case, 2)
+
+    assert [chunk.initial_times.size for chunk in chunks] == [2, 1]
+    assert all(chunk.name == "unit" for chunk in chunks)
+    assert all(chunk.lead_steps == case.lead_steps for chunk in chunks)
 
 
 def test_evaluate_batch_passes_forcing_and_static_variables(tmp_path):
