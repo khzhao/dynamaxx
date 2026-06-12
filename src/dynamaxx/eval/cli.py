@@ -46,9 +46,9 @@ def _configure_logging() -> None:
 def run_protocol(protocol: str, *, model_name: str) -> int:
     """Run one fixed WeatherBench2 protocol."""
     from dynamaxx.data.weatherbench2 import WeatherBench2Source
+    from dynamaxx.dycore.registry import create_forecast_model
     from dynamaxx.eval.protocols import chunk_initial_count, create_case
     from dynamaxx.eval.runner import evaluate_case, write_metric_csv, write_metric_json
-    from dynamaxx.registry import create_forecast_model
 
     case = create_case(protocol)
     logger.info("Model: %s", model_name)

@@ -1,6 +1,6 @@
 import pytest
 
-from dynamaxx.registry import create_forecast_model, forecast_model_names
+from dynamaxx.dycore.registry import create_forecast_model, forecast_model_names
 
 
 def test_registry_lists_default_forecast_models():

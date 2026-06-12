@@ -20,11 +20,11 @@ FORECAST_MODEL_FACTORIES: dict[str, ForecastModelFactory] = {
 
 
 def forecast_model_names() -> tuple[str, ...]:
-    """Return registered forecast model names."""
+    """Return registered dycore forecast model names."""
     return tuple(FORECAST_MODEL_FACTORIES)
 
 
 def create_forecast_model(name: str) -> ForecastModel:
-    """Create a registered forecast model by name."""
+    """Create a registered dycore forecast model by name."""
     assert name in FORECAST_MODEL_FACTORIES, f"unknown forecast model {name}"
     return FORECAST_MODEL_FACTORIES[name]()

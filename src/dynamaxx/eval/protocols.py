@@ -7,6 +7,16 @@ import numpy as np
 from dynamaxx.eval.core import EvalCase, WeatherVariable
 from dynamaxx.utils.consts import HOURS_PER_DAY
 
+FAST_PROTOCOL = "fast"
+TRAIN_PROTOCOL = "train"
+VALIDATION_PROTOCOL = "validation"
+TEST_PROTOCOL = "test"
+PROTOCOL_NAMES = (
+    FAST_PROTOCOL,
+    TRAIN_PROTOCOL,
+    VALIDATION_PROTOCOL,
+    TEST_PROTOCOL,
+)
 DEFAULT_VARIABLES = (
     WeatherVariable("2m_temperature", title="2 m temperature", unit="K"),
     WeatherVariable(
@@ -45,10 +55,12 @@ FAST_INITIAL_TIMES = (
     "2019-12-15T00:00:00",
 )
 PROTOCOL_CHUNK_INITIAL_TIMES = {
-    "fast": len(FAST_INITIAL_TIMES),
-    "train": 8,
-    "validation": 8,
-    "test": 8,
+    FAST_PROTOCOL: len(FAST_INITIAL_TIMES),
+    # Real-data protocols are chunked to bound JAX memory and WeatherBench2 IO
+    # while still evaluating every initialization time in the fixed split.
+    TRAIN_PROTOCOL: 8,
+    VALIDATION_PROTOCOL: 8,
+    TEST_PROTOCOL: 8,
 }
 
 ProtocolFactory = Callable[[], EvalCase]
@@ -104,35 +116,38 @@ def fixed_case(
 
 def fast_case() -> EvalCase:
     """Return the quick real-data protocol used during development."""
-    return fixed_case("fast", FAST_INITIAL_TIMES)
+    return fixed_case(FAST_PROTOCOL, FAST_INITIAL_TIMES)
 
 
 def train_case() -> EvalCase:
     """Return the multi-year tuning protocol for dycore development."""
-    return fixed_case("train", daily_initial_times("2010-01-01", "2018-12-31"))
+    return fixed_case(TRAIN_PROTOCOL, daily_initial_times("2010-01-01", "2018-12-31"))
 
 
 def validation_case() -> EvalCase:
     """Return the held-out model-selection protocol."""
-    return fixed_case("validation", daily_initial_times("2019-01-01", "2019-12-31"))
+    return fixed_case(
+        VALIDATION_PROTOCOL,
+        daily_initial_times("2019-01-01", "2019-12-31"),
+    )
 
 
 def test_case() -> EvalCase:
     """Return the locked out-of-sample reporting protocol."""
-    return fixed_case("test", daily_initial_times("2020-01-01", "2020-12-31"))
+    return fixed_case(TEST_PROTOCOL, daily_initial_times("2020-01-01", "2020-12-31"))
 
 
 PROTOCOL_FACTORIES: dict[str, ProtocolFactory] = {
-    "fast": fast_case,
-    "train": train_case,
-    "validation": validation_case,
-    "test": test_case,
+    FAST_PROTOCOL: fast_case,
+    TRAIN_PROTOCOL: train_case,
+    VALIDATION_PROTOCOL: validation_case,
+    TEST_PROTOCOL: test_case,
 }
 
 
 def protocol_names() -> tuple[str, ...]:
     """Return supported fixed evaluation protocols."""
-    return tuple(PROTOCOL_FACTORIES)
+    return PROTOCOL_NAMES
 
 
 def create_case(protocol: str) -> EvalCase:

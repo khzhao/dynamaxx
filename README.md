@@ -11,10 +11,10 @@ uv sync
 uv run pytest
 ```
 
-Run the fixed WeatherBench2 smoke protocol:
+Run the quick fixed WeatherBench2 protocol:
 
 ```bash
-uv run dynamaxx-eval smoke
+uv run dynamaxx-eval fast
 ```
 
 The command writes metrics to `outputs/eval/` as JSON and CSV. It uses the
@@ -24,10 +24,11 @@ processed 1.5-degree, 6-hourly ERA5 collection:
 s3://weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative/
 ```
 
-Run the fixed candidate-year protocol:
+Run the held-out validation or test protocols:
 
 ```bash
-uv run dynamaxx-eval candidate-year 2019
+uv run dynamaxx-eval validation
+uv run dynamaxx-eval test
 ```
 
 Real S3 integration tests are opt-in:

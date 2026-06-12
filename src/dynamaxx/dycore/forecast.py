@@ -1,6 +1,7 @@
 # Copyright 2026 dynamaxx
 
 from dataclasses import dataclass
+from functools import cached_property
 
 import jax
 import jax.numpy as jnp
@@ -20,19 +21,23 @@ class SpectralDycoreForecastModel:
     method: str = "rk4"
     jit_forecast: bool = True
 
+    @cached_property
+    def simulate_forecast(self):
+        """Return the reusable simulation callable for forecast rollouts."""
+        if not self.jit_forecast:
+            return self.dycore.simulate
+        return jax.jit(
+            self.dycore.simulate,
+            static_argnames=("steps", "method", "include_initial"),
+        )
+
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
         """Run the spectral dycore and return lead times in nodal space."""
         grid = self.dycore.grid
         assert forecast_input.initial_state.spatial_shape == grid.nodal_shape
 
         initial_modal_state = grid.nodal_to_modal(forecast_input.initial_state.values)
-        simulate = self.dycore.simulate
-        if self.jit_forecast:
-            simulate = jax.jit(
-                simulate,
-                static_argnames=("steps", "method", "include_initial"),
-            )
-        modal_trajectory = simulate(
+        modal_trajectory = self.simulate_forecast(
             initial_modal_state,
             steps=max(forecast_input.lead_steps),
             step_seconds=forecast_input.step_seconds,
