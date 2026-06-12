@@ -5,9 +5,11 @@ import numpy as np
 import xarray as xr
 
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
-from dynamaxx.dycore.forecast import SpectralDycoreForecastModel
-from dynamaxx.dycore.grid import SphericalGrid
-from dynamaxx.dycore.simulation import SpectralDycore
+from dynamaxx.dycore.models.spectral import (
+    SpectralDycore,
+    SpectralDycoreModel,
+    SphericalGrid,
+)
 from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import (
     WeatherVariable,
@@ -76,7 +78,7 @@ class InputAwarePersistenceModel:
 
 
 @dataclass(frozen=True)
-class NonFiniteForecastModel:
+class NonFiniteDycoreModel:
     name: str = "nonfinite_forecast"
 
     def forecast(self, initial_state, lead_steps, step_seconds):
@@ -105,7 +107,7 @@ def test_evaluate_batch_scores_candidate_and_baselines(tmp_path):
         latitude_nodes=3,
         latitude_spacing="equiangular_with_poles",
     )
-    model = SpectralDycoreForecastModel(
+    model = SpectralDycoreModel(
         SpectralDycore(grid),
         name="candidate",
         jit_forecast=False,
@@ -258,7 +260,7 @@ def test_evaluate_batch_flags_unstable_forecasts(tmp_path):
 
     batch = build_weatherbench2_batch(source, case)
 
-    result = evaluate_batch(NonFiniteForecastModel(), batch)
+    result = evaluate_batch(NonFiniteDycoreModel(), batch)
 
     assert result.diagnostics.failed
     assert result.diagnostics.issues[0].code == "nonfinite_forecast"
@@ -275,7 +277,7 @@ def test_evaluation_result_writes_json_and_csv(tmp_path):
         latitude_nodes=3,
         latitude_spacing="equiangular_with_poles",
     )
-    model = SpectralDycoreForecastModel(
+    model = SpectralDycoreModel(
         SpectralDycore(grid),
         jit_forecast=False,
     )

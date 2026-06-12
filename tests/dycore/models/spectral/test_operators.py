@@ -2,8 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dynamaxx.dycore.grid import SphericalGrid
-from dynamaxx.dycore.operators import SpectralOperators
+from dynamaxx.dycore.models.spectral import SpectralOperators, SphericalGrid
 
 
 def test_laplacian_eigenvalues_match_spherical_harmonic_degrees():

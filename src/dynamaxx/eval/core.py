@@ -1,8 +1,8 @@
 # Copyright 2026 dynamaxx
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -39,7 +39,8 @@ class WeatherState:
     @property
     def spatial_shape(self) -> tuple[int, int]:
         """Return longitude-latitude shape."""
-        return tuple(self.values.shape[-2:])
+        longitude_count, latitude_count = self.values.shape[-2:]
+        return int(longitude_count), int(latitude_count)
 
     def variable_indices(self, variables: Sequence[str]) -> np.ndarray:
         """Return integer indices for variables in the current state."""
@@ -215,7 +216,7 @@ class ForecastInput:
     step_seconds: float
     initial_state: WeatherState
     forcing: WeatherState | None = None
-    static: Mapping[str, jax.Array] | None = None
+    static: Mapping[str, jax.Array] = field(default_factory=dict)
 
     def __post_init__(self):
         initial_times = np.asarray(self.initial_times, dtype="datetime64[ns]")
@@ -224,7 +225,7 @@ class ForecastInput:
         assert valid_times.shape == (initial_times.size, len(self.lead_steps))
         object.__setattr__(self, "initial_times", initial_times)
         object.__setattr__(self, "valid_times", valid_times)
-        object.__setattr__(self, "static", dict(self.static or {}))
+        object.__setattr__(self, "static", dict(self.static))
 
 
 @dataclass(frozen=True)
@@ -235,17 +236,3 @@ class EvalBatch:
     forecast_input: ForecastInput
     truth: WeatherState
     area_weights: jax.Array
-
-
-class ForecastModel(Protocol):
-    """Protocol for models that can forecast named weather states."""
-
-    name: str
-
-    def forecast(
-        self,
-        initial_state: jax.Array,
-        lead_steps: Sequence[int],
-        step_seconds: float,
-    ) -> jax.Array:
-        """Return forecast values shaped as (lead, init, variable, lon, lat)."""

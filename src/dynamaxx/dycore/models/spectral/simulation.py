@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 import jax
 import jax.numpy as jnp
 
-from dynamaxx.dycore.grid import SphericalGrid
 from dynamaxx.dycore.ode import integrate
-from dynamaxx.dycore.operators import SpectralOperators
+
+from .grid import SphericalGrid
+from .operators import SpectralOperators
 
 
 @dataclass(frozen=True)

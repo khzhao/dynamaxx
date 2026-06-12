@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dynamaxx.utils.math.spherical_harmonics import (
+from dynamaxx.dycore.models.spectral.math.spherical_harmonics import (
     RealSphericalHarmonics,
     get_latitude_nodes,
 )

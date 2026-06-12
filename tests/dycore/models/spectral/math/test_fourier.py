@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dynamaxx.utils.math.fourier import (
+from dynamaxx.dycore.models.spectral.math.fourier import (
     quadrature_nodes,
     real_basis,
     real_basis_derivative,

@@ -6,7 +6,9 @@ from functools import cached_property
 import jax
 import numpy as np
 
-from dynamaxx.utils.math.spherical_harmonics import RealSphericalHarmonics
+from dynamaxx.dycore.models.spectral.math.spherical_harmonics import (
+    RealSphericalHarmonics,
+)
 
 
 @dataclass(frozen=True)

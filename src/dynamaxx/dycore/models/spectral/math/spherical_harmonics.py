@@ -8,8 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import dynamaxx.utils.math.associated_legendre as associated_legendre
-import dynamaxx.utils.math.fourier as fourier
+from . import associated_legendre, fourier
 
 einsum = partial(jnp.einsum, precision=jax.lax.Precision.HIGHEST)
 

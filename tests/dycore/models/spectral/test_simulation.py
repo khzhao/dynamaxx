@@ -2,9 +2,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dynamaxx.dycore.grid import SphericalGrid
-from dynamaxx.dycore.operators import SpectralOperators
-from dynamaxx.dycore.simulation import SpectralDycore
+from dynamaxx.dycore.models.spectral import (
+    SpectralDycore,
+    SpectralOperators,
+    SphericalGrid,
+)
 
 
 def _test_grid() -> SphericalGrid:

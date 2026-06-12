@@ -97,20 +97,6 @@ def area_weighted_mean(values: jax.Array, area_weights: jax.Array) -> jax.Array:
     return jnp.sum(values * area_weights, axis=(-2, -1)) / jnp.sum(area_weights)
 
 
-def score_components(
-    forecast: jax.Array,
-    truth: jax.Array,
-    area_weights: jax.Array,
-) -> dict[str, jax.Array]:
-    """Compute area-weighted metric arrays with shape (lead, variable)."""
-    components = score_components_by_initial_time(forecast, truth, area_weights)
-    return {
-        "bias": jnp.mean(components["bias"], axis=1),
-        "mae": jnp.mean(components["mae"], axis=1),
-        "rmse": jnp.sqrt(jnp.mean(components["mse"], axis=1)),
-    }
-
-
 def score_components_by_initial_time(
     forecast: jax.Array,
     truth: jax.Array,
@@ -182,66 +168,6 @@ def totals_to_records(
             persistence_rmse_by_key.get((total.channel_name, total.lead_hours)),
         )
         for total in model_totals
-    )
-
-
-def score_forecast(
-    forecast: jax.Array,
-    truth: jax.Array,
-    area_weights: jax.Array,
-    *,
-    model_name: str,
-    variables: tuple[WeatherVariable, ...],
-    lead_hours: tuple[int, ...],
-    persistence_rmse: jax.Array | None = None,
-) -> tuple[MetricRecord, ...]:
-    """Return metric records for forecast arrays shaped (lead, init, var, lon, lat)."""
-    totals = score_totals(
-        forecast,
-        truth,
-        area_weights,
-        model_name=model_name,
-        variables=variables,
-        lead_hours=lead_hours,
-    )
-    if persistence_rmse is None:
-        return tuple(total.to_record(None) for total in totals)
-
-    persistence_rmse_values = np.asarray(persistence_rmse)
-    records = []
-    for total in totals:
-        lead_index = lead_hours.index(total.lead_hours)
-        variable_index = tuple(variable.channel_name for variable in variables).index(
-            total.channel_name,
-        )
-        records.append(
-            total.to_record(float(persistence_rmse_values[lead_index, variable_index]))
-        )
-    return tuple(records)
-
-
-def score_states(
-    forecast: WeatherState,
-    truth: WeatherState,
-    area_weights: jax.Array,
-    *,
-    model_name: str,
-    variables: tuple[WeatherVariable, ...],
-    lead_hours: tuple[int, ...],
-    persistence_rmse: jax.Array | None = None,
-) -> tuple[MetricRecord, ...]:
-    """Score named forecast and truth states with matching variable order."""
-    channel_names = tuple(variable.channel_name for variable in variables)
-    forecast = forecast.select(channel_names)
-    truth = truth.select(channel_names)
-    return score_forecast(
-        forecast.values,
-        truth.values,
-        area_weights,
-        model_name=model_name,
-        variables=variables,
-        lead_hours=lead_hours,
-        persistence_rmse=persistence_rmse,
     )
 
 

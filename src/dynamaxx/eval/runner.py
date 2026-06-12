@@ -10,8 +10,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
+from dynamaxx.dycore.api import DycoreModel
 from dynamaxx.eval.batch import build_weatherbench2_batch
-from dynamaxx.eval.core import EvalBatch, EvalCase, ForecastModel, WeatherState
+from dynamaxx.eval.core import EvalBatch, EvalCase, WeatherState
 from dynamaxx.eval.diagnostics import (
     ForecastDiagnostics,
     diagnose_forecast,
@@ -72,7 +73,7 @@ class EvaluationTotals:
     diagnostics: ForecastDiagnostics
 
 
-def evaluate_batch(model: ForecastModel, batch: EvalBatch) -> EvaluationResult:
+def evaluate_batch(model: DycoreModel, batch: EvalBatch) -> EvaluationResult:
     """Evaluate a model on a preloaded batch."""
     totals = evaluate_batch_totals(model, batch)
     records = totals_to_records(
@@ -95,7 +96,7 @@ def evaluate_batch(model: ForecastModel, batch: EvalBatch) -> EvaluationResult:
 
 
 def evaluate_batch_totals(
-    model: ForecastModel,
+    model: DycoreModel,
     batch: EvalBatch,
 ) -> EvaluationTotals:
     """Evaluate one batch and return chunk-combinable metric totals."""
@@ -141,7 +142,7 @@ def evaluate_batch_totals(
 
 
 def evaluate_case(
-    model: ForecastModel,
+    model: DycoreModel,
     source: WeatherBench2Source,
     case: EvalCase,
     *,

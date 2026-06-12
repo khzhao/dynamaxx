@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dynamaxx.dycore.grid import SphericalGrid
+from .grid import SphericalGrid
 
 
 @dataclass(frozen=True)

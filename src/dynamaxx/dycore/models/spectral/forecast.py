@@ -7,13 +7,14 @@ from functools import cached_property
 import jax
 import jax.numpy as jnp
 
-from dynamaxx.dycore.grid import SphericalGrid
-from dynamaxx.dycore.simulation import SpectralDycore
 from dynamaxx.utils.consts import EARTH_ANGULAR_VELOCITY
+
+from .grid import SphericalGrid
+from .simulation import SpectralDycore
 
 
 @dataclass(frozen=True)
-class SpectralDycoreForecastModel:
+class SpectralDycoreModel:
     """Forecast named nodal weather states with a modal-space SpectralDycore."""
 
     dycore: SpectralDycore
@@ -72,15 +73,15 @@ class SpectralDycoreForecastModel:
         return grid.modal_to_nodal(modal_trajectory)
 
 
-def default_spectral_dycore_forecast_model() -> SpectralDycoreForecastModel:
-    """Return the default spectral dycore forecast model for WeatherBench2 evals."""
+def default_spectral_dycore_model() -> SpectralDycoreModel:
+    """Return the default spectral dycore model for WeatherBench2 evals."""
     grid = SphericalGrid(
         total_wavenumbers=32,
         longitude_nodes=240,
         latitude_nodes=121,
         latitude_spacing="equiangular_with_poles",
     )
-    return SpectralDycoreForecastModel(
+    return SpectralDycoreModel(
         dycore=SpectralDycore(
             grid=grid,
             zonal_angular_velocity=EARTH_ANGULAR_VELOCITY,

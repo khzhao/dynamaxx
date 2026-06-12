@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from dynamaxx.utils.math.associated_legendre import (
+from dynamaxx.dycore.models.spectral.math.associated_legendre import (
     equiangular_nodes,
     equiangular_nodes_with_poles,
     evaluate,

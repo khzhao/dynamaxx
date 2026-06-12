@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from dynamaxx.dycore.grid import SphericalGrid
+from dynamaxx.dycore.models.spectral import SphericalGrid
 
 
 def test_spherical_grid_exposes_shapes_axes_and_weights():

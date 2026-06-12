@@ -5,14 +5,15 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 
-Tendency = Callable[[jax.Array, jax.Array], jax.Array]
+TimeValue = jax.Array | float
+Tendency = Callable[[jax.Array, TimeValue], jax.Array]
 
 
 def euler_step(
     tendency: Tendency,
     state: jax.Array,
-    time: jax.Array | float,
-    step_seconds: jax.Array | float,
+    time: TimeValue,
+    step_seconds: TimeValue,
 ) -> jax.Array:
     """Advance one explicit Euler step for dy/dt = tendency(y, t)."""
     return state + step_seconds * tendency(state, time)
@@ -21,8 +22,8 @@ def euler_step(
 def rk4_step(
     tendency: Tendency,
     state: jax.Array,
-    time: jax.Array | float,
-    step_seconds: jax.Array | float,
+    time: TimeValue,
+    step_seconds: TimeValue,
 ) -> jax.Array:
     """Advance one fourth-order Runge-Kutta step for dy/dt = tendency(y, t)."""
     half_step = 0.5 * step_seconds
@@ -38,8 +39,8 @@ def integrate(
     initial_state: jax.Array,
     *,
     steps: int,
-    step_seconds: jax.Array | float,
-    start_time: jax.Array | float = 0.0,
+    step_seconds: TimeValue,
+    start_time: TimeValue = 0.0,
     method: str = "rk4",
     include_initial: bool = True,
 ) -> jax.Array:

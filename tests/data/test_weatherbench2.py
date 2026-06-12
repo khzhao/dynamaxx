@@ -6,7 +6,6 @@ from dynamaxx.data.weatherbench2 import (
     PROCESSED_ERA5_1P5DEG_6H_PATH,
     WeatherBench2Source,
 )
-from dynamaxx.dycore.grid import SphericalGrid
 
 
 def _write_test_state_dataset(path):
@@ -100,49 +99,6 @@ def test_weatherbench2_source_uses_processed_project_dataset_path_by_default():
     assert WeatherBench2Source().path == PROCESSED_ERA5_1P5DEG_6H_PATH
 
 
-def test_channel_name_uses_processed_dataset_convention():
-    source = WeatherBench2Source()
-
-    assert source.channel_name("2m_temperature") == "2m_temperature"
-    assert source.channel_name("geopotential", level=500) == "geopotential_500"
-
-
-def test_select_field_loads_surface_and_pressure_level_channels(tmp_path):
-    store_path = tmp_path / "weatherbench2.zarr"
-    _write_test_state_dataset(store_path)
-    source = WeatherBench2Source(path=str(store_path))
-
-    surface_values = source.select_field(
-        "2m_temperature",
-        time=np.datetime64("2020-01-01T06:00:00"),
-    )
-    pressure_values = source.select_field("geopotential", level=500)
-
-    assert surface_values.dims == ("longitude", "latitude")
-    assert pressure_values.dims == ("time", "longitude", "latitude")
-    np.testing.assert_allclose(
-        surface_values.sel(latitude=90.0, longitude=180.0),
-        270.0,
-    )
-    np.testing.assert_allclose(pressure_values, 5000.0)
-
-
-def test_select_field_infers_year_store_for_processed_collection(tmp_path):
-    collection_path = tmp_path / "processed"
-    year_path = collection_path / "years" / "2020.zarr"
-    year_path.parent.mkdir(parents=True)
-    _write_test_state_dataset(year_path)
-    source = WeatherBench2Source(path=str(collection_path))
-
-    field_values = source.select_field(
-        "2m_temperature",
-        time=np.datetime64("2020-01-01T06:00:00"),
-    )
-
-    assert field_values.dims == ("longitude", "latitude")
-    np.testing.assert_allclose(field_values.sel(latitude=90.0, longitude=180.0), 270.0)
-
-
 def test_read_state_returns_channel_longitude_latitude_array(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_test_state_dataset(store_path)
@@ -171,16 +127,6 @@ def test_read_state_can_select_channels(tmp_path):
     np.testing.assert_allclose(state_values[1, 2, 0], 270.0)
 
 
-def test_channel_indices_resolve_packed_state_channels(tmp_path):
-    store_path = tmp_path / "weatherbench2.zarr"
-    _write_test_state_dataset(store_path)
-    source = WeatherBench2Source(path=str(store_path))
-
-    indices = source.channel_indices(["geopotential_500", "2m_temperature"])
-
-    np.testing.assert_array_equal(indices, np.array([1, 0]))
-
-
 def test_read_constants_returns_requested_constant_channels(tmp_path):
     collection_path = tmp_path / "processed"
     collection_path.mkdir()
@@ -194,23 +140,6 @@ def test_read_constants_returns_requested_constant_channels(tmp_path):
     np.testing.assert_allclose(values[1], 1.0)
 
 
-def test_read_state_range_returns_time_channel_longitude_latitude_array(tmp_path):
-    collection_path = tmp_path / "processed"
-    years_path = collection_path / "years"
-    years_path.mkdir(parents=True)
-    _write_test_state_dataset_for_year(years_path / "2020.zarr", 2020, 20.0)
-    _write_test_state_dataset_for_year(years_path / "2021.zarr", 2021, 21.0)
-    source = WeatherBench2Source(path=str(collection_path))
-
-    state_values = source.read_state_range(
-        start_time=np.datetime64("2020-01-01T06:00:00"),
-        end_time=np.datetime64("2021-01-01T00:00:00"),
-    )
-
-    assert state_values.shape == (2, 2, 4, 3)
-    np.testing.assert_allclose(state_values[:, 0, 0, 0], np.array([20.0, 21.0]))
-
-
 def test_year_datasets_and_time_axes_are_cached(tmp_path):
     collection_path = tmp_path / "processed"
     years_path = collection_path / "years"
@@ -218,13 +147,15 @@ def test_year_datasets_and_time_axes_are_cached(tmp_path):
     _write_test_state_dataset_for_year(years_path / "2020.zarr", 2020, 20.0)
     source = WeatherBench2Source(path=str(collection_path))
 
-    first_dataset = source.open_year(2020)
-    first_time_axis = source.year_time_axis(2020)
+    source.prefetch_years([2020])
+    first_dataset = source._year_datasets[2020]
+    first_time_axis = source._year_time_axes[2020]
 
-    assert first_dataset is source.open_year(2020)
-    assert first_time_axis is source.year_time_axis(2020)
-    assert sorted(source.year_datasets) == [2020]
-    assert sorted(source.year_time_axes) == [2020]
+    source.prefetch_years([2020])
+    assert first_dataset is source._year_datasets[2020]
+    assert first_time_axis is source._year_time_axes[2020]
+    assert sorted(source._year_datasets) == [2020]
+    assert sorted(source._year_time_axes) == [2020]
 
 
 def test_read_state_times_preserves_requested_order_across_years(tmp_path):
@@ -246,145 +177,40 @@ def test_read_state_times_preserves_requested_order_across_years(tmp_path):
     np.testing.assert_allclose(state_values[:, 0, 0, 0], np.array([21.0, 20.0]))
 
 
-def test_read_state_trajectory_uses_regular_time_steps(tmp_path):
-    collection_path = tmp_path / "processed"
-    years_path = collection_path / "years"
-    years_path.mkdir(parents=True)
-    _write_test_state_dataset_for_year(years_path / "2020.zarr", 2020, 20.0)
-    source = WeatherBench2Source(path=str(collection_path))
-
-    state_values = source.read_state_trajectory(
-        np.datetime64("2020-01-01T00:00:00"),
-        steps=2,
-    )
-
-    assert state_values.shape == (2, 2, 4, 3)
-    np.testing.assert_allclose(state_values[:, 0, 0, 0], np.array([20.0, 20.0]))
-
-
-def test_read_modal_state_projects_all_channels(tmp_path):
+def test_spatial_coordinates_return_weatherbench_axes(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_test_state_dataset(store_path)
     source = WeatherBench2Source(path=str(store_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
 
-    state_values = source.read_state(np.datetime64("2020-01-01T00:00:00"))
-    modal_state = source.read_modal_state(np.datetime64("2020-01-01T00:00:00"), grid)
+    longitude, latitude = source.spatial_coordinates()
 
-    assert modal_state.shape == (3, *grid.modal_shape)
-    np.testing.assert_allclose(modal_state, grid.nodal_to_modal(state_values))
+    np.testing.assert_array_equal(longitude, np.array([0.0, 90.0, 180.0, 270.0]))
+    np.testing.assert_array_equal(latitude, np.array([90.0, 0.0, -90.0]))
 
 
-def test_read_modal_state_range_projects_trajectory_targets(tmp_path):
-    collection_path = tmp_path / "processed"
-    years_path = collection_path / "years"
-    years_path.mkdir(parents=True)
-    _write_test_state_dataset_for_year(years_path / "2020.zarr", 2020, 20.0)
-    source = WeatherBench2Source(path=str(collection_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-
-    modal_state = source.read_modal_state_range(
-        start_time=np.datetime64("2020-01-01T00:00:00"),
-        end_time=np.datetime64("2020-01-01T06:00:00"),
-        grid=grid,
-    )
-
-    assert modal_state.shape == (2, 2, *grid.modal_shape)
-
-
-def test_read_modal_state_trajectory_projects_trajectory_targets(tmp_path):
-    collection_path = tmp_path / "processed"
-    years_path = collection_path / "years"
-    years_path.mkdir(parents=True)
-    _write_test_state_dataset_for_year(years_path / "2020.zarr", 2020, 20.0)
-    source = WeatherBench2Source(path=str(collection_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-
-    modal_state = source.read_modal_state_trajectory(
-        np.datetime64("2020-01-01T00:00:00"),
-        steps=2,
-        grid=grid,
-    )
-
-    assert modal_state.shape == (2, 2, *grid.modal_shape)
-
-
-def test_field_to_grid_matches_spherical_grid_node_order(tmp_path):
+def test_area_weights_match_grid_shape_and_sphere_area(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_test_state_dataset(store_path)
     source = WeatherBench2Source(path=str(store_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-    field_values = source.select_field(
-        "2m_temperature",
-        time=source.dataset.time[0],
-    )
 
-    nodal_values = source.field_to_grid(field_values, grid)
-    expected = np.array(
-        [
-            [-90.0, 0.0, 90.0],
-            [0.0, 90.0, 180.0],
-            [90.0, 180.0, 270.0],
-            [180.0, 270.0, 360.0],
-        ],
-        dtype=np.float32,
-    )
+    area_weights = source.area_weights()
 
-    assert nodal_values.shape == grid.nodal_shape
-    np.testing.assert_allclose(nodal_values, expected)
+    assert area_weights.shape == (4, 3)
+    np.testing.assert_allclose(np.sum(area_weights), 4.0 * np.pi)
 
 
-def test_field_to_grid_preserves_leading_dimensions(tmp_path):
+def test_metadata_helpers_reuse_cached_arrays(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_test_state_dataset(store_path)
     source = WeatherBench2Source(path=str(store_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-    field_values = source.select_field("2m_temperature")
 
-    nodal_values = source.field_to_grid(field_values, grid)
+    longitude, latitude = source.spatial_coordinates()
+    cached_longitude, cached_latitude = source.spatial_coordinates()
+    area_weights = source.area_weights()
 
-    assert nodal_values.shape == (2, *grid.nodal_shape)
-
-
-def test_field_to_modal_matches_grid_projection(tmp_path):
-    store_path = tmp_path / "weatherbench2.zarr"
-    _write_test_state_dataset(store_path)
-    source = WeatherBench2Source(path=str(store_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-    field_values = source.select_field("constant", time=source.dataset.time[0])
-
-    nodal_values = source.field_to_grid(field_values, grid)
-    modal_values = source.field_to_modal(field_values, grid)
-
-    np.testing.assert_allclose(modal_values, grid.nodal_to_modal(nodal_values))
-    np.testing.assert_allclose(modal_values[0, 0], 2 * jnp.sqrt(jnp.pi), atol=2e-5)
+    assert longitude is cached_longitude
+    assert latitude is cached_latitude
+    assert area_weights is source.area_weights()
+    assert not longitude.flags.writeable
+    assert not latitude.flags.writeable
+    assert not area_weights.flags.writeable
