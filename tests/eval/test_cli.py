@@ -35,7 +35,7 @@ def test_eval_cli_uses_default_model(monkeypatch):
     assert cli.main(["fast"]) == 0
     assert call == {
         "protocol": "fast",
-        "model_name": "spectral_dycore",
+        "model_name": "persistence",
     }
 
 

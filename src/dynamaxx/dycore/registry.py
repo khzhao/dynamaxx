@@ -7,17 +7,15 @@ from dynamaxx.dycore.api import DycoreModel
 DycoreModelFactory = Callable[[], DycoreModel]
 
 
-def spectral_dycore_model() -> DycoreModel:
-    """Return the default spectral dycore model."""
-    from dynamaxx.dycore.models.spectral import (
-        default_spectral_dycore_model,
-    )
+def persistence_model() -> DycoreModel:
+    """Return the default persistence dycore model."""
+    from dynamaxx.dycore.models.persistence import default_persistence_dycore_model
 
-    return default_spectral_dycore_model()
+    return default_persistence_dycore_model()
 
 
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
-    "spectral_dycore": spectral_dycore_model,
+    "persistence": persistence_model,
 }
 
 

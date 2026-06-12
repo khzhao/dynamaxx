@@ -5,11 +5,7 @@ import numpy as np
 import xarray as xr
 
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
-from dynamaxx.dycore.models.spectral import (
-    SpectralDycore,
-    SpectralDycoreModel,
-    SphericalGrid,
-)
+from dynamaxx.dycore.models.persistence import PersistenceDycoreModel
 from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import (
     WeatherVariable,
@@ -97,18 +93,11 @@ def _record_by_key(result):
     }
 
 
-def test_evaluate_batch_scores_candidate_and_baselines(tmp_path):
+def test_evaluate_batch_scores_candidate_and_persistence(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_constant_forecast_dataset(store_path)
     source = WeatherBench2Source(path=str(store_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-    model = SpectralDycoreModel(
-        SpectralDycore(grid),
+    model = PersistenceDycoreModel(
         name="candidate",
         jit_forecast=False,
     )
@@ -271,14 +260,7 @@ def test_evaluation_result_writes_json_and_csv(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_constant_forecast_dataset(store_path)
     source = WeatherBench2Source(path=str(store_path))
-    grid = SphericalGrid(
-        total_wavenumbers=2,
-        longitude_nodes=4,
-        latitude_nodes=3,
-        latitude_spacing="equiangular_with_poles",
-    )
-    model = SpectralDycoreModel(
-        SpectralDycore(grid),
+    model = PersistenceDycoreModel(
         jit_forecast=False,
     )
     variables = (WeatherVariable("2m_temperature"),)

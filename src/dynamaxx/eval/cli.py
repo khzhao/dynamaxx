@@ -29,7 +29,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=PROTOCOL_NAMES,
         help="fixed evaluation protocol",
     )
-    parser.add_argument("--model", default="spectral_dycore")
+    parser.add_argument("--model", default="persistence")
     return parser
 
 

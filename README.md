@@ -1,6 +1,6 @@
 # dynamaxx
 
-Spectral dycore utilities and fixed WeatherBench2 evaluation tools.
+Persistence dycore utilities and fixed WeatherBench2 evaluation tools.
 
 ## Quickstart
 

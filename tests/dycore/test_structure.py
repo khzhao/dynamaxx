@@ -33,19 +33,19 @@ def test_shared_utils_layer_contains_only_shared_modules():
     assert root_directories == set()
 
 
-def test_shared_dycore_implementation_is_not_spectral_specific():
-    spectral_terms = (
-        "Spectral",
-        "Spherical",
-        "laplacian",
-        "modal",
-        "nodal",
-        "spherical_harmonic",
-    )
+def test_shared_dycore_implementation_is_not_model_specific():
+    model_specific_terms = set()
+    for path in (DYCORE_SOURCE / "models").iterdir():
+        if path.name == "__pycache__":
+            continue
+        if path.is_dir():
+            model_specific_terms.add(path.name)
+        elif path.suffix == ".py" and path.stem != "__init__":
+            model_specific_terms.add(path.stem)
 
     for path in (DYCORE_SOURCE / "api.py", DYCORE_SOURCE / "ode.py"):
-        text = path.read_text(encoding="utf-8")
-        for term in spectral_terms:
+        text = path.read_text(encoding="utf-8").lower()
+        for term in model_specific_terms:
             assert term not in text, f"{path} contains model-specific term {term}"
 
 
