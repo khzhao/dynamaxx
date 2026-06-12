@@ -90,6 +90,15 @@ def daily_initial_times(start_date: str, end_date: str) -> np.ndarray:
     return start + np.arange(day_count).astype("timedelta64[D]")
 
 
+def cycled_daily_initial_times(start_date: str, end_date: str) -> np.ndarray:
+    """Return one six-hourly initialization time per day in a fixed hour cycle."""
+    days = daily_initial_times(start_date, end_date).astype("datetime64[ns]")
+    hour_offsets = (
+        np.arange(days.size) % (HOURS_PER_DAY // DEFAULT_STEP_HOURS)
+    ) * DEFAULT_STEP_HOURS
+    return days + hour_offsets.astype("timedelta64[h]")
+
+
 def fixed_case(
     name: str,
     initial_times: np.ndarray | list[str] | tuple[str, ...],
@@ -121,20 +130,35 @@ def fast_case() -> EvalCase:
 
 def train_case() -> EvalCase:
     """Return the multi-year tuning protocol for dycore development."""
-    return fixed_case(TRAIN_PROTOCOL, daily_initial_times("2010-01-01", "2018-12-31"))
+    return fixed_case(
+        TRAIN_PROTOCOL,
+        cycled_daily_initial_times(
+            "2010-01-01",
+            "2018-12-31",
+        ),
+    )
 
 
 def validation_case() -> EvalCase:
     """Return the held-out model-selection protocol."""
     return fixed_case(
         VALIDATION_PROTOCOL,
-        daily_initial_times("2019-01-01", "2019-12-31"),
+        cycled_daily_initial_times(
+            "2019-01-01",
+            "2019-12-31",
+        ),
     )
 
 
 def test_case() -> EvalCase:
     """Return the locked out-of-sample reporting protocol."""
-    return fixed_case(TEST_PROTOCOL, daily_initial_times("2020-01-01", "2020-12-31"))
+    return fixed_case(
+        TEST_PROTOCOL,
+        cycled_daily_initial_times(
+            "2020-01-01",
+            "2020-12-31",
+        ),
+    )
 
 
 PROTOCOL_FACTORIES: dict[str, ProtocolFactory] = {

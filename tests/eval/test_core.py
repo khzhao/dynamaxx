@@ -9,6 +9,7 @@ from dynamaxx.eval.protocols import (
     DEFAULT_LEAD_DAYS,
     PROTOCOL_FACTORIES,
     create_case,
+    cycled_daily_initial_times,
     daily_initial_times,
     fast_case,
     fixed_case,
@@ -48,12 +49,31 @@ def test_fixed_protocols_match_tuning_validation_test_split():
     validation = validation_case()
     test = oos_case()
 
-    assert train.initial_times[0] == np.datetime64("2010-01-01")
-    assert train.initial_times[-1] == np.datetime64("2018-12-31")
-    assert validation.initial_times[0] == np.datetime64("2019-01-01")
-    assert validation.initial_times[-1] == np.datetime64("2019-12-31")
-    assert test.initial_times[0] == np.datetime64("2020-01-01")
-    assert test.initial_times[-1] == np.datetime64("2020-12-31")
+    assert train.initial_times.astype("datetime64[D]")[0] == np.datetime64(
+        "2010-01-01"
+    )
+    assert train.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
+        "2018-12-31"
+    )
+    assert validation.initial_times.astype("datetime64[D]")[0] == np.datetime64(
+        "2019-01-01"
+    )
+    assert validation.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
+        "2019-12-31"
+    )
+    assert test.initial_times.astype("datetime64[D]")[0] == np.datetime64(
+        "2020-01-01"
+    )
+    assert test.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
+        "2020-12-31"
+    )
+    expected_hours = np.array([0, 6, 12, 18, 0, 6, 12, 18])
+    np.testing.assert_array_equal(_initial_hours(train.initial_times[:8]), expected_hours)
+    np.testing.assert_array_equal(
+        _initial_hours(validation.initial_times[:8]),
+        expected_hours,
+    )
+    np.testing.assert_array_equal(_initial_hours(test.initial_times[:8]), expected_hours)
 
 
 def test_protocol_registry_contains_only_fixed_eval_protocols():
@@ -67,6 +87,29 @@ def test_daily_initial_times_returns_inclusive_range():
     np.testing.assert_array_equal(
         times,
         np.array(["2020-01-01", "2020-01-02", "2020-01-03"], dtype="datetime64[D]"),
+    )
+
+
+def test_cycled_daily_initial_times_uses_repeating_hour_cycle():
+    times = cycled_daily_initial_times("2020-01-01", "2020-01-06")
+
+    np.testing.assert_array_equal(
+        times.astype("datetime64[D]"),
+        np.array(
+            [
+                "2020-01-01",
+                "2020-01-02",
+                "2020-01-03",
+                "2020-01-04",
+                "2020-01-05",
+                "2020-01-06",
+            ],
+            dtype="datetime64[D]",
+        ),
+    )
+    np.testing.assert_array_equal(
+        _initial_hours(times),
+        np.array([0, 6, 12, 18, 0, 6]),
     )
 
 
@@ -93,6 +136,12 @@ def test_fixed_case_derives_valid_times():
             dtype="datetime64[ns]",
         ),
     )
+
+
+def _initial_hours(initial_times: np.ndarray) -> np.ndarray:
+    dates = initial_times.astype("datetime64[D]").astype("datetime64[ns]")
+    hours = (initial_times - dates) / np.timedelta64(1, "h")
+    return hours.astype(np.int64)
 
 
 def test_fixed_case_separates_variable_groups():
