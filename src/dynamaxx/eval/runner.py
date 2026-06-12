@@ -99,7 +99,13 @@ def evaluate_batch_totals(
     batch: EvalBatch,
 ) -> EvaluationTotals:
     """Evaluate one batch and return chunk-combinable metric totals."""
-    forecast = model.forecast(batch.forecast_input)
+    forecast = batch.forecast_input.initial_state.with_values(
+        model.forecast(
+            batch.forecast_input.initial_state.values,
+            batch.forecast_input.lead_steps,
+            batch.forecast_input.step_seconds,
+        ),
+    )
     forecast_diagnostics = diagnose_forecast(forecast.values)
     forecast_targets = forecast.select(batch.case.target_channel_names)
     truth_targets = batch.truth.select(batch.case.target_channel_names)

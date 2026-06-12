@@ -1,5 +1,6 @@
 # Copyright 2026 dynamaxx
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -8,13 +9,12 @@ import jax.numpy as jnp
 
 from dynamaxx.dycore.grid import SphericalGrid
 from dynamaxx.dycore.simulation import SpectralDycore
-from dynamaxx.eval.core import ForecastInput, WeatherState
 from dynamaxx.utils.consts import EARTH_ANGULAR_VELOCITY
 
 
 @dataclass(frozen=True)
 class SpectralDycoreForecastModel:
-    """ForecastModel adapter for the modal-space SpectralDycore."""
+    """Forecast named nodal weather states with a modal-space SpectralDycore."""
 
     dycore: SpectralDycore
     name: str = "spectral_dycore"
@@ -31,28 +31,45 @@ class SpectralDycoreForecastModel:
             static_argnames=("steps", "method", "include_initial"),
         )
 
-    def forecast(self, forecast_input: ForecastInput) -> WeatherState:
-        """Run the spectral dycore and return lead times in nodal space."""
-        grid = self.dycore.grid
-        assert forecast_input.initial_state.spatial_shape == grid.nodal_shape
+    def forecast(
+        self,
+        initial_state: jax.Array,
+        lead_steps: Sequence[int],
+        step_seconds: float,
+    ) -> jax.Array:
+        """Return weather states at requested lead steps.
 
-        initial_modal_state = grid.nodal_to_modal(forecast_input.initial_state.values)
+        Args:
+            initial_state: Current weather state with shape
+                (init, variable, longitude, latitude).
+            lead_steps: Positive or zero integer lead steps to return.
+            step_seconds: Time step in seconds for one dycore transition.
+
+        Returns:
+            Forecast values with shape
+            (lead, init, variable, longitude, latitude).
+        """
+        grid = self.dycore.grid
+        lead_steps = tuple(int(lead_step) for lead_step in lead_steps)
+        assert lead_steps
+        assert all(lead_step >= 0 for lead_step in lead_steps)
+        initial_state = jnp.asarray(initial_state)
+        assert initial_state.shape[-2:] == grid.nodal_shape
+
+        initial_modal_state = grid.nodal_to_modal(initial_state)
         modal_trajectory = self.simulate_forecast(
             initial_modal_state,
-            steps=max(forecast_input.lead_steps),
-            step_seconds=forecast_input.step_seconds,
+            steps=max(lead_steps),
+            step_seconds=step_seconds,
             method=self.method,
             include_initial=True,
         )
         modal_trajectory = jnp.take(
             modal_trajectory,
-            jnp.asarray(forecast_input.lead_steps, dtype=jnp.int32),
+            jnp.asarray(lead_steps, dtype=jnp.int32),
             axis=0,
         )
-        return WeatherState(
-            values=grid.modal_to_nodal(modal_trajectory),
-            variables=forecast_input.initial_state.variables,
-        )
+        return grid.modal_to_nodal(modal_trajectory)
 
 
 def default_spectral_dycore_forecast_model() -> SpectralDycoreForecastModel:

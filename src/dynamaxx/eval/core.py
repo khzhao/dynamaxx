@@ -242,5 +242,10 @@ class ForecastModel(Protocol):
 
     name: str
 
-    def forecast(self, forecast_input: ForecastInput) -> WeatherState:
-        """Return a trajectory shaped as (lead, init, variable, lon, lat)."""
+    def forecast(
+        self,
+        initial_state: jax.Array,
+        lead_steps: Sequence[int],
+        step_seconds: float,
+    ) -> jax.Array:
+        """Return forecast values shaped as (lead, init, variable, lon, lat)."""

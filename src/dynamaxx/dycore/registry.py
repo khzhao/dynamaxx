@@ -2,12 +2,10 @@
 
 from collections.abc import Callable
 
-from dynamaxx.eval.core import ForecastModel
-
-ForecastModelFactory = Callable[[], ForecastModel]
+ForecastModelFactory = Callable[[], object]
 
 
-def spectral_dycore_forecast_model() -> ForecastModel:
+def spectral_dycore_forecast_model() -> object:
     """Return the default spectral dycore forecast model."""
     from dynamaxx.dycore.forecast import default_spectral_dycore_forecast_model
 
@@ -24,7 +22,7 @@ def forecast_model_names() -> tuple[str, ...]:
     return tuple(FORECAST_MODEL_FACTORIES)
 
 
-def create_forecast_model(name: str) -> ForecastModel:
+def create_forecast_model(name: str) -> object:
     """Create a registered dycore forecast model by name."""
     assert name in FORECAST_MODEL_FACTORIES, f"unknown forecast model {name}"
     return FORECAST_MODEL_FACTORIES[name]()

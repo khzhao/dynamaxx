@@ -10,8 +10,6 @@ from dynamaxx.dycore.grid import SphericalGrid
 from dynamaxx.dycore.simulation import SpectralDycore
 from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import (
-    ForecastInput,
-    WeatherState,
     WeatherVariable,
 )
 from dynamaxx.eval.protocols import fixed_case
@@ -68,48 +66,26 @@ def _write_constant_forecast_dataset(path):
 class InputAwarePersistenceModel:
     name: str = "input_aware_persistence"
 
-    def forecast(self, forecast_input: ForecastInput) -> WeatherState:
-        assert forecast_input.forcing is not None
-        assert forecast_input.forcing.variables == ("10m_u_component_of_wind",)
-        assert forecast_input.forcing.values.shape == (
-            len(forecast_input.lead_steps),
-            forecast_input.initial_times.size,
-            1,
-            4,
-            3,
-        )
-        assert set(forecast_input.static) == {
-            "latitude",
-            "coriolis",
-            "area_weights",
-        }
-        assert forecast_input.static["latitude"].shape == (3,)
-        assert forecast_input.static["coriolis"].shape == (3,)
-        assert forecast_input.static["area_weights"].shape == (4, 3)
+    def forecast(self, initial_state, lead_steps, step_seconds):
+        del step_seconds
         target_shape = (
-            len(forecast_input.lead_steps),
-            *forecast_input.initial_state.values.shape,
+            len(lead_steps),
+            *initial_state.shape,
         )
-        return forecast_input.initial_state.with_values(
-            jnp.broadcast_to(
-                forecast_input.initial_state.values[jnp.newaxis],
-                target_shape,
-            )
-        )
+        return jnp.broadcast_to(initial_state[jnp.newaxis], target_shape)
 
 
 @dataclass(frozen=True)
 class NonFiniteForecastModel:
     name: str = "nonfinite_forecast"
 
-    def forecast(self, forecast_input: ForecastInput) -> WeatherState:
+    def forecast(self, initial_state, lead_steps, step_seconds):
+        del step_seconds
         target_shape = (
-            len(forecast_input.lead_steps),
-            *forecast_input.initial_state.values.shape,
+            len(lead_steps),
+            *initial_state.shape,
         )
-        return forecast_input.initial_state.with_values(
-            jnp.full(target_shape, jnp.inf),
-        )
+        return jnp.full(target_shape, jnp.inf)
 
 
 def _record_by_key(result):
@@ -239,6 +215,25 @@ def test_evaluate_batch_passes_forcing_and_static_variables(tmp_path):
     )
 
     batch = build_weatherbench2_batch(source, case)
+
+    forecast_input = batch.forecast_input
+    assert forecast_input.forcing is not None
+    assert forecast_input.forcing.variables == ("10m_u_component_of_wind",)
+    assert forecast_input.forcing.values.shape == (
+        len(forecast_input.lead_steps),
+        forecast_input.initial_times.size,
+        1,
+        4,
+        3,
+    )
+    assert set(forecast_input.static) == {
+        "latitude",
+        "coriolis",
+        "area_weights",
+    }
+    assert forecast_input.static["latitude"].shape == (3,)
+    assert forecast_input.static["coriolis"].shape == (3,)
+    assert forecast_input.static["area_weights"].shape == (4, 3)
 
     result = evaluate_batch(InputAwarePersistenceModel(), batch)
 
