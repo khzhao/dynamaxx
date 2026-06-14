@@ -12,3 +12,8 @@ For Python:
 
 For C++/Typescript:
 - You do the same as Python but for functions you name them in a `camelCase` fashion
+
+For dycore optimization:
+- Do not fit, train, calibrate, regress, or search parameter values against evaluation outputs.
+- Use `data/` and `eval/` only as fixed loading and scoring layers.
+- Improve `dycore/` through deterministic equation-level dynamics, closures, transport terms, and physically interpretable constants that can generalize beyond the checked protocol.

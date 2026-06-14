@@ -168,6 +168,29 @@ def test_evaluate_case_chunks_match_single_batch_result(tmp_path):
     )
 
 
+def test_build_weatherbench2_batch_packs_history_variables(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_constant_forecast_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+    temperature = WeatherVariable("2m_temperature")
+    case = fixed_case(
+        "unit",
+        ["2020-01-01T06:00:00"],
+        lead_days=(0.25,),
+        prognostic_variables=(temperature, temperature.with_history(6)),
+    )
+
+    batch = build_weatherbench2_batch(source, case)
+
+    assert batch.forecast_input.initial_state.variables == (
+        "2m_temperature",
+        "2m_temperature__minus_6h",
+    )
+    np.testing.assert_allclose(batch.forecast_input.initial_state.values[0, 0], 12.0)
+    np.testing.assert_allclose(batch.forecast_input.initial_state.values[0, 1], 10.0)
+    assert batch.case.target_channel_names == ("2m_temperature",)
+
+
 def test_case_chunks_preserve_case_contract():
     variables = (WeatherVariable("2m_temperature"),)
     case = fixed_case(

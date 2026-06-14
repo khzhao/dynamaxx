@@ -77,18 +77,39 @@ class WeatherVariable:
     level: int | None = None
     title: str | None = None
     unit: str | None = None
+    history_hours: int = 0
+
+    def __post_init__(self):
+        assert self.history_hours >= 0
 
     @property
     def channel_name(self) -> str:
-        """Return the packed state channel name."""
+        """Return the WeatherBench2 source channel name."""
         if self.level is None:
             return self.variable
         return f"{self.variable}_{int(self.level)}"
 
     @property
+    def state_name(self) -> str:
+        """Return the packed model-state variable name."""
+        if self.history_hours == 0:
+            return self.channel_name
+        return f"{self.channel_name}__minus_{self.history_hours}h"
+
+    @property
     def label(self) -> str:
         """Return a readable stable label for metric tables."""
         return self.title or self.channel_name
+
+    def with_history(self, history_hours: int) -> "WeatherVariable":
+        """Return this source variable shifted into the past."""
+        return WeatherVariable(
+            variable=self.variable,
+            level=self.level,
+            title=self.title,
+            unit=self.unit,
+            history_hours=history_hours,
+        )
 
     def asdict(self) -> dict[str, Any]:
         """Return a JSON-serializable variable description."""
@@ -96,8 +117,10 @@ class WeatherVariable:
             "variable": self.variable,
             "level": self.level,
             "channel_name": self.channel_name,
+            "state_name": self.state_name,
             "title": self.title,
             "unit": self.unit,
+            "history_hours": self.history_hours,
         }
 
 
@@ -126,13 +149,11 @@ class EvalCase:
 
         prognostic_variables = tuple(self.prognostic_variables)
         target_variables = tuple(self.target_variables)
-        prognostic_channels = {
-            variable.channel_name for variable in prognostic_variables
-        }
+        prognostic_channels = {variable.state_name for variable in prognostic_variables}
         missing_targets = [
-            variable.channel_name
+            variable.state_name
             for variable in target_variables
-            if variable.channel_name not in prognostic_channels
+            if variable.state_name not in prognostic_channels
         ]
         assert not missing_targets, (
             f"target variables missing from prognostic variables {missing_targets}"
@@ -171,18 +192,33 @@ class EvalCase:
 
     @property
     def prognostic_channel_names(self) -> tuple[str, ...]:
-        """Return prognostic channel names in model input order."""
+        """Return prognostic source channel names in model input order."""
         return tuple(variable.channel_name for variable in self.prognostic_variables)
 
     @property
+    def prognostic_state_names(self) -> tuple[str, ...]:
+        """Return prognostic packed-state names in model input order."""
+        return tuple(variable.state_name for variable in self.prognostic_variables)
+
+    @property
     def target_channel_names(self) -> tuple[str, ...]:
-        """Return target channel names in scoring order."""
+        """Return target packed-state names in scoring order."""
+        return tuple(variable.state_name for variable in self.target_variables)
+
+    @property
+    def target_source_channel_names(self) -> tuple[str, ...]:
+        """Return target source channel names in scoring order."""
         return tuple(variable.channel_name for variable in self.target_variables)
 
     @property
     def forcing_channel_names(self) -> tuple[str, ...]:
-        """Return prescribed forcing channel names in input order."""
+        """Return prescribed forcing source channel names in input order."""
         return tuple(variable.channel_name for variable in self.forcing_variables)
+
+    @property
+    def forcing_state_names(self) -> tuple[str, ...]:
+        """Return prescribed forcing packed-state names in input order."""
+        return tuple(variable.state_name for variable in self.forcing_variables)
 
     def asdict(self) -> dict[str, Any]:
         """Return a JSON-serializable case description."""

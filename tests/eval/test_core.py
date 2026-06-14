@@ -6,7 +6,11 @@ from dynamaxx.eval.core import (
     WeatherVariable,
 )
 from dynamaxx.eval.protocols import (
+    DEFAULT_CURRENT_PROGNOSTIC_VARIABLES,
+    DEFAULT_HISTORY_HOURS,
     DEFAULT_LEAD_DAYS,
+    DEFAULT_PROGNOSTIC_VARIABLES,
+    DEFAULT_TARGET_VARIABLES,
     PROTOCOL_FACTORIES,
     create_case,
     cycled_daily_initial_times,
@@ -25,6 +29,9 @@ def test_weather_variable_channel_names_match_weatherbench_convention():
     assert WeatherVariable("geopotential", level=500).channel_name == (
         "geopotential_500"
     )
+    history_variable = WeatherVariable("geopotential", level=500).with_history(6)
+    assert history_variable.channel_name == "geopotential_500"
+    assert history_variable.state_name == "geopotential_500__minus_6h"
 
 
 def test_lead_days_to_steps_uses_step_hours():
@@ -33,6 +40,26 @@ def test_lead_days_to_steps_uses_step_hours():
 
 def test_default_lead_days_are_daily_through_day_15():
     assert DEFAULT_LEAD_DAYS == tuple(range(1, 16))
+
+
+def test_default_protocol_uses_richer_prognostic_state_than_targets():
+    case = fast_case()
+
+    assert case.prognostic_variables == DEFAULT_PROGNOSTIC_VARIABLES
+    assert case.target_variables == DEFAULT_TARGET_VARIABLES
+    assert len(case.prognostic_variables) == 2 * len(
+        DEFAULT_CURRENT_PROGNOSTIC_VARIABLES
+    )
+    assert case.prognostic_channel_names[:4] == case.target_channel_names
+    assert "v_component_of_wind_500" in case.prognostic_channel_names
+    assert "u_component_of_wind_850" in case.prognostic_channel_names
+    assert case.prognostic_state_names[:10] == tuple(
+        variable.channel_name for variable in DEFAULT_CURRENT_PROGNOSTIC_VARIABLES
+    )
+    assert case.prognostic_state_names[10:] == tuple(
+        f"{variable.channel_name}__minus_{DEFAULT_HISTORY_HOURS}h"
+        for variable in DEFAULT_CURRENT_PROGNOSTIC_VARIABLES
+    )
 
 
 def test_fixed_protocols_use_default_daily_leads():

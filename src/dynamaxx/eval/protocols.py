@@ -17,7 +17,7 @@ PROTOCOL_NAMES = (
     VALIDATION_PROTOCOL,
     TEST_PROTOCOL,
 )
-DEFAULT_VARIABLES = (
+DEFAULT_TARGET_VARIABLES = (
     WeatherVariable("2m_temperature", title="2 m temperature", unit="K"),
     WeatherVariable(
         "mean_sea_level_pressure",
@@ -36,6 +36,50 @@ DEFAULT_VARIABLES = (
         unit="m s-1",
     ),
 )
+DEFAULT_PROGNOSTIC_VARIABLES = DEFAULT_TARGET_VARIABLES + (
+    WeatherVariable(
+        "10m_v_component_of_wind",
+        title="10 m meridional wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "temperature",
+        level=850,
+        title="850 hPa temperature",
+        unit="K",
+    ),
+    WeatherVariable(
+        "u_component_of_wind",
+        level=500,
+        title="500 hPa zonal wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "v_component_of_wind",
+        level=500,
+        title="500 hPa meridional wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "u_component_of_wind",
+        level=850,
+        title="850 hPa zonal wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "v_component_of_wind",
+        level=850,
+        title="850 hPa meridional wind",
+        unit="m s-1",
+    ),
+)
+DEFAULT_HISTORY_HOURS = 6
+DEFAULT_CURRENT_PROGNOSTIC_VARIABLES = DEFAULT_PROGNOSTIC_VARIABLES
+DEFAULT_PROGNOSTIC_VARIABLES = DEFAULT_CURRENT_PROGNOSTIC_VARIABLES + tuple(
+    variable.with_history(DEFAULT_HISTORY_HOURS)
+    for variable in DEFAULT_CURRENT_PROGNOSTIC_VARIABLES
+)
+DEFAULT_VARIABLES = DEFAULT_TARGET_VARIABLES
 DEFAULT_LEAD_DAYS = tuple(range(1, 16))
 DEFAULT_STEP_HOURS = 6
 FAST_INITIAL_TIMES = (
@@ -105,19 +149,29 @@ def fixed_case(
     *,
     lead_days: tuple[int | float, ...] = DEFAULT_LEAD_DAYS,
     step_hours: int = DEFAULT_STEP_HOURS,
-    prognostic_variables: tuple[WeatherVariable, ...] = DEFAULT_VARIABLES,
+    prognostic_variables: tuple[WeatherVariable, ...] = DEFAULT_PROGNOSTIC_VARIABLES,
     target_variables: tuple[WeatherVariable, ...] | None = None,
     forcing_variables: tuple[WeatherVariable, ...] = (),
     static_variables: tuple[str, ...] = (),
 ) -> EvalCase:
     """Create one model-agnostic benchmark case."""
+    if target_variables is None:
+        target_variables = (
+            DEFAULT_TARGET_VARIABLES
+            if prognostic_variables == DEFAULT_PROGNOSTIC_VARIABLES
+            else tuple(
+                variable
+                for variable in prognostic_variables
+                if variable.history_hours == 0
+            )
+        )
     return EvalCase(
         name=name,
         initial_times=np.asarray(initial_times, dtype="datetime64[ns]"),
         lead_steps=lead_days_to_steps(lead_days, step_hours=step_hours),
         step_hours=step_hours,
         prognostic_variables=prognostic_variables,
-        target_variables=target_variables or prognostic_variables,
+        target_variables=target_variables,
         forcing_variables=forcing_variables,
         static_variables=static_variables,
     )

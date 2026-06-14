@@ -18,15 +18,11 @@ def build_weatherbench2_batch(
     dtype: Any = jnp.float32,
 ) -> EvalBatch:
     """Load one model-agnostic evaluation batch from WeatherBench2."""
-    initial_values = source.read_state_times(
-        case.initial_times,
-        channels=case.prognostic_channel_names,
-        dtype=dtype,
-    )
+    initial_values = _read_initial_state(source, case, dtype=dtype)
     truth_values = _read_valid_times(
         source,
         case,
-        channels=case.target_channel_names,
+        channels=case.target_source_channel_names,
         dtype=dtype,
     )
     forcing = None
@@ -38,7 +34,7 @@ def build_weatherbench2_batch(
                 channels=case.forcing_channel_names,
                 dtype=dtype,
             ),
-            variables=case.forcing_channel_names,
+            variables=case.forcing_state_names,
         )
 
     forecast_input = ForecastInput(
@@ -49,7 +45,7 @@ def build_weatherbench2_batch(
         step_seconds=case.step_seconds,
         initial_state=WeatherState(
             values=initial_values,
-            variables=case.prognostic_channel_names,
+            variables=case.prognostic_state_names,
         ),
         forcing=forcing,
         static=_read_static_variables(source, case, dtype=dtype),
@@ -66,6 +62,35 @@ def build_weatherbench2_batch(
             dtype=dtype,
         ),
     )
+
+
+def _read_initial_state(
+    source: WeatherBench2Source,
+    case: EvalCase,
+    *,
+    dtype: Any,
+) -> jax.Array:
+    arrays_by_position: list[jax.Array | None] = [None] * len(case.prognostic_variables)
+    history_hours = tuple(
+        dict.fromkeys(variable.history_hours for variable in case.prognostic_variables)
+    )
+    for hours in history_hours:
+        positions = [
+            index
+            for index, variable in enumerate(case.prognostic_variables)
+            if variable.history_hours == hours
+        ]
+        channels = tuple(
+            case.prognostic_variables[position].channel_name for position in positions
+        )
+        times = case.initial_times - np.timedelta64(int(hours), "h")
+        values = source.read_state_times(times, channels=channels, dtype=dtype)
+        for group_index, position in enumerate(positions):
+            arrays_by_position[position] = values[:, group_index : group_index + 1]
+
+    arrays = tuple(array for array in arrays_by_position if array is not None)
+    assert len(arrays) == len(arrays_by_position)
+    return jnp.concatenate(arrays, axis=1)
 
 
 def _read_valid_times(

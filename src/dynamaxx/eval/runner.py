@@ -38,16 +38,23 @@ class EvaluationResult:
 
     @property
     def primary_score(self) -> float:
-        """Return mean candidate skill against persistence across all records."""
+        """Return mean RMSE and spatial-structure skill against persistence."""
         if self.diagnostics.failed:
             return float("-inf")
 
-        skill_values = [
-            record.skill_vs_persistence
-            for record in self.records
-            if record.model_name == self.model_name
-            and record.skill_vs_persistence is not None
-        ]
+        skill_values = []
+        for record in self.records:
+            if (
+                record.model_name != self.model_name
+                or record.skill_vs_persistence is None
+            ):
+                continue
+            score = record.skill_vs_persistence
+            if record.structure_skill_vs_persistence is not None:
+                score += record.structure_skill_vs_persistence
+            if record.zonal_eddy_skill_vs_persistence is not None:
+                score += record.zonal_eddy_skill_vs_persistence
+            skill_values.append(score)
         if not skill_values:
             return float("nan")
         return float(np.mean(skill_values))

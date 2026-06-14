@@ -1,0 +1,39 @@
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from dynamaxx.dycore.models.thermal_inertia_geostrophic_advection import (
+    ThermalInertiaGeostrophicAdvectionDycoreModel,
+)
+
+
+def test_thermal_inertia_geostrophic_advection_keeps_temperature_channel_fixed():
+    model = ThermalInertiaGeostrophicAdvectionDycoreModel(jit_forecast=False)
+    initial_state = jnp.arange(1 * 20 * 8 * 5, dtype=jnp.float32).reshape((1, 20, 8, 5))
+
+    forecast = model.forecast(initial_state, (0, 1, 2), 21_600.0)
+
+    assert forecast.shape == (3, 1, 20, 8, 5)
+    expected_temperature = jnp.broadcast_to(
+        initial_state[jnp.newaxis, :, 0],
+        forecast[:, :, 0].shape,
+    )
+    np.testing.assert_allclose(forecast[:, :, 0], expected_temperature)
+
+
+def test_thermal_inertia_geostrophic_advection_forecast_works_inside_jit():
+    model = ThermalInertiaGeostrophicAdvectionDycoreModel()
+    initial_state = jnp.arange(2 * 20 * 6 * 5, dtype=jnp.float32).reshape((2, 20, 6, 5))
+
+    forecast = jax.jit(
+        lambda state: model.forecast(state, (1, 2), 21_600.0),
+    )(initial_state)
+
+    assert forecast.shape == (2, 2, 20, 6, 5)
+    assert jnp.isfinite(forecast).all()
+
+
+def test_thermal_inertia_geostrophic_advection_reuses_forecast_callable():
+    model = ThermalInertiaGeostrophicAdvectionDycoreModel()
+
+    assert model.forecast_function is model.forecast_function

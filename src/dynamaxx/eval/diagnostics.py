@@ -86,6 +86,14 @@ def diagnose_metric_records(records: tuple[Any, ...]) -> ForecastDiagnostics:
             record.mae,
             record.bias,
             record.skill_vs_persistence,
+            record.spatial_anomaly_correlation,
+            record.spatial_variance_ratio,
+            record.structure_score,
+            record.structure_skill_vs_persistence,
+            record.zonal_eddy_correlation,
+            record.zonal_eddy_variance_ratio,
+            record.zonal_eddy_score,
+            record.zonal_eddy_skill_vs_persistence,
         )
         nonfinite_count += sum(
             value is not None and not isfinite(value) for value in values
