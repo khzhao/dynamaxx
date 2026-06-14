@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "jax[cuda13]>=0.10.1",
+    "matplotlib>=3.11.0",
     "numpy>=2.4.6",
     "s3fs>=2026.4.0",
     "xarray>=2026.4.0",
