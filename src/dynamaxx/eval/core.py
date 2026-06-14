@@ -3,11 +3,10 @@
 from dataclasses import dataclass
 from typing import Any
 
-import jax
 import numpy as np
 
 from dynamaxx.utils.consts import SECONDS_PER_HOUR
-from dynamaxx.weather import WeatherState
+from dynamaxx.weather import ForecastInput, WeatherState
 
 
 @dataclass(frozen=True)
@@ -107,27 +106,10 @@ class EvalCase:
 
 
 @dataclass(frozen=True)
-class ForecastInput:
-    """Dynamic initial conditions and lead metadata for one forecast."""
-
-    lead_steps: tuple[int, ...]
-    step_seconds: float
-    initial_state: WeatherState
-
-    def __post_init__(self):
-        assert self.lead_steps
-        object.__setattr__(
-            self,
-            "lead_steps",
-            tuple(int(lead_step) for lead_step in self.lead_steps),
-        )
-
-
-@dataclass(frozen=True)
 class EvalBatch:
     """Model input plus held-out target truth for scoring."""
 
     case: EvalCase
     forecast_input: ForecastInput
     truth: WeatherState
-    area_weights: jax.Array
+    area_weights: Any

@@ -1,6 +1,5 @@
 # Copyright 2026 dynamaxx
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -8,7 +7,7 @@ import jax
 import jax.numpy as jnp
 
 from dynamaxx.dycore.ode import TimeValue, integrate
-from dynamaxx.weather import WeatherState
+from dynamaxx.weather import ForecastInput, WeatherState
 
 
 def tendency(state: jax.Array, time: TimeValue) -> jax.Array:
@@ -59,19 +58,18 @@ class PersistenceDycoreModel:
 
     def forecast(
         self,
-        initial_state: WeatherState,
-        lead_steps: Sequence[int],
-        step_seconds: float,
+        forecast_input: ForecastInput,
     ) -> WeatherState:
         """Return a persistence forecast for the provided weather state."""
-        lead_steps = tuple(int(lead_step) for lead_step in lead_steps)
+        initial_state = forecast_input.initial_state
+        lead_steps = forecast_input.lead_steps
         assert lead_steps
         assert all(lead_step >= 0 for lead_step in lead_steps)
 
         trajectory = self.simulate(
             jnp.asarray(initial_state.values),
             steps=max(lead_steps),
-            step_seconds=step_seconds,
+            step_seconds=forecast_input.step_seconds,
             method=self.method,
             include_initial=True,
         )

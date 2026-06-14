@@ -64,11 +64,11 @@ def _write_constant_forecast_dataset(path):
 class InputAwarePersistenceModel:
     name: str = "input_aware_persistence"
 
-    def forecast(self, initial_state, lead_steps, step_seconds):
-        del step_seconds
+    def forecast(self, forecast_input):
+        initial_state = forecast_input.initial_state
         initial_values = initial_state.values
         target_shape = (
-            len(lead_steps),
+            len(forecast_input.lead_steps),
             *initial_values.shape,
         )
         forecast_values = jnp.broadcast_to(initial_values[jnp.newaxis], target_shape)
@@ -79,8 +79,8 @@ class InputAwarePersistenceModel:
 class TemperatureSelectingPersistenceModel:
     name: str = "temperature_selecting_persistence"
 
-    def forecast(self, initial_state, lead_steps, step_seconds):
-        del step_seconds
+    def forecast(self, forecast_input):
+        initial_state = forecast_input.initial_state
         assert initial_state.variables == (
             "2m_temperature",
             "mean_sea_level_pressure",
@@ -88,7 +88,7 @@ class TemperatureSelectingPersistenceModel:
         )
         selected_state = initial_state.select(("2m_temperature",))
         target_shape = (
-            len(lead_steps),
+            len(forecast_input.lead_steps),
             *selected_state.values.shape,
         )
         forecast_values = jnp.broadcast_to(
@@ -102,11 +102,11 @@ class TemperatureSelectingPersistenceModel:
 class NonFiniteDycoreModel:
     name: str = "nonfinite_forecast"
 
-    def forecast(self, initial_state, lead_steps, step_seconds):
-        del step_seconds
+    def forecast(self, forecast_input):
+        initial_state = forecast_input.initial_state
         initial_values = initial_state.values
         target_shape = (
-            len(lead_steps),
+            len(forecast_input.lead_steps),
             *initial_values.shape,
         )
         return initial_state.with_values(jnp.full(target_shape, jnp.inf))
@@ -240,6 +240,14 @@ def test_evaluate_batch_passes_full_initial_state(tmp_path):
         3,
         4,
         3,
+    )
+    np.testing.assert_allclose(
+        forecast_input.longitude,
+        np.array([0.0, 90.0, 180.0, 270.0]),
+    )
+    np.testing.assert_allclose(
+        forecast_input.latitude,
+        np.array([90.0, 0.0, -90.0]),
     )
 
     result = evaluate_batch(InputAwarePersistenceModel(), batch)

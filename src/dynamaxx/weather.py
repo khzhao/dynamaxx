@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -75,3 +76,85 @@ class WeatherState:
         """Rebuild a state from JAX PyTree components."""
         (values,) = children
         return cls(values=values, variables=variables)
+
+
+@dataclass(frozen=True)
+class ForecastInput:
+    """All shared forecast metadata and initial conditions for a model."""
+
+    initial_times: np.ndarray
+    valid_times: np.ndarray
+    lead_steps: tuple[int, ...]
+    lead_hours: tuple[int, ...]
+    step_seconds: float
+    longitude: np.ndarray
+    latitude: np.ndarray
+    initial_state: WeatherState
+
+    def __post_init__(self):
+        initial_times = np.asarray(self.initial_times, dtype="datetime64[ns]")
+        valid_times = np.asarray(self.valid_times, dtype="datetime64[ns]")
+        lead_steps = tuple(int(lead_step) for lead_step in self.lead_steps)
+        lead_hours = tuple(int(lead_hour) for lead_hour in self.lead_hours)
+        longitude = np.asarray(self.longitude, dtype=np.float64)
+        latitude = np.asarray(self.latitude, dtype=np.float64)
+        assert initial_times.ndim == 1
+        assert initial_times.size >= 1
+        assert self.initial_state.leading_shape == (initial_times.size,)
+        assert longitude.ndim == 1
+        assert latitude.ndim == 1
+        assert self.initial_state.spatial_shape == (longitude.size, latitude.size)
+        assert lead_steps
+        assert len(lead_hours) == len(lead_steps)
+        assert valid_times.shape == (initial_times.size, len(lead_steps))
+        longitude.setflags(write=False)
+        latitude.setflags(write=False)
+        object.__setattr__(self, "initial_times", initial_times)
+        object.__setattr__(self, "valid_times", valid_times)
+        object.__setattr__(self, "lead_steps", lead_steps)
+        object.__setattr__(self, "lead_hours", lead_hours)
+        object.__setattr__(self, "longitude", longitude)
+        object.__setattr__(self, "latitude", latitude)
+
+    def with_initial_state(self, initial_state: WeatherState) -> "ForecastInput":
+        """Return an equivalent forecast input with a different initial state."""
+        return ForecastInput(
+            initial_times=self.initial_times,
+            valid_times=self.valid_times,
+            lead_steps=self.lead_steps,
+            lead_hours=self.lead_hours,
+            step_seconds=self.step_seconds,
+            longitude=self.longitude,
+            latitude=self.latitude,
+            initial_state=initial_state,
+        )
+
+    def slice_initial_time(self, initial_index: int) -> "ForecastInput":
+        """Return a single-initialization forecast input."""
+        initial_index = int(initial_index)
+        return ForecastInput(
+            initial_times=self.initial_times[initial_index : initial_index + 1],
+            valid_times=self.valid_times[initial_index : initial_index + 1],
+            lead_steps=self.lead_steps,
+            lead_hours=self.lead_hours,
+            step_seconds=self.step_seconds,
+            longitude=self.longitude,
+            latitude=self.latitude,
+            initial_state=WeatherState(
+                values=self.initial_state.values[initial_index : initial_index + 1],
+                variables=self.initial_state.variables,
+            ),
+        )
+
+    def asdict(self) -> dict[str, Any]:
+        """Return JSON-compatible forecast timing metadata."""
+        return {
+            "initial_times": [str(time) for time in self.initial_times],
+            "valid_times": [
+                [str(time) for time in valid_time_row]
+                for valid_time_row in self.valid_times
+            ],
+            "lead_steps": list(self.lead_steps),
+            "lead_hours": list(self.lead_hours),
+            "step_seconds": self.step_seconds,
+        }

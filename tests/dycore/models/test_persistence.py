@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from dynamaxx.dycore.models.persistence import PersistenceDycoreModel, tendency
-from dynamaxx.weather import WeatherState
+from dynamaxx.weather import ForecastInput, WeatherState
 
 
 def test_persistence_tendency_is_zero():
@@ -21,11 +21,7 @@ def test_persistence_forecast_returns_requested_leads_as_persistence():
         variables=("temperature",),
     )
 
-    forecast = model.forecast(
-        initial_state,
-        (0, 1, 3),
-        600.0,
-    )
+    forecast = model.forecast(_forecast_input(initial_state, lead_steps=(0, 1, 3)))
 
     assert forecast.variables == initial_state.variables
     assert forecast.values.shape == (3, 2, 1, 4, 3)
@@ -41,11 +37,7 @@ def test_persistence_forecast_preserves_named_weather_state():
         variables=("temperature", "pressure", "wind"),
     )
 
-    forecast = model.forecast(
-        initial_state,
-        (0, 2),
-        600.0,
-    )
+    forecast = model.forecast(_forecast_input(initial_state, lead_steps=(0, 2)))
 
     assert isinstance(forecast, WeatherState)
     assert forecast.variables == initial_state.variables
@@ -62,7 +54,7 @@ def test_persistence_forecast_works_inside_jit():
     )
 
     forecast = jax.jit(
-        lambda state: model.forecast(state, (1, 2), 600.0),
+        lambda state: model.forecast(_forecast_input(state, lead_steps=(1, 2))),
     )(initial_state)
 
     assert forecast.variables == initial_state.variables
@@ -74,3 +66,34 @@ def test_persistence_reuses_simulate_callable():
     model = PersistenceDycoreModel()
 
     assert model.simulate is model.simulate
+
+
+def _forecast_input(
+    initial_state: WeatherState,
+    *,
+    lead_steps: tuple[int, ...],
+    step_seconds: float = 3600.0,
+) -> ForecastInput:
+    initial_count = initial_state.leading_shape[0]
+    longitude_count, latitude_count = initial_state.spatial_shape
+    initial_times = (
+        np.datetime64("2020-01-01T00:00:00", "ns")
+        + np.arange(initial_count).astype("timedelta64[h]")
+    )
+    lead_hours = tuple(
+        int(round(lead_step * step_seconds / 3600.0)) for lead_step in lead_steps
+    )
+    valid_times = (
+        initial_times[:, np.newaxis]
+        + np.asarray(lead_hours, dtype="timedelta64[h]")[np.newaxis, :]
+    )
+    return ForecastInput(
+        initial_times=initial_times,
+        valid_times=valid_times,
+        lead_steps=lead_steps,
+        lead_hours=lead_hours,
+        step_seconds=step_seconds,
+        longitude=np.arange(longitude_count, dtype=np.float64),
+        latitude=np.linspace(90.0, -90.0, latitude_count),
+        initial_state=initial_state,
+    )

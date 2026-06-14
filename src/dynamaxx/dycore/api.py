@@ -1,9 +1,8 @@
 # Copyright 2026 dynamaxx
 
-from collections.abc import Sequence
 from typing import Protocol
 
-from dynamaxx.weather import WeatherState
+from dynamaxx.weather import ForecastInput, WeatherState
 
 
 class DycoreModel(Protocol):
@@ -15,8 +14,6 @@ class DycoreModel(Protocol):
 
     def forecast(
         self,
-        initial_state: WeatherState,
-        lead_steps: Sequence[int],
-        step_seconds: float,
+        forecast_input: ForecastInput,
     ) -> WeatherState:
         """Return a named forecast shaped as (lead, init, variable, lon, lat)."""

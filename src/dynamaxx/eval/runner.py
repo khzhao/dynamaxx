@@ -2,7 +2,6 @@
 
 import csv
 import json
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -25,6 +24,7 @@ from dynamaxx.eval.metrics import (
     score_state_totals,
     totals_to_records,
 )
+from dynamaxx.weather import ForecastInput
 
 
 class ForecastModel(Protocol):
@@ -36,9 +36,7 @@ class ForecastModel(Protocol):
 
     def forecast(
         self,
-        initial_state: WeatherState,
-        lead_steps: Sequence[int],
-        step_seconds: float,
+        forecast_input: ForecastInput,
     ) -> WeatherState:
         """Return a named forecast shaped as (lead, init, variable, lon, lat)."""
 
@@ -116,11 +114,7 @@ def evaluate_batch_totals(
     batch: EvalBatch,
 ) -> EvaluationTotals:
     """Evaluate one batch and return chunk-combinable metric totals."""
-    forecast = model.forecast(
-        batch.forecast_input.initial_state,
-        batch.forecast_input.lead_steps,
-        batch.forecast_input.step_seconds,
-    )
+    forecast = model.forecast(batch.forecast_input)
     forecast_diagnostics = diagnose_forecast(forecast.values)
     forecast_targets = forecast.select(batch.case.target_channel_names)
     truth_targets = batch.truth.select(batch.case.target_channel_names)

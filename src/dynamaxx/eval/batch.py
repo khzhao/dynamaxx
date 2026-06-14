@@ -28,10 +28,16 @@ def build_weatherbench2_batch(
         channels=case.target_channel_names,
         dtype=dtype,
     )
+    longitude, latitude = source.spatial_coordinates(time=case.initial_times[0])
 
     forecast_input = ForecastInput(
+        initial_times=case.initial_times,
+        valid_times=case.valid_times,
         lead_steps=case.lead_steps,
+        lead_hours=case.lead_hours,
         step_seconds=case.step_seconds,
+        longitude=longitude,
+        latitude=latitude,
         initial_state=WeatherState(
             values=initial_values,
             variables=initial_channel_names,
