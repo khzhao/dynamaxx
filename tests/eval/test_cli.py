@@ -1,6 +1,6 @@
 import pytest
 
-from dynamaxx.eval import cli
+from dynamaxx import cli
 
 
 def test_eval_cli_dispatches_fixed_protocol(monkeypatch):

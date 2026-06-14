@@ -54,6 +54,12 @@ class WeatherBench2Source:
         repr=False,
         compare=False,
     )
+    _state_channel_cache: dict[int | None, tuple[str, ...]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
     _constant_index_cache: dict[tuple[str, ...], np.ndarray] = field(
         default_factory=dict,
         init=False,
@@ -166,13 +172,13 @@ class WeatherBench2Source:
             return state_values if already_sorted else state_values[return_order]
 
         years = sorted_times.astype("datetime64[Y]").astype(np.int64) + 1970
-        channel_indices = (
-            self._channel_indices(channels, year=int(years[0])) if channels else None
-        )
         arrays = []
         for year in dict.fromkeys(years.tolist()):
             year_times = sorted_times[years == year]
             indices = self._time_indices(self._year_time_axis(year), year_times)
+            channel_indices = (
+                self._channel_indices(channels, year=int(year)) if channels else None
+            )
             arrays.append(
                 self._read_state_indices(
                     self._open_year(year),
@@ -185,6 +191,36 @@ class WeatherBench2Source:
             arrays[0] if len(arrays) == 1 else jnp.concatenate(arrays, axis=0)
         )
         return state_values if already_sorted else state_values[return_order]
+
+    def state_channel_names(
+        self,
+        *,
+        time: Any | None = None,
+        year: int | None = None,
+    ) -> tuple[str, ...]:
+        """Return packed state channel names in source order."""
+        if year is not None:
+            cache_key = int(year)
+        elif time is not None and self._is_collection:
+            cache_key = int(np.datetime64(time, "Y").astype(np.int64) + 1970)
+        else:
+            assert not self._is_collection, (
+                "collection metadata reads require time or year"
+            )
+            cache_key = None
+
+        channel_names = self._state_channel_cache.get(cache_key)
+        if channel_names is not None:
+            return channel_names
+
+        dataset = self._dataset if cache_key is None else self._open_year(cache_key)
+        assert CHANNEL_COORDINATE in dataset.coords
+        channel_names = tuple(
+            str(channel_name)
+            for channel_name in np.asarray(dataset[CHANNEL_COORDINATE].values)
+        )
+        self._state_channel_cache[cache_key] = channel_names
+        return channel_names
 
     def read_constants(
         self,

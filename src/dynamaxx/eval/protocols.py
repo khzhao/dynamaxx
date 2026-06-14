@@ -11,12 +11,6 @@ FAST_PROTOCOL = "fast"
 TRAIN_PROTOCOL = "train"
 VALIDATION_PROTOCOL = "validation"
 TEST_PROTOCOL = "test"
-PROTOCOL_NAMES = (
-    FAST_PROTOCOL,
-    TRAIN_PROTOCOL,
-    VALIDATION_PROTOCOL,
-    TEST_PROTOCOL,
-)
 DEFAULT_VARIABLES = (
     WeatherVariable("2m_temperature", title="2 m temperature", unit="K"),
     WeatherVariable(
@@ -105,10 +99,7 @@ def fixed_case(
     *,
     lead_days: tuple[int | float, ...] = DEFAULT_LEAD_DAYS,
     step_hours: int = DEFAULT_STEP_HOURS,
-    prognostic_variables: tuple[WeatherVariable, ...] = DEFAULT_VARIABLES,
-    target_variables: tuple[WeatherVariable, ...] | None = None,
-    forcing_variables: tuple[WeatherVariable, ...] = (),
-    static_variables: tuple[str, ...] = (),
+    target_variables: tuple[WeatherVariable, ...] = DEFAULT_VARIABLES,
 ) -> EvalCase:
     """Create one model-agnostic benchmark case."""
     return EvalCase(
@@ -116,10 +107,7 @@ def fixed_case(
         initial_times=np.asarray(initial_times, dtype="datetime64[ns]"),
         lead_steps=lead_days_to_steps(lead_days, step_hours=step_hours),
         step_hours=step_hours,
-        prognostic_variables=prognostic_variables,
-        target_variables=target_variables or prognostic_variables,
-        forcing_variables=forcing_variables,
-        static_variables=static_variables,
+        target_variables=target_variables,
     )
 
 
@@ -167,11 +155,6 @@ PROTOCOL_FACTORIES: dict[str, ProtocolFactory] = {
     VALIDATION_PROTOCOL: validation_case,
     TEST_PROTOCOL: test_case,
 }
-
-
-def protocol_names() -> tuple[str, ...]:
-    """Return supported fixed evaluation protocols."""
-    return PROTOCOL_NAMES
 
 
 def create_case(protocol: str) -> EvalCase:

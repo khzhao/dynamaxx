@@ -118,7 +118,6 @@ def test_fixed_case_derives_valid_times():
         "tiny",
         ["2020-01-01T00:00:00"],
         lead_days=(0, 0.25, 0.5),
-        prognostic_variables=(WeatherVariable("2m_temperature"),),
         target_variables=(WeatherVariable("2m_temperature"),),
     )
 
@@ -144,23 +143,16 @@ def _initial_hours(initial_times: np.ndarray) -> np.ndarray:
     return hours.astype(np.int64)
 
 
-def test_fixed_case_separates_variable_groups():
+def test_fixed_case_uses_target_variables_for_scoring():
     temperature = WeatherVariable("2m_temperature")
-    wind = WeatherVariable("10m_u_component_of_wind")
     case = fixed_case(
         "tiny",
         ["2020-01-01T00:00:00"],
         lead_days=(0.25,),
-        prognostic_variables=(temperature,),
         target_variables=(temperature,),
-        forcing_variables=(wind,),
-        static_variables=("latitude", "coriolis"),
     )
 
-    assert case.prognostic_channel_names == ("2m_temperature",)
     assert case.target_channel_names == ("2m_temperature",)
-    assert case.forcing_channel_names == ("10m_u_component_of_wind",)
-    assert case.static_variables == ("latitude", "coriolis")
 
 
 def test_weather_state_selects_variables_on_named_axis():

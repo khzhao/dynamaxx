@@ -71,6 +71,36 @@ def _write_test_state_dataset_for_year(path, year: int, value: float):
     dataset.to_zarr(path, mode="w")
 
 
+def _write_test_state_dataset_for_year_with_channels(
+    path,
+    year: int,
+    channels: tuple[str, ...],
+    channel_values: tuple[float, ...],
+):
+    time = np.array([f"{year}-01-01T00:00:00"], dtype="datetime64")
+    latitude = np.array([90.0, 0.0, -90.0])
+    longitude = np.array([0.0, 90.0, 180.0, 270.0])
+    values = np.zeros((time.size, len(channels), longitude.size, latitude.size))
+    for channel_index, channel_value in enumerate(channel_values):
+        values[:, channel_index] = channel_value
+
+    dataset = xr.Dataset(
+        {
+            "state": (
+                ("time", "channel", "longitude", "latitude"),
+                values,
+            ),
+        },
+        coords={
+            "time": time,
+            "channel": np.array(channels),
+            "latitude": latitude,
+            "longitude": longitude,
+        },
+    )
+    dataset.to_zarr(path, mode="w")
+
+
 def _write_test_constants_dataset(path):
     constant_channel = np.array(["land_sea_mask", "orography"])
     latitude = np.array([90.0, 0.0, -90.0])
@@ -127,6 +157,19 @@ def test_read_state_can_select_channels(tmp_path):
     np.testing.assert_allclose(state_values[1, 2, 0], 270.0)
 
 
+def test_state_channel_names_return_source_order(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_test_state_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+
+    assert source.state_channel_names() == (
+        "2m_temperature",
+        "geopotential_500",
+        "constant",
+    )
+    assert source.state_channel_names() is source.state_channel_names()
+
+
 def test_read_constants_returns_requested_constant_channels(tmp_path):
     collection_path = tmp_path / "processed"
     collection_path.mkdir()
@@ -175,6 +218,37 @@ def test_read_state_times_preserves_requested_order_across_years(tmp_path):
 
     assert state_values.shape == (2, 2, 4, 3)
     np.testing.assert_allclose(state_values[:, 0, 0, 0], np.array([21.0, 20.0]))
+
+
+def test_read_state_times_selects_channels_by_name_across_years(tmp_path):
+    collection_path = tmp_path / "processed"
+    years_path = collection_path / "years"
+    years_path.mkdir(parents=True)
+    _write_test_state_dataset_for_year_with_channels(
+        years_path / "2020.zarr",
+        2020,
+        ("2m_temperature", "constant"),
+        (20.0, 1.0),
+    )
+    _write_test_state_dataset_for_year_with_channels(
+        years_path / "2021.zarr",
+        2021,
+        ("constant", "2m_temperature"),
+        (1.0, 21.0),
+    )
+    source = WeatherBench2Source(path=str(collection_path))
+
+    state_values = source.read_state_times(
+        [
+            np.datetime64("2020-01-01T00:00:00"),
+            np.datetime64("2021-01-01T00:00:00"),
+        ],
+        channels=("2m_temperature", "constant"),
+    )
+
+    assert source.state_channel_names(year=2021) == ("constant", "2m_temperature")
+    np.testing.assert_allclose(state_values[:, 0, 0, 0], np.array([20.0, 21.0]))
+    np.testing.assert_allclose(state_values[:, 1, 0, 0], 1.0)
 
 
 def test_spatial_coordinates_return_weatherbench_axes(tmp_path):

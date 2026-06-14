@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-dynamaxx-eval = "dynamaxx.eval.cli:main"
+dynamaxx-eval = "dynamaxx.cli:main"
 
 [dependency-groups]
 dev = [

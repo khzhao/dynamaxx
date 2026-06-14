@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dynamaxx.utils.consts import WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 
-logger = logging.getLogger("dynamaxx.eval.cli")
+logger = logging.getLogger("dynamaxx.cli")
 OUTPUT_DIR = Path("outputs/eval")
 PROTOCOL_NAMES = ("fast", "train", "validation", "test")
 

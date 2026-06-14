@@ -2,15 +2,15 @@
 
 import csv
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import jax.numpy as jnp
 import numpy as np
 
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
-from dynamaxx.dycore.api import DycoreModel
 from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import EvalBatch, EvalCase, WeatherState
 from dynamaxx.eval.diagnostics import (
@@ -25,6 +25,22 @@ from dynamaxx.eval.metrics import (
     score_state_totals,
     totals_to_records,
 )
+
+
+class ForecastModel(Protocol):
+    """Forecast model interface required by evaluation."""
+
+    @property
+    def name(self) -> str:
+        """Stable model name used in metric outputs."""
+
+    def forecast(
+        self,
+        initial_state: WeatherState,
+        lead_steps: Sequence[int],
+        step_seconds: float,
+    ) -> WeatherState:
+        """Return a named forecast shaped as (lead, init, variable, lon, lat)."""
 
 
 @dataclass(frozen=True)
@@ -73,7 +89,7 @@ class EvaluationTotals:
     diagnostics: ForecastDiagnostics
 
 
-def evaluate_batch(model: DycoreModel, batch: EvalBatch) -> EvaluationResult:
+def evaluate_batch(model: ForecastModel, batch: EvalBatch) -> EvaluationResult:
     """Evaluate a model on a preloaded batch."""
     totals = evaluate_batch_totals(model, batch)
     records = totals_to_records(
@@ -96,16 +112,14 @@ def evaluate_batch(model: DycoreModel, batch: EvalBatch) -> EvaluationResult:
 
 
 def evaluate_batch_totals(
-    model: DycoreModel,
+    model: ForecastModel,
     batch: EvalBatch,
 ) -> EvaluationTotals:
     """Evaluate one batch and return chunk-combinable metric totals."""
-    forecast = batch.forecast_input.initial_state.with_values(
-        model.forecast(
-            batch.forecast_input.initial_state.values,
-            batch.forecast_input.lead_steps,
-            batch.forecast_input.step_seconds,
-        ),
+    forecast = model.forecast(
+        batch.forecast_input.initial_state,
+        batch.forecast_input.lead_steps,
+        batch.forecast_input.step_seconds,
     )
     forecast_diagnostics = diagnose_forecast(forecast.values)
     forecast_targets = forecast.select(batch.case.target_channel_names)
@@ -142,7 +156,7 @@ def evaluate_batch_totals(
 
 
 def evaluate_case(
-    model: DycoreModel,
+    model: ForecastModel,
     source: WeatherBench2Source,
     case: EvalCase,
     *,

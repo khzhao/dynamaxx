@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Protocol
 
-import jax
+from dynamaxx.weather import WeatherState
 
 
 class DycoreModel(Protocol):
@@ -15,8 +15,8 @@ class DycoreModel(Protocol):
 
     def forecast(
         self,
-        initial_state: jax.Array,
+        initial_state: WeatherState,
         lead_steps: Sequence[int],
         step_seconds: float,
-    ) -> jax.Array:
-        """Return forecast values shaped as (lead, init, variable, lon, lat)."""
+    ) -> WeatherState:
+        """Return a named forecast shaped as (lead, init, variable, lon, lat)."""

@@ -66,11 +66,36 @@ class InputAwarePersistenceModel:
 
     def forecast(self, initial_state, lead_steps, step_seconds):
         del step_seconds
+        initial_values = initial_state.values
         target_shape = (
             len(lead_steps),
-            *initial_state.shape,
+            *initial_values.shape,
         )
-        return jnp.broadcast_to(initial_state[jnp.newaxis], target_shape)
+        forecast_values = jnp.broadcast_to(initial_values[jnp.newaxis], target_shape)
+        return initial_state.with_values(forecast_values)
+
+
+@dataclass(frozen=True)
+class TemperatureSelectingPersistenceModel:
+    name: str = "temperature_selecting_persistence"
+
+    def forecast(self, initial_state, lead_steps, step_seconds):
+        del step_seconds
+        assert initial_state.variables == (
+            "2m_temperature",
+            "mean_sea_level_pressure",
+            "10m_u_component_of_wind",
+        )
+        selected_state = initial_state.select(("2m_temperature",))
+        target_shape = (
+            len(lead_steps),
+            *selected_state.values.shape,
+        )
+        forecast_values = jnp.broadcast_to(
+            selected_state.values[jnp.newaxis],
+            target_shape,
+        )
+        return selected_state.with_values(forecast_values)
 
 
 @dataclass(frozen=True)
@@ -79,11 +104,12 @@ class NonFiniteDycoreModel:
 
     def forecast(self, initial_state, lead_steps, step_seconds):
         del step_seconds
+        initial_values = initial_state.values
         target_shape = (
             len(lead_steps),
-            *initial_state.shape,
+            *initial_values.shape,
         )
-        return jnp.full(target_shape, jnp.inf)
+        return initial_state.with_values(jnp.full(target_shape, jnp.inf))
 
 
 def _record_by_key(result):
@@ -109,11 +135,16 @@ def test_evaluate_batch_scores_candidate_and_persistence(tmp_path):
         "unit",
         ["2020-01-01T00:00:00"],
         lead_days=(0.25, 0.5),
-        prognostic_variables=variables,
         target_variables=variables,
     )
 
     batch = build_weatherbench2_batch(source, case)
+
+    assert batch.forecast_input.initial_state.variables == (
+        "2m_temperature",
+        "mean_sea_level_pressure",
+        "10m_u_component_of_wind",
+    )
 
     result = evaluate_batch(model, batch)
 
@@ -137,15 +168,11 @@ def test_evaluate_case_chunks_match_single_batch_result(tmp_path):
     source = WeatherBench2Source(path=str(store_path))
     model = InputAwarePersistenceModel()
     temperature = WeatherVariable("2m_temperature")
-    wind = WeatherVariable("10m_u_component_of_wind")
     case = fixed_case(
         "unit",
         ["2020-01-01T00:00:00", "2020-01-01T00:00:00"],
         lead_days=(0.25, 0.5),
-        prognostic_variables=(temperature,),
         target_variables=(temperature,),
-        forcing_variables=(wind,),
-        static_variables=("latitude", "coriolis", "area_weights"),
     )
 
     single_batch_result = evaluate_batch(
@@ -178,7 +205,6 @@ def test_case_chunks_preserve_case_contract():
             "2020-01-03T00:00:00",
         ],
         lead_days=(1,),
-        prognostic_variables=variables,
         target_variables=variables,
     )
 
@@ -189,42 +215,32 @@ def test_case_chunks_preserve_case_contract():
     assert all(chunk.lead_steps == case.lead_steps for chunk in chunks)
 
 
-def test_evaluate_batch_passes_forcing_and_static_variables(tmp_path):
+def test_evaluate_batch_passes_full_initial_state(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_constant_forecast_dataset(store_path)
     source = WeatherBench2Source(path=str(store_path))
     temperature = WeatherVariable("2m_temperature")
-    wind = WeatherVariable("10m_u_component_of_wind")
     case = fixed_case(
         "unit",
         ["2020-01-01T00:00:00"],
         lead_days=(0.25, 0.5),
-        prognostic_variables=(temperature,),
         target_variables=(temperature,),
-        forcing_variables=(wind,),
-        static_variables=("latitude", "coriolis", "area_weights"),
     )
 
     batch = build_weatherbench2_batch(source, case)
 
     forecast_input = batch.forecast_input
-    assert forecast_input.forcing is not None
-    assert forecast_input.forcing.variables == ("10m_u_component_of_wind",)
-    assert forecast_input.forcing.values.shape == (
-        len(forecast_input.lead_steps),
-        forecast_input.initial_times.size,
-        1,
+    assert forecast_input.initial_state.variables == (
+        "2m_temperature",
+        "mean_sea_level_pressure",
+        "10m_u_component_of_wind",
+    )
+    assert forecast_input.initial_state.values.shape == (
+        case.initial_times.size,
+        3,
         4,
         3,
     )
-    assert set(forecast_input.static) == {
-        "latitude",
-        "coriolis",
-        "area_weights",
-    }
-    assert forecast_input.static["latitude"].shape == (3,)
-    assert forecast_input.static["coriolis"].shape == (3,)
-    assert forecast_input.static["area_weights"].shape == (4, 3)
 
     result = evaluate_batch(InputAwarePersistenceModel(), batch)
 
@@ -232,6 +248,30 @@ def test_evaluate_batch_passes_forcing_and_static_variables(tmp_path):
     assert records[("input_aware_persistence", "2m_temperature", 6)].rmse == 2.0
     assert not result.diagnostics.failed
     assert result.case.name == "unit"
+
+
+def test_evaluate_batch_allows_model_to_select_forecast_variables(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_constant_forecast_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+    temperature = WeatherVariable("2m_temperature")
+    case = fixed_case(
+        "unit",
+        ["2020-01-01T00:00:00"],
+        lead_days=(0.25, 0.5),
+        target_variables=(temperature,),
+    )
+    batch = build_weatherbench2_batch(source, case)
+
+    result = evaluate_batch(TemperatureSelectingPersistenceModel(), batch)
+
+    records = _record_by_key(result)
+    assert (
+        "temperature_selecting_persistence",
+        "2m_temperature",
+        6,
+    ) in records
+    assert not result.diagnostics.failed
 
 
 def test_evaluate_batch_flags_unstable_forecasts(tmp_path):
@@ -243,7 +283,6 @@ def test_evaluate_batch_flags_unstable_forecasts(tmp_path):
         "unit",
         ["2020-01-01T00:00:00"],
         lead_days=(0.25,),
-        prognostic_variables=variables,
         target_variables=variables,
     )
 
@@ -268,7 +307,6 @@ def test_evaluation_result_writes_json_and_csv(tmp_path):
         "unit",
         ["2020-01-01T00:00:00"],
         lead_days=(0.25,),
-        prognostic_variables=variables,
         target_variables=variables,
     )
     batch = build_weatherbench2_batch(source, case)

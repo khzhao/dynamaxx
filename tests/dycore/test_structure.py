@@ -62,3 +62,9 @@ def test_stable_layers_do_not_import_model_implementations():
             assert "dynamaxx.dycore.models" not in text, (
                 f"{path} imports a dycore model implementation"
             )
+
+
+def test_eval_does_not_import_dycore():
+    for path in (PROJECT_ROOT / "src" / "dynamaxx" / "eval").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        assert "dynamaxx.dycore" not in text, f"{path} imports dycore"
