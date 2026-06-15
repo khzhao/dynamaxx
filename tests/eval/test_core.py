@@ -13,9 +13,9 @@ from dynamaxx.eval.protocols import (
     daily_initial_times,
     fast_case,
     fixed_case,
+    golden_case,
+    iteration_case,
     lead_days_to_steps,
-    test_case as oos_case,
-    train_case,
     validation_case,
 )
 
@@ -39,20 +39,20 @@ def test_fixed_protocols_use_default_daily_leads():
     expected_steps = lead_days_to_steps(DEFAULT_LEAD_DAYS, step_hours=6)
 
     assert fast_case().lead_steps == expected_steps
-    assert train_case().lead_steps == expected_steps
+    assert iteration_case().lead_steps == expected_steps
     assert validation_case().lead_steps == expected_steps
-    assert oos_case().lead_steps == expected_steps
+    assert golden_case().lead_steps == expected_steps
 
 
-def test_fixed_protocols_match_tuning_validation_test_split():
-    train = train_case()
+def test_fixed_protocols_match_iteration_validation_golden_split():
+    iteration = iteration_case()
     validation = validation_case()
-    test = oos_case()
+    golden = golden_case()
 
-    assert train.initial_times.astype("datetime64[D]")[0] == np.datetime64(
-        "2010-01-01"
+    assert iteration.initial_times.astype("datetime64[D]")[0] == np.datetime64(
+        "2014-01-01"
     )
-    assert train.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
+    assert iteration.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
         "2018-12-31"
     )
     assert validation.initial_times.astype("datetime64[D]")[0] == np.datetime64(
@@ -61,23 +61,34 @@ def test_fixed_protocols_match_tuning_validation_test_split():
     assert validation.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
         "2019-12-31"
     )
-    assert test.initial_times.astype("datetime64[D]")[0] == np.datetime64(
+    assert golden.initial_times.astype("datetime64[D]")[0] == np.datetime64(
         "2020-01-01"
     )
-    assert test.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
+    assert golden.initial_times.astype("datetime64[D]")[-1] == np.datetime64(
         "2020-12-31"
     )
     expected_hours = np.array([0, 6, 12, 18, 0, 6, 12, 18])
-    np.testing.assert_array_equal(_initial_hours(train.initial_times[:8]), expected_hours)
+    np.testing.assert_array_equal(
+        _initial_hours(iteration.initial_times[:8]),
+        expected_hours,
+    )
     np.testing.assert_array_equal(
         _initial_hours(validation.initial_times[:8]),
         expected_hours,
     )
-    np.testing.assert_array_equal(_initial_hours(test.initial_times[:8]), expected_hours)
+    np.testing.assert_array_equal(
+        _initial_hours(golden.initial_times[:8]),
+        expected_hours,
+    )
 
 
 def test_protocol_registry_contains_only_fixed_eval_protocols():
-    assert tuple(PROTOCOL_FACTORIES) == ("fast", "train", "validation", "test")
+    assert tuple(PROTOCOL_FACTORIES) == (
+        "fast",
+        "iteration",
+        "validation",
+        "golden",
+    )
     assert create_case("validation").name == "validation"
 
 

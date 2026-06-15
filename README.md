@@ -24,11 +24,12 @@ processed 1.5-degree, 6-hourly ERA5 collection:
 s3://weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative/
 ```
 
-Run the held-out validation or test protocols:
+Run the fixed iteration, validation, or golden protocols:
 
 ```bash
+uv run dynamaxx-eval iteration
 uv run dynamaxx-eval validation
-uv run dynamaxx-eval test
+uv run dynamaxx-eval golden
 ```
 
 Real S3 integration tests are opt-in:

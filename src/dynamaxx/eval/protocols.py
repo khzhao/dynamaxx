@@ -8,9 +8,9 @@ from dynamaxx.eval.core import EvalCase, WeatherVariable
 from dynamaxx.utils.consts import HOURS_PER_DAY
 
 FAST_PROTOCOL = "fast"
-TRAIN_PROTOCOL = "train"
+ITERATION_PROTOCOL = "iteration"
 VALIDATION_PROTOCOL = "validation"
-TEST_PROTOCOL = "test"
+GOLDEN_PROTOCOL = "golden"
 DEFAULT_VARIABLES = (
     WeatherVariable("2m_temperature", title="2 m temperature", unit="K"),
     WeatherVariable(
@@ -52,9 +52,9 @@ PROTOCOL_CHUNK_INITIAL_TIMES = {
     FAST_PROTOCOL: len(FAST_INITIAL_TIMES),
     # Real-data protocols are chunked to bound JAX memory and WeatherBench2 IO
     # while still evaluating every initialization time in the fixed split.
-    TRAIN_PROTOCOL: 8,
+    ITERATION_PROTOCOL: 8,
     VALIDATION_PROTOCOL: 8,
-    TEST_PROTOCOL: 8,
+    GOLDEN_PROTOCOL: 8,
 }
 
 ProtocolFactory = Callable[[], EvalCase]
@@ -116,12 +116,12 @@ def fast_case() -> EvalCase:
     return fixed_case(FAST_PROTOCOL, FAST_INITIAL_TIMES)
 
 
-def train_case() -> EvalCase:
-    """Return the multi-year tuning protocol for dycore development."""
+def iteration_case() -> EvalCase:
+    """Return the multi-year protocol used for iterative model development."""
     return fixed_case(
-        TRAIN_PROTOCOL,
+        ITERATION_PROTOCOL,
         cycled_daily_initial_times(
-            "2010-01-01",
+            "2014-01-01",
             "2018-12-31",
         ),
     )
@@ -138,10 +138,10 @@ def validation_case() -> EvalCase:
     )
 
 
-def test_case() -> EvalCase:
-    """Return the locked out-of-sample reporting protocol."""
+def golden_case() -> EvalCase:
+    """Return the locked final-reporting protocol."""
     return fixed_case(
-        TEST_PROTOCOL,
+        GOLDEN_PROTOCOL,
         cycled_daily_initial_times(
             "2020-01-01",
             "2020-12-31",
@@ -151,9 +151,9 @@ def test_case() -> EvalCase:
 
 PROTOCOL_FACTORIES: dict[str, ProtocolFactory] = {
     FAST_PROTOCOL: fast_case,
-    TRAIN_PROTOCOL: train_case,
+    ITERATION_PROTOCOL: iteration_case,
     VALIDATION_PROTOCOL: validation_case,
-    TEST_PROTOCOL: test_case,
+    GOLDEN_PROTOCOL: golden_case,
 }
 
 

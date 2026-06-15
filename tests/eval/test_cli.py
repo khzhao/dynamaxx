@@ -61,7 +61,11 @@ def test_eval_cli_help_is_small_and_fast(capsys):
     assert error.value.code == 0
     output = capsys.readouterr().out
     assert "fast" in output
+    assert "iteration" in output
     assert "validation" in output
+    assert "golden" in output
+    assert "train" not in output
+    assert "test" not in output
     assert "smoke" not in output
     assert "--dataset" not in output
     assert "grid" not in output
