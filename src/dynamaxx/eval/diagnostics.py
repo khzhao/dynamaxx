@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import jax
 import jax.numpy as jnp
@@ -33,6 +33,16 @@ class ForecastIssue:
             "value": self.value,
         }
 
+    @classmethod
+    def fromdict(cls, values: dict[str, Any]) -> "ForecastIssue":
+        """Return a diagnostic issue from serialized values."""
+        return cls(
+            severity=cast(IssueSeverity, values["severity"]),
+            code=str(values["code"]),
+            message=str(values["message"]),
+            value=values.get("value"),
+        )
+
 
 @dataclass(frozen=True)
 class ForecastDiagnostics:
@@ -54,6 +64,16 @@ class ForecastDiagnostics:
             "failed": self.failed,
             "issues": [issue.asdict() for issue in self.issues],
         }
+
+    @classmethod
+    def fromdict(cls, values: dict[str, Any]) -> "ForecastDiagnostics":
+        """Return forecast diagnostics from serialized values."""
+        return cls(
+            issues=tuple(
+                ForecastIssue.fromdict(issue_values)
+                for issue_values in values["issues"]
+            ),
+        )
 
 
 def diagnose_forecast(values: jax.Array) -> ForecastDiagnostics:

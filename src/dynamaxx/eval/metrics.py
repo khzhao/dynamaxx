@@ -89,6 +89,33 @@ class MetricTotals:
             skill_vs_persistence=skill,
         )
 
+    def asdict(self) -> dict[str, Any]:
+        """Return a JSON-serializable metric total."""
+        return {
+            "model_name": self.model_name,
+            "variable": self.variable,
+            "channel_name": self.channel_name,
+            "lead_hours": self.lead_hours,
+            "count": self.count,
+            "bias_sum": self.bias_sum,
+            "mae_sum": self.mae_sum,
+            "mse_sum": self.mse_sum,
+        }
+
+    @classmethod
+    def fromdict(cls, values: dict[str, Any]) -> "MetricTotals":
+        """Return metric totals from serialized values."""
+        return cls(
+            model_name=str(values["model_name"]),
+            variable=str(values["variable"]),
+            channel_name=str(values["channel_name"]),
+            lead_hours=int(values["lead_hours"]),
+            count=int(values["count"]),
+            bias_sum=float(values["bias_sum"]),
+            mae_sum=float(values["mae_sum"]),
+            mse_sum=float(values["mse_sum"]),
+        )
+
 
 def area_weighted_mean(values: jax.Array, area_weights: jax.Array) -> jax.Array:
     """Average values over longitude-latitude axes with physical area weights."""

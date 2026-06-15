@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
@@ -6,6 +7,7 @@ import xarray as xr
 
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
 from dynamaxx.dycore.models.persistence import PersistenceDycoreModel
+from dynamaxx.dycore.registry import create_dycore_model
 from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import (
     WeatherVariable,
@@ -15,6 +17,7 @@ from dynamaxx.eval.runner import (
     case_chunks,
     evaluate_batch,
     evaluate_case,
+    evaluate_case_parallel,
     write_metric_csv,
     write_metric_json,
 )
@@ -193,6 +196,64 @@ def test_evaluate_case_chunks_match_single_batch_result(tmp_path):
         chunked_result.primary_score,
         single_batch_result.primary_score,
     )
+
+
+def test_evaluate_case_parallel_matches_serial_and_writes_resumable_chunks(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("JAX_PLATFORMS", "cpu")
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_constant_forecast_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+    model = PersistenceDycoreModel(
+        jit_forecast=False,
+    )
+    temperature = WeatherVariable("2m_temperature")
+    case = fixed_case(
+        "unit",
+        ["2020-01-01T00:00:00", "2020-01-01T00:00:00"],
+        lead_days=(0.25, 0.5),
+        target_variables=(temperature,),
+    )
+
+    serial_result = evaluate_case(
+        model,
+        source,
+        case,
+        chunk_initial_count=1,
+    )
+    parallel_result = evaluate_case_parallel(
+        partial(create_dycore_model, "persistence"),
+        "persistence",
+        str(store_path),
+        case,
+        chunk_initial_count=1,
+        worker_count=2,
+        run_dir=tmp_path / "parallel_eval",
+    )
+
+    assert [record.asdict() for record in parallel_result.records] == [
+        record.asdict() for record in serial_result.records
+    ]
+    assert sorted((tmp_path / "parallel_eval" / "chunks").iterdir()) == [
+        tmp_path / "parallel_eval" / "chunks" / "000000.json",
+        tmp_path / "parallel_eval" / "chunks" / "000001.json",
+    ]
+
+    resumed_result = evaluate_case_parallel(
+        partial(create_dycore_model, "persistence"),
+        "persistence",
+        str(store_path),
+        case,
+        chunk_initial_count=1,
+        worker_count=2,
+        run_dir=tmp_path / "parallel_eval",
+    )
+
+    assert [record.asdict() for record in resumed_result.records] == [
+        record.asdict() for record in serial_result.records
+    ]
 
 
 def test_case_chunks_preserve_case_contract():

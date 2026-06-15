@@ -6,28 +6,36 @@ from dynamaxx import cli
 def test_eval_cli_dispatches_fixed_protocol(monkeypatch):
     call = {}
 
-    def run_protocol(protocol, *, model_name):
+    def run_protocol(protocol, *, model_name, worker_count=1, resume=True):
         call["protocol"] = protocol
         call["model_name"] = model_name
+        call["worker_count"] = worker_count
+        call["resume"] = resume
         return 0
 
     monkeypatch.setattr(cli, "run_protocol", run_protocol)
 
-    exit_code = cli.main(["validation", "--model", "custom_model"])
+    exit_code = cli.main(
+        ["validation", "--model", "custom_model", "--workers", "3", "--restart"]
+    )
 
     assert exit_code == 0
     assert call == {
         "protocol": "validation",
         "model_name": "custom_model",
+        "worker_count": 3,
+        "resume": False,
     }
 
 
 def test_eval_cli_uses_default_model(monkeypatch):
     call = {}
 
-    def run_protocol(protocol, *, model_name):
+    def run_protocol(protocol, *, model_name, worker_count=1, resume=True):
         call["protocol"] = protocol
         call["model_name"] = model_name
+        call["worker_count"] = worker_count
+        call["resume"] = resume
         return 0
 
     monkeypatch.setattr(cli, "run_protocol", run_protocol)
@@ -36,6 +44,8 @@ def test_eval_cli_uses_default_model(monkeypatch):
     assert call == {
         "protocol": "fast",
         "model_name": "persistence",
+        "worker_count": 1,
+        "resume": True,
     }
 
 
@@ -64,6 +74,8 @@ def test_eval_cli_help_is_small_and_fast(capsys):
     assert "iteration" in output
     assert "validation" in output
     assert "golden" in output
+    assert "--workers" in output
+    assert "--restart" in output
     assert "train" not in output
     assert "test" not in output
     assert "smoke" not in output
