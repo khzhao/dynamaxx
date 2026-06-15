@@ -14,8 +14,16 @@ def persistence_model() -> DycoreModel:
     return default_persistence_dycore_model()
 
 
+def dinosaur_model() -> DycoreModel:
+    """Return the default Dinosaur primitive-equation dycore model."""
+    from dynamaxx.dycore.models.dinosaur import default_dinosaur_dycore_model
+
+    return default_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
+    "dinosaur": dinosaur_model,
 }
 
 
