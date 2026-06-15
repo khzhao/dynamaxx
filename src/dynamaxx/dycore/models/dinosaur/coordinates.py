@@ -6,7 +6,13 @@ from dataclasses import dataclass
 
 import jax.numpy as jnp
 import numpy as np
-from dinosaur import coordinate_systems, sigma_coordinates, spherical_harmonic, units
+
+from dynamaxx.dycore.models.dinosaur import (
+    coordinate_systems,
+    sigma_coordinates,
+    spherical_harmonic,
+    units,
+)
 
 
 @dataclass(frozen=True)

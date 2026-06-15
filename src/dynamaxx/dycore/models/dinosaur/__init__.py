@@ -1,11 +1,84 @@
-# Copyright 2026 dynamaxx
+# Copyright 2023 Google LLC
 
-from dynamaxx.dycore.models.dinosaur.primitive_equations import (
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     https://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Vendored Dinosaur dycore implementation used by Dynamaxx."""
+
+from dynamaxx.dycore.models.dinosaur import (
+    associated_legendre,
+    coordinate_systems,
+    filtering,
+    fourier,
+    held_suarez,
+    horizontal_interpolation,
+    hybrid_coordinates,
+    jax_numpy_utils,
+    layer_coordinates,
+    leapfrog_utils,
+    primitive_equations,
+    primitive_equations_states,
+    pytree_utils,
+    radiation,
+    scales,
+    shallow_water,
+    shallow_water_states,
+    sigma_coordinates,
+    spherical_harmonic,
+    time_integration,
+    typing,
+    units,
+    vertical_interpolation,
+    weatherbench_utils,
+    xarray_utils,
+)
+from dynamaxx.dycore.models.dinosaur.adapter import (
     DinosaurPrimitiveEquationsDycoreModel,
     default_dinosaur_dycore_model,
 )
 
+__version__ = "1.3.6"
+UPSTREAM_PACKAGE = "dinosaur"
+UPSTREAM_VERSION = "1.3.6"
+
 __all__ = [
+    "UPSTREAM_PACKAGE",
+    "UPSTREAM_VERSION",
+    "__version__",
     "DinosaurPrimitiveEquationsDycoreModel",
+    "associated_legendre",
+    "coordinate_systems",
     "default_dinosaur_dycore_model",
+    "filtering",
+    "fourier",
+    "held_suarez",
+    "horizontal_interpolation",
+    "hybrid_coordinates",
+    "jax_numpy_utils",
+    "layer_coordinates",
+    "leapfrog_utils",
+    "primitive_equations",
+    "primitive_equations_states",
+    "pytree_utils",
+    "radiation",
+    "scales",
+    "shallow_water",
+    "shallow_water_states",
+    "sigma_coordinates",
+    "spherical_harmonic",
+    "time_integration",
+    "typing",
+    "units",
+    "vertical_interpolation",
+    "weatherbench_utils",
+    "xarray_utils",
 ]

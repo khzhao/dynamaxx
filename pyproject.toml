@@ -9,11 +9,14 @@ description = ""
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dinosaur>=1.3.6",
+    "dask>=2026.6.0",
     "jax[cuda13]>=0.10.1",
     "matplotlib>=3.11.0",
     "numpy>=2.4.6",
+    "pint>=0.25.3",
     "s3fs>=2026.4.0",
+    "scikit-learn>=1.9.0",
+    "tree-math>=0.2.1",
     "xarray>=2026.4.0",
     "zarr>=2.18.7,<3",
 ]
@@ -80,6 +83,15 @@ unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F403"]
+"src/dynamaxx/dycore/models/dinosaur/**/*.py" = [
+  "C408", # preserve upstream container-constructor style in vendored code
+  "C419", # preserve upstream comprehension style in vendored code
+  "D101", # upstream public classes do not all carry local-style docstrings
+  "D103", # upstream public functions do not all carry local-style docstrings
+  "D205", # preserve upstream docstring layout during parity migration
+  "E731", # upstream uses named lambdas for local tree-map helpers
+  "RUF002", # scientific docstrings intentionally use Greek/math symbols
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

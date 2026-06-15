@@ -6,7 +6,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from dinosaur import (
+
+from dynamaxx.dycore.models.dinosaur import (
     primitive_equations,
     sigma_coordinates,
     spherical_harmonic,
@@ -14,9 +15,7 @@ from dinosaur import (
     units,
     vertical_interpolation,
 )
-
-from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
-from dynamaxx.dycore.models.dinosaur.primitive_equations import (
+from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SPECTRAL_WAVENUMBERS,
     DinosaurPrimitiveEquationsDycoreModel,
@@ -35,6 +34,7 @@ from dynamaxx.dycore.models.dinosaur.primitive_equations import (
     supported_output_variables,
     weather_state_to_dinosaur_state,
 )
+from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
 from dynamaxx.utils.consts import SECONDS_PER_HOUR
 from dynamaxx.weather import ForecastInput, WeatherState
 
