@@ -38,6 +38,9 @@ import jax.numpy as jnp
 import numpy as np
 
 assert dinosaur.default_dinosaur_dycore_model().name == "dinosaur"
+assert dinosaur.weak_held_suarez_dinosaur_dycore_model().name == (
+    "dinosaur_dfi_surface_residual_weak_hs"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -95,6 +98,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dinosaur",
         "dinosaur_dfi",
         "dinosaur_dfi_surface_residual",
+        "dinosaur_dfi_surface_residual_weak_hs",
     )
 
     model = create_dycore_model("dinosaur")
@@ -120,6 +124,16 @@ def test_dinosaur_dfi_surface_residual_is_registered_as_candidate():
     assert model.name == "dinosaur_dfi_surface_residual"
     assert model.apply_digital_filter_initialization
     assert model.apply_near_surface_residual_correction
+
+
+def test_dinosaur_weak_held_suarez_is_registered_as_candidate():
+    """The weak HS candidate preserves the accepted incumbent mechanisms."""
+    model = create_dycore_model("dinosaur_dfi_surface_residual_weak_hs")
+
+    assert model.name == "dinosaur_dfi_surface_residual_weak_hs"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
 
 
 def test_dinosaur_has_local_runtime_modules_and_data():

@@ -11,6 +11,7 @@ import numpy as np
 
 from dynamaxx.dycore.models.dinosaur import (
     coordinate_systems,
+    held_suarez,
     primitive_equations,
     scales,
     sigma_coordinates,
@@ -40,6 +41,9 @@ from dynamaxx.weather import ForecastInput, WeatherState
 
 DEFAULT_INNER_STEP_SECONDS = 900.0
 DEFAULT_SPECTRAL_WAVENUMBERS = 80
+DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY = 0.0
+DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS = 160.0
+DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS = 16.0
 _FINITE_SIGMA_TO_PRESSURE_INTERPOLATE = (
     vertical_interpolation.vectorize_vertical_interpolation(
         vertical_interpolation.linear_interp_with_nearest_extrap
@@ -68,6 +72,14 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_digital_filter_initialization: bool = False
     digital_filter_time_span_seconds: float = 6 * 3600.0
     digital_filter_cutoff_seconds: float = 6 * 3600.0
+    apply_weak_held_suarez_relaxation: bool = False
+    weak_held_suarez_kf_per_day: float = DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY
+    weak_held_suarez_ka_timescale_days: float = (
+        DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS
+    )
+    weak_held_suarez_ks_timescale_days: float = (
+        DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS
+    )
     apply_near_surface_residual_correction: bool = False
     near_surface_residual_decay_hours: float = 48.0
     jit_forecast: bool = True
@@ -182,6 +194,16 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
             ),
         )
+        if self.apply_weak_held_suarez_relaxation:
+            equation = _compose_weak_held_suarez_equation(
+                equation=equation,
+                coords=coords,
+                physics_specs=physics_specs,
+                reference_temperature=reference_temperature,
+                kf_per_day=self.weak_held_suarez_kf_per_day,
+                ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
+                ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
+            )
         step_seconds = _nondimensionalize_seconds(
             physics_specs,
             self.inner_step_seconds,
@@ -252,6 +274,16 @@ def digital_filter_surface_residual_dinosaur_dycore_model() -> (
     return DinosaurPrimitiveEquationsDycoreModel(
         name="dinosaur_dfi_surface_residual",
         apply_digital_filter_initialization=True,
+        apply_near_surface_residual_correction=True,
+    )
+
+
+def weak_held_suarez_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the DFI plus residual candidate with weak thermal HS relaxation."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name="dinosaur_dfi_surface_residual_weak_hs",
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
         apply_near_surface_residual_correction=True,
     )
 
@@ -597,6 +629,68 @@ def _primitive_equation(
         include_vertical_advection=include_vertical_advection,
         humidity_key=humidity_key,
     )
+
+
+class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
+    """Thermal-only Held-Suarez forcing with passive tracer tendency leaves."""
+
+    def explicit_terms(
+        self,
+        state: primitive_equations.State,
+    ) -> primitive_equations.State:
+        aux_state = primitive_equations.compute_diagnostic_state_sigma(
+            state=state,
+            coords=self.coords,
+        )
+        nodal_temperature = (
+            self.reference_temperature[:, np.newaxis, np.newaxis]
+            + aux_state.temperature_variation
+        )
+        nodal_log_surface_pressure = self.coords.horizontal.to_nodal(
+            state.log_surface_pressure
+        )
+        nodal_surface_pressure = jnp.exp(nodal_log_surface_pressure)
+        equilibrium_temperature = self.equilibrium_temperature(nodal_surface_pressure)
+        nodal_temperature_tendency = -self.kt() * (
+            nodal_temperature - equilibrium_temperature
+        )
+        temperature_tendency = self.coords.horizontal.to_modal(
+            nodal_temperature_tendency
+        )
+        return primitive_equations.State(
+            vorticity=jnp.zeros_like(state.vorticity),
+            divergence=jnp.zeros_like(state.divergence),
+            temperature_variation=temperature_tendency,
+            log_surface_pressure=jnp.zeros_like(state.log_surface_pressure),
+            tracers=jax.tree_util.tree_map(jnp.zeros_like, state.tracers),
+            sim_time=None if state.sim_time is None else 0.0,
+        )
+
+
+def _compose_weak_held_suarez_equation(
+    *,
+    equation: Any,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    kf_per_day: float,
+    ka_timescale_days: float,
+    ks_timescale_days: float,
+) -> Any:
+    """Compose primitive equations with the fixed weak Held-Suarez forcing."""
+    assert ka_timescale_days > 0.0
+    assert ks_timescale_days > 0.0
+    unit_registry = cast(Any, scales.units)
+    day = unit_registry.day
+    forcing = _TracerSafeHeldSuarezForcingSigma(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        kf=float(kf_per_day) / day,
+        ka=1 / (float(ka_timescale_days) * day),
+        ks=1 / (float(ks_timescale_days) * day),
+    )
+    return time_integration.compose_equations([equation, forcing])
 
 
 def _horizontal_diffusion_step_filter(

@@ -46,6 +46,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     default_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
+    weak_held_suarez_dinosaur_dycore_model,
 )
 
 __version__ = "1.3.6"
@@ -84,5 +85,6 @@ __all__ = [
     "units",
     "vertical_interpolation",
     "weatherbench_utils",
+    "weak_held_suarez_dinosaur_dycore_model",
     "xarray_utils",
 ]
