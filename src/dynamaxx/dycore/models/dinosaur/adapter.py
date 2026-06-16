@@ -45,6 +45,10 @@ _FINITE_SIGMA_TO_PRESSURE_INTERPOLATE = (
         vertical_interpolation.linear_interp_with_nearest_extrap
     )
 )
+_NEAR_SURFACE_RESIDUAL_VARIABLES = (
+    TWO_METER_TEMPERATURE_VARIABLE,
+    TEN_METER_U_WIND_VARIABLE,
+)
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_digital_filter_initialization: bool = False
     digital_filter_time_span_seconds: float = 6 * 3600.0
     digital_filter_cutoff_seconds: float = 6 * 3600.0
+    apply_near_surface_residual_correction: bool = False
+    near_surface_residual_decay_hours: float = 48.0
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -135,8 +141,20 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 reference_temperature=reference_temperature,
                 output_variables=output_variables,
             )
-            lead_indices = jnp.asarray(forecast_input.lead_steps, dtype=jnp.int32)
-            forecasts.append(jnp.take(trajectory_state.values, lead_indices, axis=0))
+            if self.apply_near_surface_residual_correction:
+                trajectory_state = _apply_near_surface_residual_correction(
+                    trajectory_state,
+                    initial_state=single_state,
+                    lead_steps=forecast_input.lead_steps,
+                    lead_hours=forecast_input.lead_hours,
+                    decay_hours=self.near_surface_residual_decay_hours,
+                )
+                forecasts.append(trajectory_state.values)
+            else:
+                lead_indices = jnp.asarray(forecast_input.lead_steps, dtype=jnp.int32)
+                forecasts.append(
+                    jnp.take(trajectory_state.values, lead_indices, axis=0)
+                )
 
         return WeatherState(
             values=jnp.stack(forecasts, axis=1),
@@ -224,6 +242,17 @@ def digital_filter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMo
     return DinosaurPrimitiveEquationsDycoreModel(
         name="dinosaur_dfi",
         apply_digital_filter_initialization=True,
+    )
+
+
+def digital_filter_surface_residual_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the DFI candidate with decaying near-surface diagnostic residuals."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name="dinosaur_dfi_surface_residual",
+        apply_digital_filter_initialization=True,
+        apply_near_surface_residual_correction=True,
     )
 
 
@@ -431,6 +460,52 @@ def dinosaur_state_to_weather_state(
     return WeatherState(
         values=jnp.stack(fields, axis=1),
         variables=output_variables,
+    )
+
+
+def _apply_near_surface_residual_correction(
+    trajectory_state: WeatherState,
+    *,
+    initial_state: WeatherState,
+    lead_steps: tuple[int, ...],
+    lead_hours: tuple[int, ...],
+    decay_hours: float,
+) -> WeatherState:
+    """Apply forecast-time near-surface residuals to requested output leads."""
+    assert decay_hours > 0.0
+    assert len(lead_steps) == len(lead_hours)
+
+    lead_indices = jnp.asarray(lead_steps, dtype=jnp.int32)
+    corrected_values = jnp.take(trajectory_state.values, lead_indices, axis=0)
+    lead_hours_array = jnp.asarray(lead_hours, dtype=corrected_values.dtype)
+    decay = jnp.exp(-lead_hours_array / jnp.asarray(decay_hours))
+    lead_zero_mask = lead_indices == 0
+
+    for channel in _NEAR_SURFACE_RESIDUAL_VARIABLES:
+        if (
+            channel not in initial_state.variables
+            or channel not in trajectory_state.variables
+        ):
+            continue
+        output_index = int(trajectory_state.variable_indices((channel,))[0])
+        initial_index = int(initial_state.variable_indices((channel,))[0])
+        initial_channel = initial_state.values[initial_index]
+        raw_lead_zero = trajectory_state.values[0, output_index]
+        residual = initial_channel - raw_lead_zero
+        channel_values = (
+            corrected_values[:, output_index]
+            + residual[jnp.newaxis, ...] * decay[:, jnp.newaxis, jnp.newaxis]
+        )
+        channel_values = jnp.where(
+            lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
+            initial_channel[jnp.newaxis, ...],
+            channel_values,
+        )
+        corrected_values = corrected_values.at[:, output_index].set(channel_values)
+
+    return WeatherState(
+        values=corrected_values,
+        variables=trajectory_state.variables,
     )
 
 

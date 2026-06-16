@@ -28,10 +28,20 @@ def dinosaur_dfi_model() -> DycoreModel:
     return digital_filter_dinosaur_dycore_model()
 
 
+def dinosaur_dfi_surface_residual_model() -> DycoreModel:
+    """Return the DFI dycore with near-surface diagnostic residual correction."""
+    from dynamaxx.dycore.models.dinosaur import (
+        digital_filter_surface_residual_dinosaur_dycore_model,
+    )
+
+    return digital_filter_surface_residual_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
     "dinosaur_dfi": dinosaur_dfi_model,
+    "dinosaur_dfi_surface_residual": dinosaur_dfi_surface_residual_model,
 }
 
 

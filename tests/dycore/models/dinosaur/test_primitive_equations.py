@@ -19,6 +19,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SPECTRAL_WAVENUMBERS,
     DinosaurPrimitiveEquationsDycoreModel,
+    _apply_near_surface_residual_correction,
     _horizontal_diffusion_step_filter,
     _inner_steps_per_forecast_step,
     _interp_sigma_to_pressure_by_time,
@@ -28,8 +29,9 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _primitive_equation_state,
     _reference_temperature,
     _unit_factor,
-    dinosaur_state_to_weather_state,
     digital_filter_dinosaur_dycore_model,
+    digital_filter_surface_residual_dinosaur_dycore_model,
+    dinosaur_state_to_weather_state,
     infer_dinosaur_pressure_levels,
     split_pressure_level_channel,
     supported_output_variables,
@@ -106,10 +108,15 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_digital_filter_initialization
     assert model.digital_filter_time_span_seconds == 6 * SECONDS_PER_HOUR
     assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
-    assert _inner_steps_per_forecast_step(
-        step_seconds=6 * SECONDS_PER_HOUR,
-        inner_step_seconds=model.inner_step_seconds,
-    ) == 24
+    assert not model.apply_near_surface_residual_correction
+    assert model.near_surface_residual_decay_hours == 48.0
+    assert (
+        _inner_steps_per_forecast_step(
+            step_seconds=6 * SECONDS_PER_HOUR,
+            inner_step_seconds=model.inner_step_seconds,
+        )
+        == 24
+    )
 
 
 def test_digital_filter_dinosaur_factory_enables_fixed_initialization():
@@ -118,8 +125,19 @@ def test_digital_filter_dinosaur_factory_enables_fixed_initialization():
 
     assert model.name == "dinosaur_dfi"
     assert model.apply_digital_filter_initialization
+    assert not model.apply_near_surface_residual_correction
     assert model.digital_filter_time_span_seconds == 6 * SECONDS_PER_HOUR
     assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
+
+
+def test_digital_filter_surface_residual_factory_enables_guarded_correction():
+    """The near-surface residual candidate preserves DFI and opts into correction."""
+    model = digital_filter_surface_residual_dinosaur_dycore_model()
+
+    assert model.name == "dinosaur_dfi_surface_residual"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.near_surface_residual_decay_hours == 48.0
 
 
 def test_dinosaur_forecast_returns_requested_channels():
@@ -211,6 +229,207 @@ def test_dinosaur_forecast_with_digital_filter_initialization_is_finite(monkeypa
     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
     assert bool(jnp.isfinite(forecast.values).all())
     assert len(dfi_calls) == 1
+
+
+def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
+    """The residual candidate changes only selected near-surface diagnostics."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+    dfi_model = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        jit_forecast=False,
+    )
+    residual_model = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_near_surface_residual_correction=True,
+        jit_forecast=False,
+    )
+
+    raw_forecast = dfi_model.forecast(forecast_input)
+    corrected_forecast = residual_model.forecast(forecast_input)
+
+    initial_temperature = forecast_input.initial_state.select(("2m_temperature",))
+    initial_u_wind = forecast_input.initial_state.select(("10m_u_component_of_wind",))
+    np.testing.assert_array_equal(
+        corrected_forecast.select(("2m_temperature",)).values[0],
+        initial_temperature.values,
+    )
+    np.testing.assert_array_equal(
+        corrected_forecast.select(("10m_u_component_of_wind",)).values[0],
+        initial_u_wind.values,
+    )
+    np.testing.assert_array_equal(
+        corrected_forecast.select(("geopotential_500",)).values,
+        raw_forecast.select(("geopotential_500",)).values,
+    )
+    np.testing.assert_array_equal(
+        corrected_forecast.select(("mean_sea_level_pressure",)).values,
+        raw_forecast.select(("mean_sea_level_pressure",)).values,
+    )
+
+
+def test_near_surface_residual_correction_matches_initial_and_decays():
+    """Corrected diagnostics match analysis at lead 0 and decay afterward."""
+    spatial_pattern = jnp.arange(12, dtype=jnp.float32).reshape(4, 3) / 10.0
+    raw_temperature = jnp.stack(
+        [
+            280.0 + spatial_pattern,
+            281.0 + spatial_pattern,
+            282.0 + spatial_pattern,
+        ]
+    )
+    raw_u_wind = jnp.stack(
+        [
+            1.0 + spatial_pattern,
+            1.5 + spatial_pattern,
+            2.0 + spatial_pattern,
+        ]
+    )
+    raw_geopotential = jnp.stack(
+        [
+            5000.0 + spatial_pattern,
+            5001.0 + spatial_pattern,
+            5002.0 + spatial_pattern,
+        ]
+    )
+    raw_pressure = jnp.stack(
+        [
+            100000.0 + spatial_pattern,
+            99900.0 + spatial_pattern,
+            99800.0 + spatial_pattern,
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack(
+            [raw_temperature, raw_u_wind, raw_geopotential, raw_pressure],
+            axis=1,
+        ),
+        variables=(
+            "2m_temperature",
+            "10m_u_component_of_wind",
+            "geopotential_500",
+            "mean_sea_level_pressure",
+        ),
+    )
+    initial_temperature = 285.0 + spatial_pattern
+    initial_u_wind = 4.0 + spatial_pattern
+    initial_state = WeatherState(
+        values=jnp.stack([initial_temperature, initial_u_wind]),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+
+    corrected = _apply_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1, 2),
+        lead_hours=(0, 24, 96),
+        decay_hours=48.0,
+    )
+
+    decay = jnp.exp(-jnp.asarray([0.0, 24.0, 96.0]) / 48.0)
+    expected_temperature = (
+        raw_temperature
+        + (initial_temperature - raw_temperature[0])[jnp.newaxis, ...]
+        * decay[:, jnp.newaxis, jnp.newaxis]
+    )
+    expected_u_wind = (
+        raw_u_wind
+        + (initial_u_wind - raw_u_wind[0])[jnp.newaxis, ...]
+        * decay[:, jnp.newaxis, jnp.newaxis]
+    )
+    expected_temperature = expected_temperature.at[0].set(initial_temperature)
+    expected_u_wind = expected_u_wind.at[0].set(initial_u_wind)
+
+    np.testing.assert_array_equal(
+        corrected.select(("2m_temperature",)).values[0, 0],
+        initial_temperature,
+    )
+    np.testing.assert_array_equal(
+        corrected.select(("10m_u_component_of_wind",)).values[0, 0],
+        initial_u_wind,
+    )
+    np.testing.assert_allclose(
+        corrected.select(("2m_temperature",)).values[:, 0],
+        expected_temperature,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        corrected.select(("10m_u_component_of_wind",)).values[:, 0],
+        expected_u_wind,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_array_equal(
+        corrected.select(("geopotential_500", "mean_sea_level_pressure")).values,
+        trajectory_state.select(("geopotential_500", "mean_sea_level_pressure")).values,
+    )
+
+
+def test_near_surface_residual_correction_skips_missing_channels():
+    """Residuals are skipped when either analysis or output channel is absent."""
+    raw_u_wind = jnp.stack(
+        [
+            jnp.full((4, 3), 1.0, dtype=jnp.float32),
+            jnp.full((4, 3), 2.0, dtype=jnp.float32),
+        ]
+    )
+    raw_geopotential = jnp.stack(
+        [
+            jnp.full((4, 3), 5000.0, dtype=jnp.float32),
+            jnp.full((4, 3), 5001.0, dtype=jnp.float32),
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack([raw_u_wind, raw_geopotential], axis=1),
+        variables=("10m_u_component_of_wind", "geopotential_500"),
+    )
+    initial_state = WeatherState(
+        values=jnp.stack([jnp.full((4, 3), 285.0, dtype=jnp.float32)]),
+        variables=("2m_temperature",),
+    )
+
+    corrected = _apply_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(1,),
+        lead_hours=(24,),
+        decay_hours=48.0,
+    )
+
+    np.testing.assert_array_equal(corrected.values, trajectory_state.values[1:2])
 
 
 def test_dinosaur_forecast_handles_multiple_initial_times():
@@ -531,9 +750,7 @@ def test_dinosaur_state_to_weather_state_matches_direct_diagnostics():
     surface_pressure = jnp.exp(
         grid.coords.horizontal.to_nodal(trajectory.log_surface_pressure)[:, 0]
     )
-    humidity = grid.coords.horizontal.to_nodal(
-        trajectory.tracers["specific_humidity"]
-    )
+    humidity = grid.coords.horizontal.to_nodal(trajectory.tracers["specific_humidity"])
     geopotential = primitive_equations.get_geopotential_on_sigma(
         temperature,
         specific_humidity=humidity,
@@ -820,14 +1037,6 @@ def test_trajectory_function_sets_up_digital_filter_initialization(monkeypatch):
     )
     _, wrapped_trajectory = wrapped_fn(dinosaur_state)
 
-    orography = jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32)
-    equation = primitive_equations.PrimitiveEquations(
-        reference_temperature,
-        orography,
-        grid.coords,
-        cast(Any, physics_specs),
-        include_vertical_advection=False,
-    )
     step_seconds = _nondimensionalize_seconds(
         physics_specs,
         model.inner_step_seconds,
@@ -989,10 +1198,9 @@ def _forecast_input(
     lead_steps: tuple[int, ...],
 ) -> ForecastInput:
     initial_count = initial_state.leading_shape[0]
-    initial_times = (
-        np.datetime64("2020-01-01T00:00:00", "ns")
-        + np.arange(initial_count).astype("timedelta64[h]")
-    )
+    initial_times = np.datetime64("2020-01-01T00:00:00", "ns") + np.arange(
+        initial_count
+    ).astype("timedelta64[h]")
     lead_hours = tuple(lead_steps)
     valid_times = (
         initial_times[:, np.newaxis]
