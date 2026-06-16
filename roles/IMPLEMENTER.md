@@ -38,9 +38,31 @@ repository, ask the Orchestrator before editing.
 3. Make the smallest coherent implementation of the proposal.
 4. Add or update focused tests for changed behavior.
 5. Run the tests requested by the Orchestrator.
-6. If practical, run `uv run dynamaxx-eval fast --model <candidate_model>` as a
+6. If tests, imports, registration checks, or local sanity commands fail,
+   diagnose the failure and make the best bounded implementation fix you can
+   within the selected proposal's scope. Rerun the relevant failing command after
+   each fix attempt. Stop only when the implementation passes the requested
+   local checks or when you can report a concrete blocker that cannot be solved
+   without changing the selected idea, fixed evaluation protocol, protected
+   interfaces, or unrelated user work.
+7. Treat small failures introduced by your implementation as part of the
+   implementation work, not as blockers. Fix syntax errors, missing imports,
+   broken registrations, shape mistakes, typing mistakes, and focused test
+   failures immediately when they are caused by your change.
+8. If practical, run `uv run dynamaxx-eval fast --model <candidate_model>` as a
    pre-scoring sanity check.
-7. Report changed files, commands run, and known limitations to the
+9. If the fast sanity check fails for an implementation reason, apply the same
+   bounded repair process before returning control to the Orchestrator. If it
+   fails because the scientific idea appears objectively bad under fixed
+   diagnostics, report the failure without broadening the idea or tuning against
+   hidden validation results.
+10. If the candidate produces NaN or Inf forecasts, first treat this as a likely
+   implementation or numerical-stability failure. Attempt bounded repair for
+   common causes such as invalid divisions, invalid square roots or logarithms,
+   unconstrained state updates, unit mistakes, or shape/channel mixups before
+   concluding that the selected idea is inherently unstable.
+11. Report changed files, commands run, repair attempts, remaining failures, and
+   known limitations to the
    Orchestrator.
 
 Do not leave placeholder code, TODO markers, dead branches, or unused

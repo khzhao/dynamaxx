@@ -84,7 +84,8 @@ experiment ambiguous.
 4. Tell the Implementer exactly which proposal to implement, which model name
    to target, and whether the work should modify an existing model or register
    a new model.
-5. Ask the Implementer to run focused tests and report changed files.
+5. Ask the Implementer to run focused tests, fix implementation failures to the
+   best bounded extent possible, and report changed files.
 6. Ask the Scorer to run the fixed evaluation gates from `roles/PROTOCOL.md`.
 7. Compare the candidate against the incumbent using the acceptance gates.
 8. Accept, reject, or request a bounded revision.

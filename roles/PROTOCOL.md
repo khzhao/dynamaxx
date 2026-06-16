@@ -297,8 +297,17 @@ Implementer subagent prompt must include:
 - edit-in-place versus new-model instruction;
 - files and interfaces that are in scope;
 - tests to run;
-- stop condition: implementation and local tests completed, or a concrete
-  blocker reported before broad edits.
+- instruction to diagnose and fix implementation failures to the best bounded
+  extent possible within the selected idea's scope;
+- instruction that small implementer-owned failures, such as syntax errors,
+  missing imports, broken registrations, shape mistakes, typing mistakes, and
+  focused test failures, must be fixed immediately instead of handed off as
+  blockers;
+- instruction that NaN or Inf forecast outputs must first be treated as likely
+  implementation or numerical-stability failures and receive bounded repair
+  attempts before declaring the idea inherently unstable;
+- stop condition: implementation and local tests completed after any needed
+  bounded repair attempts, or a concrete blocker reported before broad edits.
 
 Scorer subagent prompt must include:
 

@@ -23,6 +23,14 @@ Describe the implemented mechanism and how it maps to the proposal.
 | `uv run pytest` | not_run | |
 | `uv run dynamaxx-eval fast --model <candidate_model>` | not_run | |
 
+## Repair Attempts
+
+- Failure observed:
+- Implementer-owned failure: yes/no
+- NaN/Inf forecast observed: yes/no
+- Fix attempted:
+- Follow-up command and result:
+
 ## Known Limitations
 
 - Limitation:
