@@ -17,6 +17,11 @@ import numpy as np
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
 from dynamaxx.eval.batch import build_weatherbench2_batch
 from dynamaxx.eval.core import EvalBatch, EvalCase, WeatherState
+from dynamaxx.eval.device_dispatch import (
+    EvalDeviceDispatch,
+    initialize_eval_worker,
+    plan_eval_worker_devices,
+)
 from dynamaxx.eval.diagnostics import (
     ForecastDiagnostics,
     diagnose_forecast,
@@ -225,10 +230,13 @@ def evaluate_case_parallel(
         chunk_initial_count=chunk_initial_count,
         chunk_count=len(chunks),
     )
+    device_dispatch = plan_eval_worker_devices(worker_count)
+    effective_worker_count = device_dispatch.effective_worker_count
     _prepare_parallel_run(
         run_path,
         manifest_values=manifest_values,
         worker_count=worker_count,
+        device_dispatch=device_dispatch,
         resume=resume,
     )
     cached_count = sum(
@@ -242,6 +250,14 @@ def evaluate_case_parallel(
         cached_count,
         len(chunks) - cached_count,
         run_path,
+    )
+    logger.info(
+        "Parallel eval device dispatch: mode=%s requested_workers=%d effective_workers=%d gpu_count=%d worker_devices=%s",
+        device_dispatch.mode,
+        worker_count,
+        effective_worker_count,
+        device_dispatch.available_gpu_count,
+        _format_worker_devices(device_dispatch),
     )
 
     chunk_results: dict[int, EvaluationTotals] = {}
@@ -269,7 +285,7 @@ def evaluate_case_parallel(
             )
         )
 
-    if worker_count == 1:
+    if worker_count == 1 and effective_worker_count == 1:
         for job in jobs:
             logger.info(
                 "Parallel eval chunk %d/%d started: first=%s last=%s",
@@ -286,9 +302,18 @@ def evaluate_case_parallel(
             )
     else:
         spawn_context = multiprocessing.get_context("spawn")
+        worker_slot_queue = spawn_context.Queue()
+        for worker_slot in range(effective_worker_count):
+            worker_slot_queue.put(worker_slot)
         with ProcessPoolExecutor(
-            max_workers=worker_count,
+            max_workers=effective_worker_count,
             mp_context=spawn_context,
+            initializer=initialize_eval_worker,
+            initargs=(
+                worker_slot_queue,
+                device_dispatch.worker_cuda_devices,
+                device_dispatch.force_cpu,
+            ),
         ) as executor:
             futures = {
                 executor.submit(_evaluate_chunk_job, job): job.chunk_index
@@ -425,6 +450,7 @@ def _prepare_parallel_run(
     *,
     manifest_values: dict[str, Any],
     worker_count: int,
+    device_dispatch: EvalDeviceDispatch,
     resume: bool,
 ) -> None:
     manifest_path = run_path / "manifest.json"
@@ -446,9 +472,20 @@ def _prepare_parallel_run(
         manifest_path,
         {
             **manifest_values,
-            "worker_count": worker_count,
+            "requested_worker_count": worker_count,
+            "worker_count": device_dispatch.effective_worker_count,
+            "device_dispatch": device_dispatch.asdict(),
             "pid": os.getpid(),
         },
+    )
+
+
+def _format_worker_devices(device_dispatch: EvalDeviceDispatch) -> str:
+    if device_dispatch.mode == "cpu":
+        return "cpu"
+    return ",".join(
+        f"{worker_index}:{cuda_device}"
+        for worker_index, cuda_device in enumerate(device_dispatch.worker_cuda_devices)
     )
 
 
