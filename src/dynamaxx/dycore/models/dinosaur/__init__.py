@@ -45,6 +45,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     DinosaurPrimitiveEquationsDycoreModel,
     default_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
+    digital_filter_surface_residual_dinosaur_dycore_model,
 )
 
 __version__ = "1.3.6"
@@ -60,6 +61,7 @@ __all__ = [
     "coordinate_systems",
     "default_dinosaur_dycore_model",
     "digital_filter_dinosaur_dycore_model",
+    "digital_filter_surface_residual_dinosaur_dycore_model",
     "filtering",
     "fourier",
     "held_suarez",

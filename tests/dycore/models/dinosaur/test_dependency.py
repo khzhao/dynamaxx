@@ -90,12 +90,18 @@ assert forecast.values.shape == (1, 1, 1, 4, 3)
 
 def test_dinosaur_is_registered_as_canonical_dycore_model():
     """The registry exposes the vendored Dinosaur dycore under its final name."""
-    assert dycore_model_names() == ("persistence", "dinosaur", "dinosaur_dfi")
+    assert dycore_model_names() == (
+        "persistence",
+        "dinosaur",
+        "dinosaur_dfi",
+        "dinosaur_dfi_surface_residual",
+    )
 
     model = create_dycore_model("dinosaur")
 
     assert model.name == "dinosaur"
     assert not model.apply_digital_filter_initialization
+    assert not model.apply_near_surface_residual_correction
 
 
 def test_dinosaur_dfi_is_registered_as_side_by_side_candidate():
@@ -104,6 +110,16 @@ def test_dinosaur_dfi_is_registered_as_side_by_side_candidate():
 
     assert model.name == "dinosaur_dfi"
     assert model.apply_digital_filter_initialization
+    assert not model.apply_near_surface_residual_correction
+
+
+def test_dinosaur_dfi_surface_residual_is_registered_as_candidate():
+    """The residual candidate is available without replacing DFI."""
+    model = create_dycore_model("dinosaur_dfi_surface_residual")
+
+    assert model.name == "dinosaur_dfi_surface_residual"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
 
 
 def test_dinosaur_has_local_runtime_modules_and_data():
