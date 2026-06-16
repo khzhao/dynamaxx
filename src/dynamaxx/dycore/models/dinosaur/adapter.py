@@ -40,6 +40,11 @@ from dynamaxx.weather import ForecastInput, WeatherState
 
 DEFAULT_INNER_STEP_SECONDS = 900.0
 DEFAULT_SPECTRAL_WAVENUMBERS = 80
+_FINITE_SIGMA_TO_PRESSURE_INTERPOLATE = (
+    vertical_interpolation.vectorize_vertical_interpolation(
+        vertical_interpolation.linear_interp_with_nearest_extrap
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -536,6 +541,7 @@ def _interp_sigma_to_pressure_by_time(
             pressure_coords,
             sigma_coords,
             surface_pressure_hpa,
+            interpolate_fn=_FINITE_SIGMA_TO_PRESSURE_INTERPOLATE,
         )
 
     def interpolate_one_time(single_fields, single_surface_pressure):
@@ -544,6 +550,7 @@ def _interp_sigma_to_pressure_by_time(
             pressure_coords,
             sigma_coords,
             single_surface_pressure,
+            interpolate_fn=_FINITE_SIGMA_TO_PRESSURE_INTERPOLATE,
         )
 
     return jax.vmap(interpolate_one_time)(fields, surface_pressure_hpa)

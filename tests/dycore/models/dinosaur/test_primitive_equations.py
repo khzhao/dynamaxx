@@ -300,7 +300,7 @@ def test_weather_state_to_dinosaur_state_matches_direct_dinosaur_initialization(
 def test_sigma_to_pressure_interpolation_vectorizes_over_trajectory_time():
     """Trajectory diagnostics interpolate each time slice with Dinosaur."""
     sigma_coords = sigma_coordinates.SigmaCoordinates.equidistant(3)
-    pressure_coords = _pressure_coordinates((100, 500, 900))
+    pressure_coords = _pressure_coordinates((250, 500, 750))
     fields = {
         "temperature": jnp.arange(2 * 3 * 4 * 3, dtype=jnp.float32).reshape(
             2,
@@ -335,6 +335,71 @@ def test_sigma_to_pressure_interpolation_vectorizes_over_trajectory_time():
     )
 
     np.testing.assert_allclose(actual["temperature"], expected)
+
+
+def test_dinosaur_state_to_weather_state_extrapolates_finite_pressure_outputs():
+    """Below-surface pressure diagnostics remain finite in packed WeatherState."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1, surface_pressure_pa=70_000.0),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value]), state)
+    fixed_target_variables = (
+        "2m_temperature",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+        "10m_u_component_of_wind",
+    )
+    output_variables = (
+        "temperature_900",
+        "u_component_of_wind_900",
+        "v_component_of_wind_900",
+        "geopotential_900",
+        "specific_humidity_900",
+        *fixed_target_variables,
+    )
+
+    actual = dinosaur_state_to_weather_state(
+        trajectory,
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        output_variables=output_variables,
+    )
+
+    assert actual.variables == output_variables
+    maximum_surface_pressure = jnp.max(
+        actual.select(("mean_sea_level_pressure",)).values
+    )
+    assert float(maximum_surface_pressure) < 90_000.0
+    assert bool(jnp.isfinite(actual.values).all())
+    assert bool(jnp.isfinite(actual.select(fixed_target_variables).values).all())
 
 
 def test_dinosaur_state_to_weather_state_matches_direct_diagnostics():
@@ -637,7 +702,9 @@ def _initial_state(*, init_count: int) -> WeatherState:
     return WeatherState(values=values, variables=tuple(fields))
 
 
-def _structured_initial_state(*, init_count: int) -> WeatherState:
+def _structured_initial_state(
+    *, init_count: int, surface_pressure_pa: float = 100_000.0
+) -> WeatherState:
     longitude_count = 4
     latitude_count = 3
     lon_pattern = jnp.arange(longitude_count, dtype=jnp.float32)[:, np.newaxis]
@@ -662,7 +729,7 @@ def _structured_initial_state(*, init_count: int) -> WeatherState:
         fields[f"geopotential_{pressure_level}"] = (
             1000.0 + pressure_level + 5.0 * spatial_pattern
         )
-    fields["mean_sea_level_pressure"] = 100000.0 + 50.0 * spatial_pattern
+    fields["mean_sea_level_pressure"] = surface_pressure_pa + 50.0 * spatial_pattern
     fields["2m_temperature"] = 285.0 + spatial_pattern
     fields["10m_u_component_of_wind"] = 2.0 + 0.1 * spatial_pattern
     fields["total_precipitation"] = jnp.zeros_like(spatial_pattern)

@@ -100,6 +100,14 @@ def _linear_interp_with_safe_extrap(x, xp, fp, n=1):
 
 
 @jax.jit
+def linear_interp_with_nearest_extrap(
+    x: typing.Numeric, xp: typing.Array, fp: typing.Array
+) -> jnp.ndarray:
+    """Linear interpolation with bounded nearest-level extrapolation."""
+    return interp(x, jnp.asarray(xp), fp)
+
+
+@jax.jit
 def linear_interp_with_linear_extrap(
     x: typing.Numeric, xp: typing.Array, fp: typing.Array
 ) -> jnp.ndarray:
