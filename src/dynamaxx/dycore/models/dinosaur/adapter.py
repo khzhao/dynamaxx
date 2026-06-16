@@ -61,6 +61,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_spectral_filter: bool = True
     horizontal_diffusion_order: int = 2
     horizontal_diffusion_tau_seconds: float | None = None
+    apply_digital_filter_initialization: bool = False
+    digital_filter_time_span_seconds: float = 6 * 3600.0
+    digital_filter_cutoff_seconds: float = 6 * 3600.0
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -165,32 +168,63 @@ class DinosaurPrimitiveEquationsDycoreModel:
             physics_specs,
             self.inner_step_seconds,
         )
-        step_fn = time_integration.imex_rk_sil3(equation, time_step=step_seconds)
+        filters = []
         if self.apply_spectral_filter:
-            step_fn = time_integration.step_with_filters(
-                step_fn,
-                [
-                    _horizontal_diffusion_step_filter(
-                        coords=coords,
-                        physics_specs=physics_specs,
-                        step_seconds=step_seconds,
-                        tau_seconds=self.horizontal_diffusion_tau_seconds,
-                        order=self.horizontal_diffusion_order,
-                    )
-                ],
+            filters.append(
+                _horizontal_diffusion_step_filter(
+                    coords=coords,
+                    physics_specs=physics_specs,
+                    step_seconds=step_seconds,
+                    tau_seconds=self.horizontal_diffusion_tau_seconds,
+                    order=self.horizontal_diffusion_order,
+                )
             )
+        step_fn = time_integration.imex_rk_sil3(equation, time_step=step_seconds)
+        if filters:
+            step_fn = time_integration.step_with_filters(step_fn, filters)
         trajectory_fn = time_integration.trajectory_from_step(
             step_fn,
             outer_steps=output_count,
             inner_steps=inner_steps,
             start_with_input=True,
         )
+        if self.apply_digital_filter_initialization:
+            digital_filter_time_span = _nondimensionalize_seconds(
+                physics_specs,
+                self.digital_filter_time_span_seconds,
+            )
+            digital_filter_cutoff_period = _nondimensionalize_seconds(
+                physics_specs,
+                self.digital_filter_cutoff_seconds,
+            )
+            initialize_state = time_integration.digital_filter_initialization(
+                equation,
+                time_integration.imex_rk_sil3,
+                filters,
+                time_span=digital_filter_time_span,
+                cutoff_period=digital_filter_cutoff_period,
+                dt=step_seconds,
+            )
+            base_trajectory_fn = trajectory_fn
+
+            def initialized_trajectory_fn(dinosaur_state):
+                return base_trajectory_fn(initialize_state(dinosaur_state))
+
+            trajectory_fn = initialized_trajectory_fn
         return jax.jit(trajectory_fn) if self.jit_forecast else trajectory_fn
 
 
 def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
     """Return the default Dinosaur primitive-equation dycore model."""
     return DinosaurPrimitiveEquationsDycoreModel()
+
+
+def digital_filter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the side-by-side Dinosaur candidate with fixed short DFI enabled."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name="dinosaur_dfi",
+        apply_digital_filter_initialization=True,
+    )
 
 
 def weather_state_to_dinosaur_state(

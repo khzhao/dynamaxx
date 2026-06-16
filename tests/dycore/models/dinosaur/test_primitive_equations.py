@@ -29,6 +29,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _reference_temperature,
     _unit_factor,
     dinosaur_state_to_weather_state,
+    digital_filter_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
     split_pressure_level_channel,
     supported_output_variables,
@@ -102,10 +103,23 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
 
     assert model.spectral_wavenumbers == DEFAULT_SPECTRAL_WAVENUMBERS == 80
     assert model.inner_step_seconds == DEFAULT_INNER_STEP_SECONDS == 900.0
+    assert not model.apply_digital_filter_initialization
+    assert model.digital_filter_time_span_seconds == 6 * SECONDS_PER_HOUR
+    assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
     assert _inner_steps_per_forecast_step(
         step_seconds=6 * SECONDS_PER_HOUR,
         inner_step_seconds=model.inner_step_seconds,
     ) == 24
+
+
+def test_digital_filter_dinosaur_factory_enables_fixed_initialization():
+    """The DFI candidate opts into the fixed short Lanczos initialization."""
+    model = digital_filter_dinosaur_dycore_model()
+
+    assert model.name == "dinosaur_dfi"
+    assert model.apply_digital_filter_initialization
+    assert model.digital_filter_time_span_seconds == 6 * SECONDS_PER_HOUR
+    assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
 
 
 def test_dinosaur_forecast_returns_requested_channels():
@@ -146,6 +160,57 @@ def test_dinosaur_forecast_returns_requested_channels():
         np.full((4, 3), 100000.0),
         rtol=1e-5,
     )
+
+
+def test_dinosaur_forecast_with_digital_filter_initialization_is_finite(monkeypatch):
+    """DFI preserves the forecast contract and emits finite requested outputs."""
+    dfi_calls = []
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(
+            {
+                "equation": equation,
+                "ode_solver": ode_solver,
+                "filters": filters,
+                "time_span": time_span,
+                "cutoff_period": cutoff_period,
+                "dt": dt,
+            }
+        )
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "temperature_250",
+        "u_component_of_wind_750",
+        "mean_sea_level_pressure",
+    )
+    model = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=3600.0,
+        output_variables=output_variables,
+        include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0, 1))
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    assert len(dfi_calls) == 1
 
 
 def test_dinosaur_forecast_handles_multiple_initial_times():
@@ -668,6 +733,139 @@ def test_trajectory_function_matches_direct_dinosaur_package_call():
         strict=True,
     ):
         np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+
+
+def test_trajectory_function_sets_up_digital_filter_initialization(monkeypatch):
+    """DFI uses the forecast equation, stepper, filters, and nondimensional units."""
+    dfi_calls = []
+    initialized_states = []
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(
+            {
+                "equation": equation,
+                "ode_solver": ode_solver,
+                "filters": filters,
+                "time_span": time_span,
+                "cutoff_period": cutoff_period,
+                "dt": dt,
+            }
+        )
+
+        def initialize_state(dinosaur_state):
+            initialized_state = _primitive_equation_state(
+                vorticity=dinosaur_state.vorticity,
+                divergence=dinosaur_state.divergence,
+                temperature_variation=dinosaur_state.temperature_variation
+                + jnp.float32(0.25),
+                log_surface_pressure=dinosaur_state.log_surface_pressure,
+                tracers=dinosaur_state.tracers,
+            )
+            initialized_states.append(initialized_state)
+            return initialized_state
+
+        return initialize_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    model = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=3600.0,
+        include_vertical_advection=False,
+        use_humidity_in_dynamics=False,
+        apply_digital_filter_initialization=True,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0, 1, 2))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=model.spectral_wavenumbers,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=model.reference_temperature_kelvin,
+    )
+    dinosaur_state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=(250, 750),
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+
+    wrapped_fn = model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+    _, wrapped_trajectory = wrapped_fn(dinosaur_state)
+
+    orography = jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32)
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        orography,
+        grid.coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=False,
+    )
+    step_seconds = _nondimensionalize_seconds(
+        physics_specs,
+        model.inner_step_seconds,
+    )
+    filters = [
+        _horizontal_diffusion_step_filter(
+            coords=grid.coords,
+            physics_specs=physics_specs,
+            step_seconds=step_seconds,
+            tau_seconds=model.horizontal_diffusion_tau_seconds,
+            order=model.horizontal_diffusion_order,
+        )
+    ]
+    first_wrapped_state = jax.tree_util.tree_map(
+        lambda trajectory_leaf: trajectory_leaf[0],
+        wrapped_trajectory,
+    )
+
+    assert len(dfi_calls) == 1
+    call = dfi_calls[0]
+    assert isinstance(call["equation"], primitive_equations.PrimitiveEquations)
+    assert call["ode_solver"] is time_integration.imex_rk_sil3
+    assert call["dt"] == step_seconds
+    assert call["time_span"] == _nondimensionalize_seconds(
+        physics_specs,
+        model.digital_filter_time_span_seconds,
+    )
+    assert call["cutoff_period"] == _nondimensionalize_seconds(
+        physics_specs,
+        model.digital_filter_cutoff_seconds,
+    )
+    assert len(call["filters"]) == len(filters) == 1
+    _assert_pytree_allclose(
+        call["filters"][0](dinosaur_state, dinosaur_state),
+        filters[0](dinosaur_state, dinosaur_state),
+    )
+    assert len(initialized_states) == 1
+    _assert_pytree_allclose(first_wrapped_state, initialized_states[0])
 
 
 def _initial_state(*, init_count: int) -> WeatherState:
