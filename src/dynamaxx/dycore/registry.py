@@ -21,9 +21,17 @@ def dinosaur_model() -> DycoreModel:
     return default_dinosaur_dycore_model()
 
 
+def dinosaur_dfi_model() -> DycoreModel:
+    """Return the Dinosaur primitive-equation dycore with DFI enabled."""
+    from dynamaxx.dycore.models.dinosaur import digital_filter_dinosaur_dycore_model
+
+    return digital_filter_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
+    "dinosaur_dfi": dinosaur_dfi_model,
 }
 
 
