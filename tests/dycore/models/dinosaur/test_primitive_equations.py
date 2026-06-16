@@ -8,7 +8,9 @@ import numpy as np
 import pytest
 
 from dynamaxx.dycore.models.dinosaur import (
+    held_suarez,
     primitive_equations,
+    scales,
     sigma_coordinates,
     spherical_harmonic,
     time_integration,
@@ -18,8 +20,12 @@ from dynamaxx.dycore.models.dinosaur import (
 from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SPECTRAL_WAVENUMBERS,
+    DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS,
+    DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY,
+    DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS,
     DinosaurPrimitiveEquationsDycoreModel,
     _apply_near_surface_residual_correction,
+    _compose_weak_held_suarez_equation,
     _horizontal_diffusion_step_filter,
     _inner_steps_per_forecast_step,
     _interp_sigma_to_pressure_by_time,
@@ -28,6 +34,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _primitive_equation,
     _primitive_equation_state,
     _reference_temperature,
+    _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
@@ -35,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     infer_dinosaur_pressure_levels,
     split_pressure_level_channel,
     supported_output_variables,
+    weak_held_suarez_dinosaur_dycore_model,
     weather_state_to_dinosaur_state,
 )
 from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
@@ -110,6 +118,16 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
     assert not model.apply_near_surface_residual_correction
     assert model.near_surface_residual_decay_hours == 48.0
+    assert not model.apply_weak_held_suarez_relaxation
+    assert model.weak_held_suarez_kf_per_day == DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY
+    assert (
+        model.weak_held_suarez_ka_timescale_days
+        == DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS
+    )
+    assert (
+        model.weak_held_suarez_ks_timescale_days
+        == DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS
+    )
     assert (
         _inner_steps_per_forecast_step(
             step_seconds=6 * SECONDS_PER_HOUR,
@@ -138,6 +156,19 @@ def test_digital_filter_surface_residual_factory_enables_guarded_correction():
     assert model.apply_digital_filter_initialization
     assert model.apply_near_surface_residual_correction
     assert model.near_surface_residual_decay_hours == 48.0
+
+
+def test_weak_held_suarez_factory_preserves_incumbent_corrections():
+    """The weak HS candidate keeps DFI and near-surface residual correction."""
+    model = weak_held_suarez_dinosaur_dycore_model()
+
+    assert model.name == "dinosaur_dfi_surface_residual_weak_hs"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.weak_held_suarez_kf_per_day == 0.0
+    assert model.weak_held_suarez_ka_timescale_days == 160.0
+    assert model.weak_held_suarez_ks_timescale_days == 16.0
 
 
 def test_dinosaur_forecast_returns_requested_channels():
@@ -229,6 +260,60 @@ def test_dinosaur_forecast_with_digital_filter_initialization_is_finite(monkeypa
     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
     assert bool(jnp.isfinite(forecast.values).all())
     assert len(dfi_calls) == 1
+
+
+def test_weak_held_suarez_forecast_returns_finite_requested_channels(monkeypatch):
+    """The forced DFI path preserves requested output channels and shapes."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("2m_temperature",)).values[0],
+        forecast_input.initial_state.select(("2m_temperature",)).values,
+    )
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
 
 
 def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
@@ -866,6 +951,160 @@ def test_equation_and_filter_helpers_match_direct_dinosaur_calls():
     )
 
     _assert_pytree_allclose(helper_filter(state, state), direct_filter(state, state))
+
+
+def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
+    """Weak HS composition combines one primitive equation with fixed forcing."""
+    compose_calls = []
+    real_compose_equations = time_integration.compose_equations
+
+    def capture_compose_equations(equations):
+        compose_calls.append(tuple(equations))
+        return real_compose_equations(equations)
+
+    monkeypatch.setattr(
+        time_integration,
+        "compose_equations",
+        capture_compose_equations,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    model = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        include_vertical_advection=False,
+        apply_weak_held_suarez_relaxation=True,
+        jit_forecast=False,
+    )
+
+    model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+
+    assert len(compose_calls) == 1
+    primitive_equation, forcing = compose_calls[0]
+    assert isinstance(primitive_equation, primitive_equations.PrimitiveEquations)
+    assert isinstance(forcing, _TracerSafeHeldSuarezForcingSigma)
+    day = scales.units.day
+    assert forcing.kf == physics_specs.nondimensionalize(0.0 / day)
+    np.testing.assert_allclose(
+        forcing.ka,
+        physics_specs.nondimensionalize(1 / (160.0 * day)),
+    )
+    np.testing.assert_allclose(
+        forcing.ks,
+        physics_specs.nondimensionalize(1 / (16.0 * day)),
+    )
+
+
+def test_weak_held_suarez_forcing_is_thermal_only_and_tracer_safe():
+    """The local forcing emits zero wind and matching zero tracer tendencies."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1), lead_steps=(0,)
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    dinosaur_state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    forcing = _TracerSafeHeldSuarezForcingSigma(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        kf=0.0 / scales.units.day,
+        ka=1 / (160.0 * scales.units.day),
+        ks=1 / (16.0 * scales.units.day),
+    )
+
+    tendency = forcing.explicit_terms(dinosaur_state)
+
+    np.testing.assert_array_equal(
+        tendency.vorticity, jnp.zeros_like(tendency.vorticity)
+    )
+    np.testing.assert_array_equal(
+        tendency.divergence,
+        jnp.zeros_like(tendency.divergence),
+    )
+    assert tendency.tracers.keys() == dinosaur_state.tracers.keys()
+    for tracer_name, tracer_tendency in tendency.tracers.items():
+        np.testing.assert_array_equal(
+            tracer_tendency,
+            jnp.zeros_like(dinosaur_state.tracers[tracer_name]),
+        )
+
+
+def test_weak_held_suarez_helper_uses_dinosaur_forcing_type():
+    """The helper composes a Dinosaur explicit forcing with primitive equations."""
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    orography = jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32)
+    equation = _primitive_equation(
+        reference_temperature=reference_temperature,
+        orography=orography,
+        coords=grid.coords,
+        physics_specs=cast(Any, physics_specs),
+        include_vertical_advection=False,
+        humidity_key=None,
+    )
+
+    composed_equation = _compose_weak_held_suarez_equation(
+        equation=equation,
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        kf_per_day=0.0,
+        ka_timescale_days=160.0,
+        ks_timescale_days=16.0,
+    )
+
+    assert isinstance(composed_equation, time_integration.ImplicitExplicitODE)
+    assert issubclass(
+        _TracerSafeHeldSuarezForcingSigma, held_suarez.HeldSuarezForcingSigma
+    )
 
 
 def test_trajectory_function_matches_direct_dinosaur_package_call():

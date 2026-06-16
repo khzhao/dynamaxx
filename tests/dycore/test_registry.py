@@ -12,6 +12,7 @@ def test_registry_lists_default_dycore_models():
         "dinosaur",
         "dinosaur_dfi",
         "dinosaur_dfi_surface_residual",
+        "dinosaur_dfi_surface_residual_weak_hs",
     )
 
 
@@ -40,6 +41,19 @@ def test_registry_creates_dinosaur_dfi_surface_residual_candidate_model():
     assert not create_dycore_model(
         "dinosaur_dfi"
     ).apply_near_surface_residual_correction
+
+
+def test_registry_creates_weak_held_suarez_candidate_model():
+    """The weak HS candidate is registered side by side with the incumbent."""
+    model = create_dycore_model("dinosaur_dfi_surface_residual_weak_hs")
+
+    assert model.name == "dinosaur_dfi_surface_residual_weak_hs"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert not create_dycore_model(
+        "dinosaur_dfi_surface_residual"
+    ).apply_weak_held_suarez_relaxation
 
 
 def test_registry_rejects_unknown_dycore_model():

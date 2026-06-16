@@ -37,11 +37,21 @@ def dinosaur_dfi_surface_residual_model() -> DycoreModel:
     return digital_filter_surface_residual_dinosaur_dycore_model()
 
 
+def dinosaur_dfi_surface_residual_weak_hs_model() -> DycoreModel:
+    """Return the DFI and residual dycore with weak HS thermal relaxation."""
+    from dynamaxx.dycore.models.dinosaur import weak_held_suarez_dinosaur_dycore_model
+
+    return weak_held_suarez_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
     "dinosaur_dfi": dinosaur_dfi_model,
     "dinosaur_dfi_surface_residual": dinosaur_dfi_surface_residual_model,
+    "dinosaur_dfi_surface_residual_weak_hs": (
+        dinosaur_dfi_surface_residual_weak_hs_model
+    ),
 }
 
 
