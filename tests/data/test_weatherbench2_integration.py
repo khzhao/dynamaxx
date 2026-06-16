@@ -7,15 +7,18 @@ from dynamaxx.data.weatherbench2 import WeatherBench2Source
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.s3,
+    pytest.mark.weatherbench2,
     pytest.mark.skipif(
-        os.environ.get("DYNAMAXX_RUN_S3_TESTS") != "1",
-        reason="set DYNAMAXX_RUN_S3_TESTS=1 to run real S3 tests",
+        os.environ.get("DYNAMAXX_RUN_WEATHERBENCH2_TESTS") != "1",
+        reason=(
+            "set DYNAMAXX_RUN_WEATHERBENCH2_TESTS=1 to run real WeatherBench2 "
+            "tests"
+        ),
     ),
 ]
 
 
-def test_weatherbench2_real_s3_smoke_read():
+def test_weatherbench2_real_data_smoke_read():
     source = WeatherBench2Source()
 
     state = source.read_state(
