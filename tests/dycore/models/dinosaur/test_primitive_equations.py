@@ -19,6 +19,7 @@ from dynamaxx.dycore.models.dinosaur import (
     vertical_interpolation,
 )
 from dynamaxx.dycore.models.dinosaur.adapter import (
+    _DRY_AIR_GAS_CONSTANT_SI,
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SPECTRAL_WAVENUMBERS,
     DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS,
@@ -28,6 +29,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _apply_near_surface_residual_correction,
     _compose_weak_held_suarez_equation,
     _horizontal_diffusion_step_filter,
+    _hydrostatic_temperature_from_geopotential_thickness,
     _inner_steps_per_forecast_step,
     _interp_sigma_to_pressure_by_time,
     _nondimensionalize_seconds,
@@ -40,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
+    hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
     log_pressure_initialization_dinosaur_dycore_model,
     split_pressure_level_channel,
@@ -197,6 +200,40 @@ def test_log_pressure_initialization_factory_preserves_incumbent_settings():
     assert model.weak_held_suarez_kf_per_day == 0.0
     assert model.weak_held_suarez_ka_timescale_days == 160.0
     assert model.weak_held_suarez_ks_timescale_days == 16.0
+
+
+def test_hydrostatic_temperature_initialization_factory_extends_incumbent():
+    """The hydrostatic candidate preserves incumbent settings and adds one flag."""
+    model = hydrostatic_temperature_initialization_dinosaur_dycore_model()
+    incumbent = log_pressure_initialization_dinosaur_dycore_model()
+
+    assert (
+        model.name
+        == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init"
+    )
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert model.use_hydrostatic_temperature_initialization
+    assert not incumbent.use_hydrostatic_temperature_initialization
+    assert model.inner_step_seconds == incumbent.inner_step_seconds == 900.0
+    assert model.spectral_wavenumbers == incumbent.spectral_wavenumbers == 80
+    assert model.apply_spectral_filter == incumbent.apply_spectral_filter
+    assert model.horizontal_diffusion_order == incumbent.horizontal_diffusion_order
+    assert model.horizontal_diffusion_tau_seconds is None
+    assert model.include_vertical_advection == incumbent.include_vertical_advection
+    assert model.reference_temperature_kelvin == incumbent.reference_temperature_kelvin
+    assert model.output_variables == incumbent.output_variables
+    assert model.weak_held_suarez_kf_per_day == incumbent.weak_held_suarez_kf_per_day
+    assert (
+        model.weak_held_suarez_ka_timescale_days
+        == incumbent.weak_held_suarez_ka_timescale_days
+    )
+    assert (
+        model.weak_held_suarez_ks_timescale_days
+        == incumbent.weak_held_suarez_ks_timescale_days
+    )
 
 
 def test_dinosaur_forecast_returns_requested_channels():
@@ -396,6 +433,51 @@ def test_log_pressure_initialization_candidate_forecast_is_finite(monkeypatch):
     forecast = model.forecast(forecast_input)
 
     assert log_pressure_calls == [True]
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
+def test_hydrostatic_temperature_initialization_candidate_forecast_is_finite(
+    monkeypatch,
+):
+    """The side-by-side hydrostatic candidate runs a small non-JIT forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        hydrostatic_temperature_initialization_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
     assert forecast.variables == output_variables
     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
     assert bool(jnp.isfinite(forecast.values).all())
@@ -751,6 +833,101 @@ def test_log_pressure_initialization_matches_log_linear_profile():
 
     np.testing.assert_allclose(log_pressure_result, expected, rtol=1e-6, atol=1e-6)
     assert float(jnp.max(jnp.abs(linear_pressure_result - expected))) > 0.05
+
+
+def test_hydrostatic_temperature_initialization_matches_isothermal_thickness():
+    """Hydrostatic reconstruction differentiates geopotential in log pressure."""
+    pressure_levels_hpa = (100, 300, 900)
+    temperature_kelvin = 270.0
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=jnp.float32))
+    spatial_offset = jnp.arange(12, dtype=jnp.float32).reshape(4, 3)
+    geopotential = (
+        80_000.0
+        - _DRY_AIR_GAS_CONSTANT_SI
+        * temperature_kelvin
+        * log_pressure[:, jnp.newaxis, jnp.newaxis]
+        + spatial_offset[jnp.newaxis, ...]
+    )
+    analyzed_temperature = jnp.full_like(geopotential, 250.0)
+
+    actual = _hydrostatic_temperature_from_geopotential_thickness(
+        analyzed_temperature=analyzed_temperature,
+        geopotential=geopotential,
+        pressure_levels_hpa=pressure_levels_hpa,
+    )
+
+    np.testing.assert_allclose(actual, temperature_kelvin, rtol=1e-6, atol=1e-4)
+
+
+def test_hydrostatic_temperature_initialization_converts_virtual_temperature():
+    """Complete humidity stacks convert hydrostatic virtual temperature to dry T."""
+    pressure_levels_hpa = (100, 300, 900)
+    dry_temperature_kelvin = 280.0
+    specific_humidity = jnp.full((3, 4, 3), 0.01, dtype=jnp.float32)
+    gas_constant_ratio = 461.0 / _DRY_AIR_GAS_CONSTANT_SI
+    virtual_temperature = dry_temperature_kelvin * (
+        1.0 + (gas_constant_ratio - 1.0) * specific_humidity
+    )
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=jnp.float32))
+    geopotential = (
+        100_000.0
+        - _DRY_AIR_GAS_CONSTANT_SI
+        * virtual_temperature
+        * log_pressure[:, jnp.newaxis, jnp.newaxis]
+    )
+    analyzed_temperature = jnp.full_like(geopotential, 250.0)
+
+    actual = _hydrostatic_temperature_from_geopotential_thickness(
+        analyzed_temperature=analyzed_temperature,
+        geopotential=geopotential,
+        pressure_levels_hpa=pressure_levels_hpa,
+        specific_humidity=specific_humidity,
+    )
+
+    np.testing.assert_allclose(
+        actual,
+        dry_temperature_kelvin,
+        rtol=1e-6,
+        atol=1e-4,
+    )
+
+
+def test_hydrostatic_temperature_initialization_falls_back_without_geopotential():
+    """Incomplete geopotential stacks preserve incumbent initialized state exactly."""
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    weather_state = WeatherState(
+        values=forecast_input.initial_state.values[0],
+        variables=forecast_input.initial_state.variables,
+    )
+    common_kwargs = {
+        "state": weather_state,
+        "coords": grid.coords,
+        "pressure_levels_hpa": (250, 750),
+        "latitude_reversed": grid.latitude_reversed,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "include_humidity": True,
+        "use_log_pressure_initialization": True,
+    }
+
+    incumbent = weather_state_to_dinosaur_state(**common_kwargs)
+    candidate = weather_state_to_dinosaur_state(
+        **common_kwargs,
+        use_hydrostatic_temperature_initialization=True,
+    )
+
+    _assert_pytree_allclose(candidate, incumbent)
 
 
 def test_weather_state_to_dinosaur_state_matches_direct_dinosaur_initialization():

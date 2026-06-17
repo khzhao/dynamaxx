@@ -46,6 +46,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     default_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
+    hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
 )
@@ -67,6 +68,7 @@ __all__ = [
     "filtering",
     "fourier",
     "held_suarez",
+    "hydrostatic_temperature_initialization_dinosaur_dycore_model",
     "horizontal_interpolation",
     "hybrid_coordinates",
     "jax_numpy_utils",
