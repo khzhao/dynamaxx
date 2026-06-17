@@ -74,6 +74,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_humidity_in_dynamics: bool = False
     use_log_pressure_initialization: bool = False
     use_hydrostatic_temperature_initialization: bool = False
+    use_layer_mean_hydrostatic_temperature_initialization: bool = False
     apply_spectral_filter: bool = True
     horizontal_diffusion_order: int = 2
     horizontal_diffusion_tau_seconds: float | None = None
@@ -153,6 +154,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 use_log_pressure_initialization=self.use_log_pressure_initialization,
                 use_hydrostatic_temperature_initialization=(
                     self.use_hydrostatic_temperature_initialization
+                ),
+                use_layer_mean_hydrostatic_temperature_initialization=(
+                    self.use_layer_mean_hydrostatic_temperature_initialization
                 ),
             )
             _, trajectory = trajectory_fn(dinosaur_state)
@@ -327,6 +331,21 @@ def hydrostatic_temperature_initialization_dinosaur_dycore_model() -> (
     )
 
 
+def layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the hydrostatic candidate with layer-mean temperature estimates."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name="dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init",
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -338,6 +357,7 @@ def weather_state_to_dinosaur_state(
     include_humidity: bool,
     use_log_pressure_initialization: bool = False,
     use_hydrostatic_temperature_initialization: bool = False,
+    use_layer_mean_hydrostatic_temperature_initialization: bool = False,
 ) -> Any:
     """Convert one packed WeatherState initialization into Dinosaur state."""
     temperature = _stack_pressure_level_channels(
@@ -366,12 +386,22 @@ def weather_state_to_dinosaur_state(
                 SPECIFIC_HUMIDITY_VARIABLE,
                 pressure_levels_hpa,
             )
-        temperature = _hydrostatic_temperature_from_geopotential_thickness(
-            analyzed_temperature=temperature,
-            geopotential=geopotential,
-            pressure_levels_hpa=pressure_levels_hpa,
-            specific_humidity=specific_humidity,
-        )
+        if use_layer_mean_hydrostatic_temperature_initialization:
+            temperature = (
+                _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+                    analyzed_temperature=temperature,
+                    geopotential=geopotential,
+                    pressure_levels_hpa=pressure_levels_hpa,
+                    specific_humidity=specific_humidity,
+                )
+            )
+        else:
+            temperature = _hydrostatic_temperature_from_geopotential_thickness(
+                analyzed_temperature=temperature,
+                geopotential=geopotential,
+                pressure_levels_hpa=pressure_levels_hpa,
+                specific_humidity=specific_humidity,
+            )
     u_wind = _stack_pressure_level_channels(state, U_WIND_VARIABLE, pressure_levels_hpa)
     v_wind = _stack_pressure_level_channels(state, V_WIND_VARIABLE, pressure_levels_hpa)
 
@@ -730,6 +760,62 @@ def _hydrostatic_temperature_from_geopotential_thickness(
 
     valid_temperature = jnp.isfinite(dry_temperature) & (dry_temperature > 0.0)
     return jnp.where(valid_temperature, dry_temperature, analyzed_temperature)
+
+
+def _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+    *,
+    analyzed_temperature: jax.Array,
+    geopotential: jax.Array,
+    pressure_levels_hpa: tuple[int, ...],
+    specific_humidity: jax.Array | None = None,
+    dry_air_gas_constant: float = _DRY_AIR_GAS_CONSTANT_SI,
+    water_vapor_gas_constant: float = _WATER_VAPOR_GAS_CONSTANT_SI,
+) -> jax.Array:
+    """Estimate dry temperature from adjacent-layer hypsometric thicknesses."""
+    if len(pressure_levels_hpa) < 2:
+        return analyzed_temperature
+
+    log_pressure = jnp.log(
+        jnp.asarray(pressure_levels_hpa, dtype=geopotential.dtype)
+    )
+    dry_air_gas_constant = jnp.asarray(
+        dry_air_gas_constant,
+        dtype=geopotential.dtype,
+    )
+    log_pressure_difference = log_pressure[1:] - log_pressure[:-1]
+    geopotential_difference = geopotential[1:] - geopotential[:-1]
+    layer_virtual_temperature = -geopotential_difference / (
+        dry_air_gas_constant
+        * log_pressure_difference[:, jnp.newaxis, jnp.newaxis]
+    )
+
+    layer_dry_temperature = layer_virtual_temperature
+    if specific_humidity is not None:
+        gas_constant_ratio = jnp.asarray(
+            water_vapor_gas_constant / dry_air_gas_constant,
+            dtype=geopotential.dtype,
+        )
+        layer_specific_humidity = 0.5 * (
+            specific_humidity[1:] + specific_humidity[:-1]
+        )
+        bounded_humidity = jnp.clip(layer_specific_humidity, 0.0, 1.0)
+        virtual_temperature_factor = 1.0 + (
+            gas_constant_ratio - 1.0
+        ) * bounded_humidity
+        layer_dry_temperature = layer_virtual_temperature / virtual_temperature_factor
+
+    level_dry_temperature = jnp.concatenate(
+        [
+            layer_dry_temperature[:1],
+            0.5 * (layer_dry_temperature[1:] + layer_dry_temperature[:-1]),
+            layer_dry_temperature[-1:],
+        ],
+        axis=0,
+    )
+    valid_temperature = jnp.isfinite(level_dry_temperature) & (
+        level_dry_temperature > 0.0
+    )
+    return jnp.where(valid_temperature, level_dry_temperature, analyzed_temperature)
 
 
 def _to_dinosaur_latitude_order(

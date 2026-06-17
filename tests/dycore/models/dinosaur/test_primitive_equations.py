@@ -32,6 +32,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _hydrostatic_temperature_from_geopotential_thickness,
     _inner_steps_per_forecast_step,
     _interp_sigma_to_pressure_by_time,
+    _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
     _nondimensionalize_seconds,
     _pressure_coordinates,
     _primitive_equation,
@@ -44,6 +45,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     dinosaur_state_to_weather_state,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
+    layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     split_pressure_level_channel,
     supported_output_variables,
@@ -217,6 +219,41 @@ def test_hydrostatic_temperature_initialization_factory_extends_incumbent():
     assert model.use_log_pressure_initialization
     assert model.use_hydrostatic_temperature_initialization
     assert not incumbent.use_hydrostatic_temperature_initialization
+    assert model.inner_step_seconds == incumbent.inner_step_seconds == 900.0
+    assert model.spectral_wavenumbers == incumbent.spectral_wavenumbers == 80
+    assert model.apply_spectral_filter == incumbent.apply_spectral_filter
+    assert model.horizontal_diffusion_order == incumbent.horizontal_diffusion_order
+    assert model.horizontal_diffusion_tau_seconds is None
+    assert model.include_vertical_advection == incumbent.include_vertical_advection
+    assert model.reference_temperature_kelvin == incumbent.reference_temperature_kelvin
+    assert model.output_variables == incumbent.output_variables
+    assert model.weak_held_suarez_kf_per_day == incumbent.weak_held_suarez_kf_per_day
+    assert (
+        model.weak_held_suarez_ka_timescale_days
+        == incumbent.weak_held_suarez_ka_timescale_days
+    )
+    assert (
+        model.weak_held_suarez_ks_timescale_days
+        == incumbent.weak_held_suarez_ks_timescale_days
+    )
+
+
+def test_layer_mean_hydrostatic_temperature_initialization_factory_extends_incumbent():
+    """The layer-mean candidate preserves incumbent settings and changes estimator."""
+    model = layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model()
+    incumbent = hydrostatic_temperature_initialization_dinosaur_dycore_model()
+
+    assert (
+        model.name
+        == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init"
+    )
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert model.use_hydrostatic_temperature_initialization
+    assert model.use_layer_mean_hydrostatic_temperature_initialization
+    assert not incumbent.use_layer_mean_hydrostatic_temperature_initialization
     assert model.inner_step_seconds == incumbent.inner_step_seconds == 900.0
     assert model.spectral_wavenumbers == incumbent.spectral_wavenumbers == 80
     assert model.apply_spectral_filter == incumbent.apply_spectral_filter
@@ -890,6 +927,159 @@ def test_hydrostatic_temperature_initialization_converts_virtual_temperature():
         rtol=1e-6,
         atol=1e-4,
     )
+
+
+def test_layer_mean_hydrostatic_temperature_initialization_uses_adjacent_layers():
+    """Layer-mean reconstruction maps hypsometric layer temperatures to levels."""
+    pressure_levels_hpa = (100, 300, 600, 900)
+    layer_virtual_temperature = jnp.asarray([220.0, 250.0, 280.0], dtype=jnp.float32)
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=jnp.float32))
+    layer_thickness = (
+        _DRY_AIR_GAS_CONSTANT_SI
+        * layer_virtual_temperature
+        * (log_pressure[1:] - log_pressure[:-1])
+    )
+    base_geopotential = 90_000.0
+    geopotential_profile = jnp.concatenate(
+        [
+            jnp.asarray([base_geopotential], dtype=jnp.float32),
+            base_geopotential - jnp.cumsum(layer_thickness),
+        ]
+    )
+    geopotential = geopotential_profile[:, jnp.newaxis, jnp.newaxis] + jnp.zeros(
+        (4, 2, 3),
+        dtype=jnp.float32,
+    )
+    analyzed_temperature = jnp.full_like(geopotential, 260.0)
+
+    actual = _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+        analyzed_temperature=analyzed_temperature,
+        geopotential=geopotential,
+        pressure_levels_hpa=pressure_levels_hpa,
+    )
+
+    expected_profile = jnp.asarray([220.0, 235.0, 265.0, 280.0], dtype=jnp.float32)
+    expected = expected_profile[:, jnp.newaxis, jnp.newaxis] + jnp.zeros(
+        (4, 2, 3),
+        dtype=jnp.float32,
+    )
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-4)
+
+
+def test_layer_mean_hydrostatic_temperature_initialization_converts_humidity():
+    """Layer humidity converts virtual layer means to dry level temperatures."""
+    pressure_levels_hpa = (100, 300, 900)
+    dry_layer_temperature = jnp.asarray([270.0, 290.0], dtype=jnp.float32)
+    specific_humidity = jnp.stack(
+        [
+            jnp.full((2, 3), 0.01, dtype=jnp.float32),
+            jnp.full((2, 3), 0.03, dtype=jnp.float32),
+            jnp.full((2, 3), 0.05, dtype=jnp.float32),
+        ],
+        axis=0,
+    )
+    layer_specific_humidity = 0.5 * (
+        specific_humidity[1:, 0, 0] + specific_humidity[:-1, 0, 0]
+    )
+    gas_constant_ratio = 461.0 / _DRY_AIR_GAS_CONSTANT_SI
+    layer_virtual_temperature = dry_layer_temperature * (
+        1.0 + (gas_constant_ratio - 1.0) * layer_specific_humidity
+    )
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=jnp.float32))
+    layer_thickness = (
+        _DRY_AIR_GAS_CONSTANT_SI
+        * layer_virtual_temperature
+        * (log_pressure[1:] - log_pressure[:-1])
+    )
+    geopotential_profile = jnp.concatenate(
+        [
+            jnp.asarray([100_000.0], dtype=jnp.float32),
+            100_000.0 - jnp.cumsum(layer_thickness),
+        ]
+    )
+    geopotential = geopotential_profile[:, jnp.newaxis, jnp.newaxis] + jnp.zeros(
+        (3, 2, 3),
+        dtype=jnp.float32,
+    )
+    analyzed_temperature = jnp.full_like(geopotential, 250.0)
+
+    actual = _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+        analyzed_temperature=analyzed_temperature,
+        geopotential=geopotential,
+        pressure_levels_hpa=pressure_levels_hpa,
+        specific_humidity=specific_humidity,
+    )
+
+    expected_profile = jnp.asarray([270.0, 280.0, 290.0], dtype=jnp.float32)
+    expected = expected_profile[:, jnp.newaxis, jnp.newaxis] + jnp.zeros(
+        (3, 2, 3),
+        dtype=jnp.float32,
+    )
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-4)
+
+
+def test_layer_mean_hydrostatic_temperature_initialization_falls_back_pointwise():
+    """Invalid reconstructed level temperatures fall back to analyzed values."""
+    pressure_levels_hpa = (100, 300, 900)
+    analyzed_temperature = jnp.asarray(
+        [
+            [[251.0, 252.0]],
+            [[261.0, 262.0]],
+            [[271.0, 272.0]],
+        ],
+        dtype=jnp.float32,
+    )
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=jnp.float32))
+    positive_temperature = 280.0
+    negative_temperature = -700.0
+    layer_0 = (
+        _DRY_AIR_GAS_CONSTANT_SI
+        * positive_temperature
+        * (log_pressure[1] - log_pressure[0])
+    )
+    layer_1 = (
+        _DRY_AIR_GAS_CONSTANT_SI
+        * negative_temperature
+        * (log_pressure[2] - log_pressure[1])
+    )
+    geopotential = jnp.asarray(
+        [
+            [[100_000.0, 100_000.0]],
+            [[100_000.0 - layer_0, jnp.nan]],
+            [[100_000.0 - layer_0 - layer_1, jnp.nan]],
+        ],
+        dtype=jnp.float32,
+    )
+
+    actual = _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+        analyzed_temperature=analyzed_temperature,
+        geopotential=geopotential,
+        pressure_levels_hpa=pressure_levels_hpa,
+    )
+
+    expected = jnp.asarray(
+        [
+            [[positive_temperature, 252.0]],
+            [[261.0, 262.0]],
+            [[271.0, 272.0]],
+        ],
+        dtype=jnp.float32,
+    )
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-4)
+
+
+def test_layer_mean_hydrostatic_temperature_initialization_needs_two_levels():
+    """Single-level stacks cannot define thickness and preserve analyzed T."""
+    analyzed_temperature = jnp.asarray([[[255.0, 256.0]]], dtype=jnp.float32)
+    geopotential = jnp.asarray([[[10_000.0, 11_000.0]]], dtype=jnp.float32)
+
+    actual = _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+        analyzed_temperature=analyzed_temperature,
+        geopotential=geopotential,
+        pressure_levels_hpa=(500,),
+    )
+
+    np.testing.assert_array_equal(actual, analyzed_temperature)
 
 
 def test_hydrostatic_temperature_initialization_falls_back_without_geopotential():
