@@ -66,6 +66,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     output_variables: tuple[str, ...] | None = None
     include_vertical_advection: bool = True
     use_humidity_in_dynamics: bool = False
+    use_log_pressure_initialization: bool = False
     apply_spectral_filter: bool = True
     horizontal_diffusion_order: int = 2
     horizontal_diffusion_tau_seconds: float | None = None
@@ -142,6 +143,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 physics_specs=physics_specs,
                 reference_temperature=reference_temperature,
                 include_humidity=has_humidity,
+                use_log_pressure_initialization=self.use_log_pressure_initialization,
             )
             _, trajectory = trajectory_fn(dinosaur_state)
             trajectory_state = dinosaur_state_to_weather_state(
@@ -288,6 +290,19 @@ def weak_held_suarez_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycore
     )
 
 
+def log_pressure_initialization_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with log-pressure pressure-to-sigma initialization."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name="dinosaur_dfi_surface_residual_weak_hs_logp_init",
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_log_pressure_initialization=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -297,6 +312,7 @@ def weather_state_to_dinosaur_state(
     physics_specs: Any,
     reference_temperature: np.ndarray,
     include_humidity: bool,
+    use_log_pressure_initialization: bool = False,
 ) -> Any:
     """Convert one packed WeatherState initialization into Dinosaur state."""
     temperature = _stack_pressure_level_channels(
@@ -334,7 +350,12 @@ def weather_state_to_dinosaur_state(
         )
         humidity = _to_dinosaur_latitude_order(humidity, latitude_reversed)
         nodal_inputs[SPECIFIC_HUMIDITY_VARIABLE] = humidity
-    nodal_inputs = vertical_interpolation.interp_pressure_to_sigma(
+    pressure_to_sigma = (
+        vertical_interpolation.interp_pressure_to_sigma_log_pressure
+        if use_log_pressure_initialization
+        else vertical_interpolation.interp_pressure_to_sigma
+    )
+    nodal_inputs = pressure_to_sigma(
         nodal_inputs,
         pressure_coords,
         sigma_coords,

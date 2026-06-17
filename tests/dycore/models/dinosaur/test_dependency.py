@@ -41,6 +41,9 @@ assert dinosaur.default_dinosaur_dycore_model().name == "dinosaur"
 assert dinosaur.weak_held_suarez_dinosaur_dycore_model().name == (
     "dinosaur_dfi_surface_residual_weak_hs"
 )
+assert dinosaur.log_pressure_initialization_dinosaur_dycore_model().name == (
+    "dinosaur_dfi_surface_residual_weak_hs_logp_init"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -99,6 +102,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dinosaur_dfi",
         "dinosaur_dfi_surface_residual",
         "dinosaur_dfi_surface_residual_weak_hs",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init",
     )
 
     model = create_dycore_model("dinosaur")
@@ -134,6 +138,26 @@ def test_dinosaur_weak_held_suarez_is_registered_as_candidate():
     assert model.apply_digital_filter_initialization
     assert model.apply_near_surface_residual_correction
     assert model.apply_weak_held_suarez_relaxation
+    assert not model.use_log_pressure_initialization
+
+
+def test_dinosaur_log_pressure_initialization_is_registered_as_candidate():
+    """The log-pressure candidate is available without replacing the incumbent."""
+    model = create_dycore_model("dinosaur_dfi_surface_residual_weak_hs_logp_init")
+    incumbent = create_dycore_model("dinosaur_dfi_surface_residual_weak_hs")
+
+    assert model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert model.inner_step_seconds == 900.0
+    assert model.spectral_wavenumbers == 80
+    assert model.apply_spectral_filter
+    assert model.horizontal_diffusion_order == 2
+    assert model.horizontal_diffusion_tau_seconds is None
+    assert model.include_vertical_advection
+    assert not incumbent.use_log_pressure_initialization
 
 
 def test_dinosaur_has_local_runtime_modules_and_data():
