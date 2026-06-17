@@ -14,6 +14,7 @@ def test_registry_lists_default_dycore_models():
         "dinosaur_dfi_surface_residual",
         "dinosaur_dfi_surface_residual_weak_hs",
         "dinosaur_dfi_surface_residual_weak_hs_logp_init",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init",
     )
 
 
@@ -75,6 +76,31 @@ def test_registry_creates_log_pressure_initialization_candidate_model():
     assert model.horizontal_diffusion_tau_seconds is None
     assert model.include_vertical_advection
     assert not incumbent.use_log_pressure_initialization
+
+
+def test_registry_creates_hydrostatic_initialization_candidate_model():
+    """The hydrostatic candidate is registered without replacing the incumbent."""
+    model = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init"
+    )
+    incumbent = create_dycore_model("dinosaur_dfi_surface_residual_weak_hs_logp_init")
+
+    assert (
+        model.name
+        == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init"
+    )
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert model.use_hydrostatic_temperature_initialization
+    assert model.inner_step_seconds == 900.0
+    assert model.spectral_wavenumbers == 80
+    assert model.apply_spectral_filter
+    assert model.horizontal_diffusion_order == 2
+    assert model.horizontal_diffusion_tau_seconds is None
+    assert model.include_vertical_advection
+    assert not incumbent.use_hydrostatic_temperature_initialization
 
 
 def test_registry_rejects_unknown_dycore_model():
