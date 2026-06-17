@@ -1,5 +1,6 @@
 # Copyright 2026 dynamaxx
 
+from dataclasses import replace
 from typing import Any, cast
 
 import jax
@@ -40,6 +41,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
     infer_dinosaur_pressure_levels,
+    log_pressure_initialization_dinosaur_dycore_model,
     split_pressure_level_channel,
     supported_output_variables,
     weak_held_suarez_dinosaur_dycore_model,
@@ -118,6 +120,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
     assert not model.apply_near_surface_residual_correction
     assert model.near_surface_residual_decay_hours == 48.0
+    assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert model.weak_held_suarez_kf_per_day == DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY
     assert (
@@ -166,6 +169,31 @@ def test_weak_held_suarez_factory_preserves_incumbent_corrections():
     assert model.apply_digital_filter_initialization
     assert model.apply_near_surface_residual_correction
     assert model.apply_weak_held_suarez_relaxation
+    assert not model.use_log_pressure_initialization
+    assert model.weak_held_suarez_kf_per_day == 0.0
+    assert model.weak_held_suarez_ka_timescale_days == 160.0
+    assert model.weak_held_suarez_ks_timescale_days == 16.0
+
+
+def test_log_pressure_initialization_factory_preserves_incumbent_settings():
+    """The log-pressure candidate keeps the accepted weak HS configuration."""
+    model = log_pressure_initialization_dinosaur_dycore_model()
+    incumbent = weak_held_suarez_dinosaur_dycore_model()
+
+    assert model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init"
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert not incumbent.use_log_pressure_initialization
+    assert model.inner_step_seconds == DEFAULT_INNER_STEP_SECONDS == 900.0
+    assert model.spectral_wavenumbers == DEFAULT_SPECTRAL_WAVENUMBERS == 80
+    assert model.apply_spectral_filter
+    assert model.horizontal_diffusion_order == 2
+    assert model.horizontal_diffusion_tau_seconds is None
+    assert model.include_vertical_advection
+    assert model.reference_temperature_kelvin == 250.0
+    assert model.output_variables is None
     assert model.weak_held_suarez_kf_per_day == 0.0
     assert model.weak_held_suarez_ka_timescale_days == 160.0
     assert model.weak_held_suarez_ks_timescale_days == 16.0
@@ -314,6 +342,63 @@ def test_weak_held_suarez_forecast_returns_finite_requested_channels(monkeypatch
         forecast.select(("10m_u_component_of_wind",)).values[0],
         forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
     )
+
+
+def test_log_pressure_initialization_candidate_forecast_is_finite(monkeypatch):
+    """The side-by-side log-pressure candidate runs a small non-JIT forecast."""
+    log_pressure_calls = []
+    real_log_pressure_interpolation = (
+        vertical_interpolation.interp_pressure_to_sigma_log_pressure
+    )
+
+    def record_log_pressure_interpolation(*args, **kwargs):
+        log_pressure_calls.append(True)
+        return real_log_pressure_interpolation(*args, **kwargs)
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        vertical_interpolation,
+        "interp_pressure_to_sigma_log_pressure",
+        record_log_pressure_interpolation,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        log_pressure_initialization_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert log_pressure_calls == [True]
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
 
 
 def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
@@ -568,6 +653,104 @@ def test_weather_state_to_dinosaur_state_regrids_pressure_levels_to_sigma():
     )
     np.testing.assert_allclose(sigma_temperature[0], 250.0, atol=1e-4)
     np.testing.assert_allclose(sigma_temperature[1], 285.0, atol=1e-4)
+
+
+def test_weather_state_to_dinosaur_state_selects_initialization_coordinate(
+    monkeypatch,
+):
+    """Default initialization stays linear; the candidate option uses log pressure."""
+    calls = []
+
+    def record_linear(fields, pressure_coords, sigma_coords, surface_pressure):
+        calls.append("linear")
+        return fields
+
+    def record_log_pressure(fields, pressure_coords, sigma_coords, surface_pressure):
+        calls.append("log_pressure")
+        return fields
+
+    monkeypatch.setattr(
+        vertical_interpolation,
+        "interp_pressure_to_sigma",
+        record_linear,
+    )
+    monkeypatch.setattr(
+        vertical_interpolation,
+        "interp_pressure_to_sigma_log_pressure",
+        record_log_pressure,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    weather_state = WeatherState(
+        values=forecast_input.initial_state.values[0],
+        variables=forecast_input.initial_state.variables,
+    )
+
+    weather_state_to_dinosaur_state(
+        weather_state,
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    assert calls == ["linear"]
+
+    calls.clear()
+    weather_state_to_dinosaur_state(
+        weather_state,
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+        use_log_pressure_initialization=True,
+    )
+    assert calls == ["log_pressure"]
+
+
+def test_log_pressure_initialization_matches_log_linear_profile():
+    """Log-pressure interpolation matches profiles linear in log pressure."""
+    pressure_coords = _pressure_coordinates((100, 500, 1000))
+    sigma_coords = sigma_coordinates.SigmaCoordinates.equidistant(3)
+    source_pressure = jnp.asarray(pressure_coords.centers, dtype=jnp.float32)
+    field = (2.5 + 4.0 * jnp.log(source_pressure))[:, np.newaxis, np.newaxis]
+    fields = {"temperature": field}
+    surface_pressure = jnp.full((1, 1), 900.0, dtype=jnp.float32)
+
+    log_pressure_result = vertical_interpolation.interp_pressure_to_sigma_log_pressure(
+        fields,
+        pressure_coords,
+        sigma_coords,
+        surface_pressure,
+    )["temperature"]
+    linear_pressure_result = vertical_interpolation.interp_pressure_to_sigma(
+        fields,
+        pressure_coords,
+        sigma_coords,
+        surface_pressure,
+    )["temperature"]
+    target_pressure = sigma_coords.centers[:, np.newaxis, np.newaxis] * surface_pressure
+    expected = 2.5 + 4.0 * jnp.log(target_pressure)
+
+    np.testing.assert_allclose(log_pressure_result, expected, rtol=1e-6, atol=1e-6)
+    assert float(jnp.max(jnp.abs(linear_pressure_result - expected))) > 0.05
 
 
 def test_weather_state_to_dinosaur_state_matches_direct_dinosaur_initialization():

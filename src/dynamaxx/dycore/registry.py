@@ -44,6 +44,15 @@ def dinosaur_dfi_surface_residual_weak_hs_model() -> DycoreModel:
     return weak_held_suarez_dinosaur_dycore_model()
 
 
+def dinosaur_dfi_surface_residual_weak_hs_logp_init_model() -> DycoreModel:
+    """Return the weak HS dycore with log-pressure initialization."""
+    from dynamaxx.dycore.models.dinosaur import (
+        log_pressure_initialization_dinosaur_dycore_model,
+    )
+
+    return log_pressure_initialization_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -51,6 +60,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dinosaur_dfi_surface_residual": dinosaur_dfi_surface_residual_model,
     "dinosaur_dfi_surface_residual_weak_hs": (
         dinosaur_dfi_surface_residual_weak_hs_model
+    ),
+    "dinosaur_dfi_surface_residual_weak_hs_logp_init": (
+        dinosaur_dfi_surface_residual_weak_hs_logp_init_model
     ),
 }
 

@@ -46,6 +46,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     default_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
+    log_pressure_initialization_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "jax_numpy_utils",
     "layer_coordinates",
     "leapfrog_utils",
+    "log_pressure_initialization_dinosaur_dycore_model",
     "primitive_equations",
     "primitive_equations_states",
     "pytree_utils",

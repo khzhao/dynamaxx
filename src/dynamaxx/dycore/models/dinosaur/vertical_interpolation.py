@@ -244,6 +244,38 @@ def interp_pressure_to_sigma(
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2, 4))
+def interp_pressure_to_sigma_log_pressure(
+    fields: typing.Pytree,
+    pressure_coords: PressureCoordinates,
+    sigma_coords: sigma_coordinates.SigmaCoordinates,
+    surface_pressure: typing.Array,
+    interpolate_fn: InterpolateFn = (
+        vectorize_vertical_interpolation(_linear_interp_with_safe_extrap)
+    ),
+    minimum_pressure: float = 1.0e-6,
+) -> typing.Pytree:
+    """Interpolate 3D fields from pressure to sigma levels in log-pressure."""
+    desired_pressure = (
+        sigma_coords.centers[:, np.newaxis, np.newaxis] * surface_pressure
+    )
+    minimum_pressure = jnp.asarray(minimum_pressure, dtype=desired_pressure.dtype)
+    desired = jnp.log(jnp.maximum(desired_pressure, minimum_pressure))
+    source = jnp.log(jnp.asarray(pressure_coords.centers))
+    regrid = lambda x: interpolate_fn(desired, source, x)
+
+    def cond_fn(x) -> bool:
+        shape = jnp.shape(x)
+        return len(shape) >= 3 and shape[-3] == pressure_coords.centers.shape[0]
+
+    return pytree_utils.tree_map_where(
+        condition_fn=cond_fn,
+        f=regrid,
+        g=lambda x: x,
+        x=fields,
+    )
+
+
+@functools.partial(jax.jit, static_argnums=(1, 2, 4))
 def interp_sigma_to_pressure(
     fields: typing.Pytree,
     pressure_coords: PressureCoordinates,
