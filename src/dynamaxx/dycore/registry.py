@@ -75,6 +75,13 @@ def dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_model
     return layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model()
 
 
+def dinosaur_coriolis_split_model() -> DycoreModel:
+    """Return the layer-mean incumbent with exact Coriolis rollout splitting."""
+    from dynamaxx.dycore.models.dinosaur import coriolis_split_dinosaur_dycore_model
+
+    return coriolis_split_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -92,6 +99,10 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init": (
         dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_model
     ),
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_split"
+    ): dinosaur_coriolis_split_model,
 }
 
 
