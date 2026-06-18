@@ -42,6 +42,12 @@ from dynamaxx.dycore.models.dinosaur import (
 Array = typing.Array
 Numeric = typing.Numeric
 Quantity = typing.Quantity
+TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE = "temperature"
+TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE = "potential_temperature"
+TEMPERATURE_TENDENCY_FORMULATIONS = (
+    TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE,
+    TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE,
+)
 
 OrographyInitFn = Callable[..., Array]
 
@@ -128,6 +134,51 @@ def _vertical_matvec(a: Array, x: Array) -> jax.Array:
 @jax.named_call
 def _vertical_matvec_per_wavenumber(a: Array, x: Array) -> jax.Array:
     return einsum("lgh,...hml->...gml", a, x)
+
+
+def _safe_pressure_for_potential_temperature(
+    pressure: Array,
+    reference_pressure: float | Array,
+) -> jax.Array:
+    """Return positive finite pressure for guarded theta diagnostics."""
+    reference_pressure = jnp.asarray(reference_pressure, dtype=pressure.dtype)
+    valid_pressure = (
+        jnp.isfinite(pressure)
+        & (pressure > 0)
+        & jnp.isfinite(reference_pressure)
+        & (reference_pressure > 0)
+    )
+    return jnp.where(valid_pressure, pressure, reference_pressure)
+
+
+@jax.named_call
+def potential_temperature_from_temperature(
+    temperature: Array,
+    pressure: Array,
+    reference_pressure: float | Array,
+    kappa: float,
+) -> jax.Array:
+    """Convert temperature to dry potential temperature with finite pressure guard."""
+    safe_pressure = _safe_pressure_for_potential_temperature(
+        pressure,
+        reference_pressure,
+    )
+    return temperature * (reference_pressure / safe_pressure) ** kappa
+
+
+@jax.named_call
+def temperature_from_potential_temperature(
+    potential_temperature: Array,
+    pressure: Array,
+    reference_pressure: float | Array,
+    kappa: float,
+) -> jax.Array:
+    """Convert dry potential temperature to temperature with finite pressure guard."""
+    safe_pressure = _safe_pressure_for_potential_temperature(
+        pressure,
+        reference_pressure,
+    )
+    return potential_temperature * (safe_pressure / reference_pressure) ** kappa
 
 
 @tree_math.struct
@@ -824,6 +875,19 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
     vertical_advection: Callable[..., jax.Array] = dataclasses.field(
         default=sigma_coordinates.centered_vertical_advection, kw_only=True
     )
+    temperature_tendency_formulation: str = dataclasses.field(
+        default=TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE,
+        kw_only=True,
+    )
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.temperature_tendency_formulation not in TEMPERATURE_TENDENCY_FORMULATIONS:
+            raise ValueError(
+                "temperature_tendency_formulation must be one of "
+                f"{TEMPERATURE_TENDENCY_FORMULATIONS}; got "
+                f"{self.temperature_tendency_formulation!r}"
+            )
 
     def _get_geopotential_diff(
         self,
@@ -1094,6 +1158,129 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             )
             return self.physics_specs.kappa * (mean_t_part + variation_and_Tv_part)
 
+    @property
+    def _potential_temperature_reference_pressure(self) -> float:
+        """Return 1000 hPa in the same nondimensional pressure units as log(ps)."""
+        unit_registry = scales.units
+        return float(
+            self.physics_specs.nondimensionalize(
+                unit_registry.Quantity(100000.0, "pascal")
+            )
+        )
+
+    @jax.named_call
+    def nodal_pressure_sigma(self, state: State) -> Array:
+        """Diagnose nodal pressure on sigma layers from the current surface pressure."""
+        nodal_surface_pressure = jnp.exp(
+            self.coords.horizontal.to_nodal(state.log_surface_pressure)
+        )
+        sigma_centers = self.coords.vertical.centers[:, np.newaxis, np.newaxis]
+        return sigma_centers * nodal_surface_pressure
+
+    @jax.named_call
+    def nodal_potential_temperature_anomaly(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+    ) -> tuple[Array, Array]:
+        """Return theta anomaly and pressure used by the opt-in tendency path."""
+        pressure = self.nodal_pressure_sigma(state)
+        theta_anomaly = potential_temperature_from_temperature(
+            aux_state.temperature_variation,
+            pressure,
+            self._potential_temperature_reference_pressure,
+            self.physics_specs.kappa,
+        )
+        return theta_anomaly, pressure
+
+    @jax.named_call
+    def temperature_tendency_temperature_form(
+        self,
+        aux_state: DiagnosticStateSigma,
+    ) -> Array:
+        """Compute the incumbent temperature-form explicit thermodynamic tendency."""
+        dT_dt_horizontal_nodal, dT_dt_horizontal_modal = (
+            self.horizontal_scalar_advection(aux_state.temperature_variation, aux_state)
+        )
+        dT_dt_vertical = self.nodal_temperature_vertical_tendency(aux_state)
+        dT_dt_adiabatic = self.nodal_temperature_adiabatic_tendency(aux_state)
+        return (
+            self.coords.horizontal.to_modal(
+                dT_dt_horizontal_nodal + dT_dt_vertical + dT_dt_adiabatic
+            )
+            + dT_dt_horizontal_modal
+        )
+
+    @jax.named_call
+    def temperature_tendency_potential_temperature_form(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+    ) -> Array:
+        """Compute opt-in temperature tendency through dry potential temperature."""
+        incumbent_temperature_tendency = self.temperature_tendency_temperature_form(
+            aux_state
+        )
+        theta_anomaly, pressure = self.nodal_potential_temperature_anomaly(
+            state,
+            aux_state,
+        )
+        dtheta_dt_horizontal_nodal, dtheta_dt_horizontal_modal = (
+            self.horizontal_scalar_advection(theta_anomaly, aux_state)
+        )
+        if self.include_vertical_advection:
+            dtheta_dt_vertical = self._vertical_tendency(
+                aux_state.sigma_dot_full,
+                theta_anomaly,
+            )
+        else:
+            dtheta_dt_vertical = 0
+        dtheta_dt_nodal = (
+            dtheta_dt_horizontal_nodal
+            + self.coords.horizontal.to_nodal(dtheta_dt_horizontal_modal)
+            + dtheta_dt_vertical
+        )
+        temperature_transport_nodal = temperature_from_potential_temperature(
+            dtheta_dt_nodal,
+            pressure,
+            self._potential_temperature_reference_pressure,
+            self.physics_specs.kappa,
+        )
+        dT_dt_adiabatic = self.nodal_temperature_adiabatic_tendency(aux_state)
+        candidate_temperature_tendency = self.coords.horizontal.to_modal(
+            temperature_transport_nodal + dT_dt_adiabatic
+        )
+        finite_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(jnp.isfinite(pressure)),
+                    jnp.all(pressure > 0),
+                    jnp.all(jnp.isfinite(theta_anomaly)),
+                    jnp.all(jnp.isfinite(temperature_transport_nodal)),
+                    jnp.all(jnp.isfinite(candidate_temperature_tendency)),
+                ]
+            )
+        )
+        return jnp.where(
+            finite_diagnostics,
+            candidate_temperature_tendency,
+            incumbent_temperature_tendency,
+        )
+
+    @jax.named_call
+    def temperature_tendency(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+    ) -> Array:
+        """Compute explicit thermodynamic tendency with the selected formulation."""
+        if (
+            self.temperature_tendency_formulation
+            == TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+        ):
+            return self.temperature_tendency_temperature_form(aux_state)
+        return self.temperature_tendency_potential_temperature_form(state, aux_state)
+
     @jax.named_call
     def nodal_log_pressure_tendency(self, aux_state: DiagnosticStateSigma) -> Array:
         """Computes explicit tendency of the log_surface_pressure."""
@@ -1123,15 +1310,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         horizontal_tendency_fn = functools.partial(
             self.horizontal_scalar_advection, aux_state=aux_state
         )
-        dT_dt_horizontal_nodal, dT_dt_horizontal_modal = horizontal_tendency_fn(
-            aux_state.temperature_variation
-        )
         tracers_horizontal_nodal_and_modal = jax.tree_util.tree_map(
             horizontal_tendency_fn, aux_state.tracers
         )
         # tendencies in nodal domain
-        dT_dt_vertical = self.nodal_temperature_vertical_tendency(aux_state)
-        dT_dt_adiabatic = self.nodal_temperature_adiabatic_tendency(aux_state)
         log_sp_tendency = self.nodal_log_pressure_tendency(aux_state)
         sigma_dot_full = aux_state.sigma_dot_full
         if self.include_vertical_advection:
@@ -1149,10 +1331,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         divergence_tendency = (
             divergence_dot + kinetic_energy_tendency + orography_tendency
         )
-        temperature_tendency = (
-            to_modal_fn(dT_dt_horizontal_nodal + dT_dt_vertical + dT_dt_adiabatic)
-            + dT_dt_horizontal_modal
-        )
+        temperature_tendency = self.temperature_tendency(state, aux_state)
         log_surface_pressure_tendency = to_modal_fn(log_sp_tendency)
         tracers_tendency = jax.tree_util.tree_map(
             lambda x, y_z: to_modal_fn(x + y_z[0]) + y_z[1],
@@ -2505,6 +2684,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             ..., jax.Array
         ] = sigma_coordinates.centered_vertical_advection,
         include_vertical_advection: bool = True,
+        temperature_tendency_formulation: str = (
+            TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+        ),
     ):
         super().__init__(
             reference_temperature,
@@ -2517,6 +2699,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             include_vertical_advection=include_vertical_advection,
             humidity_key=None,
             cloud_keys=None,
+            temperature_tendency_formulation=temperature_tendency_formulation,
         )
 
 
@@ -2539,6 +2722,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             ..., jax.Array
         ] = sigma_coordinates.centered_vertical_advection,
         include_vertical_advection: bool = True,
+        temperature_tendency_formulation: str = (
+            TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+        ),
     ):
         super().__init__(
             reference_temperature,
@@ -2551,6 +2737,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             include_vertical_advection=include_vertical_advection,
             humidity_key="specific_humidity",
             cloud_keys=None,
+            temperature_tendency_formulation=temperature_tendency_formulation,
         )
 
 
@@ -2570,6 +2757,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
             ..., jax.Array
         ] = sigma_coordinates.centered_vertical_advection,
         include_vertical_advection: bool = True,
+        temperature_tendency_formulation: str = (
+            TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+        ),
     ):
         super().__init__(
             reference_temperature,
@@ -2585,6 +2775,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
                 "specific_cloud_liquid_water_content",
                 "specific_cloud_ice_water_content",
             ),
+            temperature_tendency_formulation=temperature_tendency_formulation,
         )
 
 

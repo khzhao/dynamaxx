@@ -109,6 +109,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
+    temperature_tendency_formulation: str = (
+        primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+    )
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -243,6 +246,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 physics_specs=equation_physics_specs,
                 include_vertical_advection=self.include_vertical_advection,
                 humidity_key=humidity_key,
+                temperature_tendency_formulation=self.temperature_tendency_formulation,
             )
             if self.apply_weak_held_suarez_relaxation:
                 equation = _compose_weak_held_suarez_equation(
@@ -551,6 +555,30 @@ def richardson_10m_wind_diagnostic_dinosaur_dycore_model() -> (
         use_layer_mean_hydrostatic_temperature_initialization=True,
         apply_exact_coriolis_rotation_split=True,
         apply_symmetric_exact_coriolis_rotation_split=True,
+    )
+
+
+def theta_tendency_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the Richardson 10 m incumbent with theta-form thermal tendency."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_stability_aware_near_surface_residual_decay=True,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
     )
 
 
@@ -1344,6 +1372,9 @@ def _primitive_equation(
     physics_specs: Any,
     include_vertical_advection: bool,
     humidity_key: str | None,
+    temperature_tendency_formulation: str = (
+        primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+    ),
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
     if humidity_key is None:
@@ -1353,6 +1384,7 @@ def _primitive_equation(
             coords,
             physics_specs,
             include_vertical_advection=include_vertical_advection,
+            temperature_tendency_formulation=temperature_tendency_formulation,
         )
     return primitive_equations.PrimitiveEquationsSigma(
         reference_temperature,
@@ -1361,6 +1393,7 @@ def _primitive_equation(
         physics_specs,
         include_vertical_advection=include_vertical_advection,
         humidity_key=humidity_key,
+        temperature_tendency_formulation=temperature_tendency_formulation,
     )
 
 

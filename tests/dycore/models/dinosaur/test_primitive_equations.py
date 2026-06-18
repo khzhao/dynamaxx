@@ -59,6 +59,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     split_pressure_level_channel,
     stability_aware_surface_residual_dinosaur_dycore_model,
     supported_output_variables,
+    theta_tendency_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
     weather_state_to_dinosaur_state,
 )
@@ -141,6 +142,10 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
     assert not model.apply_symmetric_exact_coriolis_rotation_split
+    assert (
+        model.temperature_tendency_formulation
+        == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+    )
     assert model.weak_held_suarez_kf_per_day == DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY
     assert (
         model.weak_held_suarez_ka_timescale_days
@@ -361,6 +366,30 @@ def test_richardson_10m_wind_factory_preserves_incumbent_except_diagnostic():
             "name",
             "use_surface_layer_richardson_10m_wind_diagnostic",
         }:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_theta_tendency_factory_preserves_incumbent_except_thermal_formulation():
+    """The theta candidate changes only name and thermodynamic tendency form."""
+    model = theta_tendency_dinosaur_dycore_model()
+    incumbent = richardson_10m_wind_diagnostic_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency"
+    )
+    assert (
+        model.temperature_tendency_formulation
+        == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+    )
+    assert (
+        incumbent.temperature_tendency_formulation
+        == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
+    )
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "temperature_tendency_formulation"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -768,6 +797,54 @@ def test_richardson_10m_wind_candidate_forecast_is_finite(monkeypatch):
     )
     model = replace(
         richardson_10m_wind_diagnostic_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
+def test_theta_tendency_candidate_forecast_is_finite(monkeypatch):
+    """The theta-tendency candidate runs a small non-JIT smoke forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        theta_tendency_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=output_variables,
@@ -2009,6 +2086,252 @@ def test_richardson_10m_wind_diagnostic_only_changes_raw_surface_wind():
             candidate.select(("10m_v_component_of_wind",)).values
             != incumbent.select(("10m_v_component_of_wind",)).values
         )
+    )
+
+
+def test_potential_temperature_conversion_round_trips_finite_pressure():
+    """Dry theta conversion is an inverse pair for finite pressure."""
+    temperature = jnp.asarray([[250.0, 280.0], [300.0, 260.0]], dtype=jnp.float32)
+    pressure = jnp.asarray([[100000.0, 85000.0], [50000.0, 25000.0]], dtype=jnp.float32)
+    reference_pressure = jnp.asarray(100000.0, dtype=jnp.float32)
+    kappa = 2.0 / 7.0
+
+    theta = primitive_equations.potential_temperature_from_temperature(
+        temperature,
+        pressure,
+        reference_pressure,
+        kappa,
+    )
+    restored_temperature = primitive_equations.temperature_from_potential_temperature(
+        theta,
+        pressure,
+        reference_pressure,
+        kappa,
+    )
+
+    np.testing.assert_allclose(restored_temperature, temperature, rtol=1e-6, atol=1e-6)
+
+
+def test_potential_temperature_conversion_guards_invalid_pressure():
+    """Invalid pressure diagnostics use reference pressure and stay finite."""
+    temperature = jnp.asarray([250.0, 280.0, 300.0], dtype=jnp.float32)
+    pressure = jnp.asarray([jnp.nan, -10.0, jnp.inf], dtype=jnp.float32)
+    reference_pressure = jnp.asarray(100000.0, dtype=jnp.float32)
+
+    theta = primitive_equations.potential_temperature_from_temperature(
+        temperature,
+        pressure,
+        reference_pressure,
+        2.0 / 7.0,
+    )
+
+    np.testing.assert_allclose(theta, temperature, rtol=1e-6, atol=1e-6)
+    assert bool(jnp.isfinite(theta).all())
+
+
+def test_theta_tendency_changes_only_temperature_explicit_term():
+    """The opt-in theta tendency leaves nonthermal explicit terms unchanged."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=False,
+        use_log_pressure_initialization=True,
+    )
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": grid.coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": True,
+    }
+    temperature_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    theta_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+    )
+
+    temperature_terms = temperature_equation.explicit_terms(state)
+    theta_terms = theta_equation.explicit_terms(state)
+
+    np.testing.assert_allclose(
+        theta_terms.vorticity,
+        temperature_terms.vorticity,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        theta_terms.divergence,
+        temperature_terms.divergence,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        theta_terms.log_surface_pressure,
+        temperature_terms.log_surface_pressure,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    assert theta_terms.tracers == temperature_terms.tracers == {}
+    assert bool(jnp.isfinite(theta_terms.temperature_variation).all())
+    assert bool(
+        jnp.any(
+            jnp.abs(
+                theta_terms.temperature_variation
+                - temperature_terms.temperature_variation
+            )
+            > 1e-9
+        )
+    )
+
+
+def test_theta_tendency_uniform_theta_zero_velocity_has_zero_tendency():
+    """Uniform theta under zero velocity has no opt-in thermal tendency."""
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32),
+        grid.coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+    )
+    surface_pressure = (
+        jnp.ones(grid.coords.horizontal.nodal_shape, dtype=jnp.float32)
+        * 100000.0
+        * _unit_factor(physics_specs, "pascal")
+    )
+    log_surface_pressure = grid.coords.horizontal.to_modal(jnp.log(surface_pressure))[
+        jnp.newaxis
+    ]
+    zero_modal = jnp.zeros(grid.coords.modal_shape, dtype=jnp.float32)
+    provisional_state = _primitive_equation_state(
+        vorticity=zero_modal,
+        divergence=zero_modal,
+        temperature_variation=zero_modal,
+        log_surface_pressure=log_surface_pressure,
+        tracers={},
+    )
+    pressure = equation.nodal_pressure_sigma(provisional_state)
+    uniform_theta = jnp.full_like(pressure, 300.0)
+    temperature = primitive_equations.temperature_from_potential_temperature(
+        uniform_theta,
+        pressure,
+        equation._potential_temperature_reference_pressure,
+        physics_specs.kappa,
+    )
+    state = _primitive_equation_state(
+        vorticity=zero_modal,
+        divergence=zero_modal,
+        temperature_variation=grid.coords.horizontal.to_modal(
+            temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=log_surface_pressure,
+        tracers={},
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, grid.coords)
+
+    tendency = equation.temperature_tendency(state, aux_state)
+
+    np.testing.assert_allclose(tendency, jnp.zeros_like(tendency), atol=1e-6)
+
+
+def test_theta_tendency_falls_back_to_temperature_form_for_invalid_pressure():
+    """Nonfinite theta pressure diagnostics recover the incumbent tendency."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=3,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=3,
+        temperature_kelvin=250.0,
+    )
+    state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=(100, 500, 900),
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=False,
+        use_log_pressure_initialization=True,
+    )
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32),
+        grid.coords,
+        cast(Any, physics_specs),
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, grid.coords)
+    bad_pressure_state = _primitive_equation_state(
+        vorticity=state.vorticity,
+        divergence=state.divergence,
+        temperature_variation=state.temperature_variation,
+        log_surface_pressure=state.log_surface_pressure.at[0, 0, 0].set(jnp.nan),
+        tracers=state.tracers,
+    )
+
+    fallback_tendency = equation.temperature_tendency(
+        bad_pressure_state,
+        aux_state,
+    )
+    incumbent_tendency = equation.temperature_tendency_temperature_form(aux_state)
+
+    np.testing.assert_allclose(
+        fallback_tendency,
+        incumbent_tendency,
+        rtol=1e-6,
+        atol=1e-6,
     )
 
 
