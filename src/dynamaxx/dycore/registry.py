@@ -91,6 +91,15 @@ def dinosaur_coriolis_strang_model() -> DycoreModel:
     return coriolis_strang_split_dinosaur_dycore_model()
 
 
+def dinosaur_stability_surface_residual_model() -> DycoreModel:
+    """Return the Strang dycore with stability-aware residual decay."""
+    from dynamaxx.dycore.models.dinosaur import (
+        stability_aware_surface_residual_dinosaur_dycore_model,
+    )
+
+    return stability_aware_surface_residual_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -116,6 +125,10 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
         "hydrostatic_layer_init_coriolis_strang"
     ): dinosaur_coriolis_strang_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual"
+    ): dinosaur_stability_surface_residual_model,
 }
 
 

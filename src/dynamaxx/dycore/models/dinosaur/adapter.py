@@ -53,6 +53,13 @@ _NEAR_SURFACE_RESIDUAL_VARIABLES = (
     TWO_METER_TEMPERATURE_VARIABLE,
     TEN_METER_U_WIND_VARIABLE,
 )
+_STABILITY_AWARE_MIN_RESIDUAL_DECAY_HOURS = 18.0
+_STABILITY_AWARE_MAX_RESIDUAL_DECAY_HOURS = 72.0
+_STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT = 2.0 / 7.0
+_STABILITY_AWARE_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
+_STABILITY_AWARE_TEMPERATURE_RESIDUAL_SCALE_KELVIN = 4.0
+_STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND = 4.0
+_STABILITY_AWARE_WEAK_FLOW_SCALE_METERS_PER_SECOND = 12.0
 _DRY_AIR_GAS_CONSTANT_SI = float(
     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
 )
@@ -91,6 +98,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     )
     apply_near_surface_residual_correction: bool = False
     near_surface_residual_decay_hours: float = 48.0
+    use_stability_aware_near_surface_residual_decay: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
     jit_forecast: bool = True
@@ -178,6 +186,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     lead_steps=forecast_input.lead_steps,
                     lead_hours=forecast_input.lead_hours,
                     decay_hours=self.near_surface_residual_decay_hours,
+                    use_stability_aware_decay=(
+                        self.use_stability_aware_near_surface_residual_decay
+                    ),
                 )
                 forecasts.append(trajectory_state.values)
             else:
@@ -488,6 +499,27 @@ def coriolis_strang_split_dinosaur_dycore_model() -> (
     )
 
 
+def stability_aware_surface_residual_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the Strang incumbent with stability-aware residual decay."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_stability_aware_near_surface_residual_decay=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -747,6 +779,7 @@ def _apply_near_surface_residual_correction(
     lead_steps: tuple[int, ...],
     lead_hours: tuple[int, ...],
     decay_hours: float,
+    use_stability_aware_decay: bool = False,
 ) -> WeatherState:
     """Apply forecast-time near-surface residuals to requested output leads."""
     assert decay_hours > 0.0
@@ -755,7 +788,18 @@ def _apply_near_surface_residual_correction(
     lead_indices = jnp.asarray(lead_steps, dtype=jnp.int32)
     corrected_values = jnp.take(trajectory_state.values, lead_indices, axis=0)
     lead_hours_array = jnp.asarray(lead_hours, dtype=corrected_values.dtype)
-    decay = jnp.exp(-lead_hours_array / jnp.asarray(decay_hours))
+    if use_stability_aware_decay:
+        decay_hours_array = _stability_aware_near_surface_residual_decay_hours(
+            trajectory_state,
+            initial_state=initial_state,
+            lead_indices=lead_indices,
+            base_decay_hours=decay_hours,
+        )
+        decay = jnp.exp(
+            -lead_hours_array[:, jnp.newaxis, jnp.newaxis] / decay_hours_array
+        )
+    else:
+        decay = jnp.exp(-lead_hours_array / jnp.asarray(decay_hours))
     lead_zero_mask = lead_indices == 0
 
     for channel in _NEAR_SURFACE_RESIDUAL_VARIABLES:
@@ -769,9 +813,12 @@ def _apply_near_surface_residual_correction(
         initial_channel = initial_state.values[initial_index]
         raw_lead_zero = trajectory_state.values[0, output_index]
         residual = initial_channel - raw_lead_zero
-        channel_values = (
-            corrected_values[:, output_index]
-            + residual[jnp.newaxis, ...] * decay[:, jnp.newaxis, jnp.newaxis]
+        if use_stability_aware_decay:
+            residual_decay = decay
+        else:
+            residual_decay = decay[:, jnp.newaxis, jnp.newaxis]
+        channel_values = corrected_values[:, output_index] + (
+            residual[jnp.newaxis, ...] * residual_decay
         )
         channel_values = jnp.where(
             lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
@@ -784,6 +831,197 @@ def _apply_near_surface_residual_correction(
         values=corrected_values,
         variables=trajectory_state.variables,
     )
+
+
+def _stability_aware_near_surface_residual_decay_hours(
+    trajectory_state: WeatherState,
+    *,
+    initial_state: WeatherState,
+    lead_indices: jax.Array,
+    base_decay_hours: float,
+) -> jax.Array:
+    """Return bounded local near-surface residual decay timescales."""
+    base_decay = float(
+        np.clip(
+            base_decay_hours,
+            _STABILITY_AWARE_MIN_RESIDUAL_DECAY_HOURS,
+            _STABILITY_AWARE_MAX_RESIDUAL_DECAY_HOURS,
+        )
+    )
+    lower_column_levels = _lower_column_stability_levels(trajectory_state.variables)
+    if lower_column_levels is None:
+        stability_score = _near_surface_residual_stability_proxy(
+            trajectory_state,
+            initial_state=initial_state,
+            lead_count=int(lead_indices.shape[0]),
+        )
+    else:
+        low_level_hpa, upper_level_hpa = lower_column_levels
+        selected_values = jnp.take(trajectory_state.values, lead_indices, axis=0)
+        stability_score = _lower_column_stability_score(
+            selected_values,
+            trajectory_state.variables,
+            low_level_hpa=low_level_hpa,
+            upper_level_hpa=upper_level_hpa,
+        )
+    return _bounded_residual_decay_hours(stability_score, base_decay)
+
+
+def _lower_column_stability_levels(
+    variables: tuple[str, ...],
+) -> tuple[int, int] | None:
+    common_levels = []
+    for channel in variables:
+        variable_name, pressure_level = split_pressure_level_channel(channel)
+        if variable_name != TEMPERATURE_VARIABLE or pressure_level is None:
+            continue
+        if f"{U_WIND_VARIABLE}_{pressure_level}" in variables:
+            common_levels.append(pressure_level)
+    if len(common_levels) < 2:
+        return None
+    ordered_levels = tuple(sorted(common_levels, reverse=True))
+    return ordered_levels[0], ordered_levels[1]
+
+
+def _lower_column_stability_score(
+    selected_values: jax.Array,
+    variables: tuple[str, ...],
+    *,
+    low_level_hpa: int,
+    upper_level_hpa: int,
+) -> jax.Array:
+    low_temperature = _selected_channel(
+        selected_values,
+        variables,
+        f"{TEMPERATURE_VARIABLE}_{low_level_hpa}",
+    )
+    upper_temperature = _selected_channel(
+        selected_values,
+        variables,
+        f"{TEMPERATURE_VARIABLE}_{upper_level_hpa}",
+    )
+    low_theta = _potential_temperature(low_temperature, low_level_hpa)
+    upper_theta = _potential_temperature(upper_temperature, upper_level_hpa)
+    static_stability_kelvin = upper_theta - low_theta
+
+    low_u_wind = _selected_channel(
+        selected_values,
+        variables,
+        f"{U_WIND_VARIABLE}_{low_level_hpa}",
+    )
+    upper_u_wind = _selected_channel(
+        selected_values,
+        variables,
+        f"{U_WIND_VARIABLE}_{upper_level_hpa}",
+    )
+    squared_shear = (upper_u_wind - low_u_wind) ** 2
+    low_v_channel = f"{V_WIND_VARIABLE}_{low_level_hpa}"
+    upper_v_channel = f"{V_WIND_VARIABLE}_{upper_level_hpa}"
+    if low_v_channel in variables and upper_v_channel in variables:
+        low_v_wind = _selected_channel(selected_values, variables, low_v_channel)
+        upper_v_wind = _selected_channel(selected_values, variables, upper_v_channel)
+        squared_shear = squared_shear + (upper_v_wind - low_v_wind) ** 2
+    shear = jnp.sqrt(jnp.maximum(squared_shear, 0.0))
+    stability_index = static_stability_kelvin / (
+        _STABILITY_AWARE_SHEAR_FLOOR_METERS_PER_SECOND + shear
+    )
+    return jnp.clip(stability_index, -1.0, 1.0)
+
+
+def _near_surface_residual_stability_proxy(
+    trajectory_state: WeatherState,
+    *,
+    initial_state: WeatherState,
+    lead_count: int,
+) -> jax.Array:
+    if (
+        TWO_METER_TEMPERATURE_VARIABLE not in initial_state.variables
+        or TWO_METER_TEMPERATURE_VARIABLE not in trajectory_state.variables
+        or TEN_METER_U_WIND_VARIABLE not in initial_state.variables
+        or TEN_METER_U_WIND_VARIABLE not in trajectory_state.variables
+    ):
+        sample_field = trajectory_state.values[0, 0]
+        return jnp.zeros(
+            (lead_count,) + sample_field.shape,
+            dtype=trajectory_state.values.dtype,
+        )
+
+    temperature_output_index = int(
+        trajectory_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
+    )
+    temperature_initial_index = int(
+        initial_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
+    )
+    wind_output_index = int(
+        trajectory_state.variable_indices((TEN_METER_U_WIND_VARIABLE,))[0]
+    )
+    wind_initial_index = int(
+        initial_state.variable_indices((TEN_METER_U_WIND_VARIABLE,))[0]
+    )
+    temperature_residual = (
+        initial_state.values[temperature_initial_index]
+        - trajectory_state.values[0, temperature_output_index]
+    )
+    wind_residual = (
+        initial_state.values[wind_initial_index]
+        - trajectory_state.values[0, wind_output_index]
+    )
+    weak_flow_factor = 1.0 - jnp.clip(
+        jnp.abs(initial_state.values[wind_initial_index])
+        / _STABILITY_AWARE_WEAK_FLOW_SCALE_METERS_PER_SECOND,
+        0.0,
+        1.0,
+    )
+    decoupling_score = (
+        jnp.abs(temperature_residual)
+        / _STABILITY_AWARE_TEMPERATURE_RESIDUAL_SCALE_KELVIN
+    ) * weak_flow_factor
+    wind_mixing_score = (
+        jnp.abs(wind_residual)
+        / _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND
+    )
+    stability_score = jnp.clip(decoupling_score - wind_mixing_score, -1.0, 1.0)
+    return jnp.broadcast_to(
+        stability_score[jnp.newaxis, ...],
+        (lead_count,) + stability_score.shape,
+    )
+
+
+def _bounded_residual_decay_hours(
+    stability_score: jax.Array,
+    base_decay_hours: float,
+) -> jax.Array:
+    positive_score = jnp.maximum(stability_score, 0.0)
+    negative_score = jnp.maximum(-stability_score, 0.0)
+    decay_hours = (
+        base_decay_hours
+        + positive_score
+        * (_STABILITY_AWARE_MAX_RESIDUAL_DECAY_HOURS - base_decay_hours)
+        + negative_score
+        * (_STABILITY_AWARE_MIN_RESIDUAL_DECAY_HOURS - base_decay_hours)
+    )
+    return jnp.clip(
+        decay_hours,
+        _STABILITY_AWARE_MIN_RESIDUAL_DECAY_HOURS,
+        _STABILITY_AWARE_MAX_RESIDUAL_DECAY_HOURS,
+    )
+
+
+def _potential_temperature(
+    temperature_kelvin: jax.Array,
+    pressure_hpa: int,
+) -> jax.Array:
+    return temperature_kelvin * (
+        1000.0 / float(pressure_hpa)
+    ) ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+
+
+def _selected_channel(
+    selected_values: jax.Array,
+    variables: tuple[str, ...],
+    channel: str,
+) -> jax.Array:
+    return selected_values[:, variables.index(channel)]
 
 
 def _reference_temperature(
