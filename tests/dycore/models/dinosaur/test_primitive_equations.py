@@ -8,7 +8,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from dynamaxx.dycore.models.dinosaur import adapter as dinosaur_adapter
 from dynamaxx.dycore.models.dinosaur import (
+    coordinate_systems,
     held_suarez,
     primitive_equations,
     scales,
@@ -28,6 +30,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     DinosaurPrimitiveEquationsDycoreModel,
     _apply_near_surface_residual_correction,
     _compose_weak_held_suarez_equation,
+    _exact_coriolis_rotation_step_filter,
     _horizontal_diffusion_step_filter,
     _hydrostatic_temperature_from_geopotential_thickness,
     _inner_steps_per_forecast_step,
@@ -40,6 +43,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _reference_temperature,
     _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
+    coriolis_split_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
@@ -127,6 +131,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert model.near_surface_residual_decay_hours == 48.0
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
+    assert not model.apply_exact_coriolis_rotation_split
     assert model.weak_held_suarez_kf_per_day == DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY
     assert (
         model.weak_held_suarez_ka_timescale_days
@@ -271,6 +276,26 @@ def test_layer_mean_hydrostatic_temperature_initialization_factory_extends_incum
         model.weak_held_suarez_ks_timescale_days
         == incumbent.weak_held_suarez_ks_timescale_days
     )
+    assert not model.apply_exact_coriolis_rotation_split
+
+
+def test_coriolis_split_factory_preserves_incumbent_options_except_split():
+    """The split candidate changes only name and the exact-Coriolis option."""
+    model = coriolis_split_dinosaur_dycore_model()
+    incumbent = (
+        layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model()
+    )
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_split"
+    )
+    assert model.apply_exact_coriolis_rotation_split
+    assert not incumbent.apply_exact_coriolis_rotation_split
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "apply_exact_coriolis_rotation_split"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
 
 
 def test_dinosaur_forecast_returns_requested_channels():
@@ -503,6 +528,49 @@ def test_hydrostatic_temperature_initialization_candidate_forecast_is_finite(
     )
     model = replace(
         hydrostatic_temperature_initialization_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
+def test_coriolis_split_candidate_forecast_is_finite(monkeypatch):
+    """The exact-Coriolis split candidate runs a small non-JIT forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        coriolis_split_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=output_variables,
@@ -1503,6 +1571,115 @@ def test_equation_and_filter_helpers_match_direct_dinosaur_calls():
     _assert_pytree_allclose(helper_filter(state, state), direct_filter(state, state))
 
 
+def test_exact_coriolis_rotation_filter_preserves_small_angle_kinetic_energy():
+    """The wind-space rotation is skew-symmetric before truncation dominates."""
+    coords, physics_specs, state = _synthetic_coriolis_split_state()
+    step_seconds = 1e-6
+    step_filter = _exact_coriolis_rotation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=step_seconds,
+    )
+
+    rotated = step_filter(state, state)
+
+    u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        state.vorticity,
+        state.divergence,
+    )
+    u_rotated, v_rotated = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        rotated.vorticity,
+        rotated.divergence,
+    )
+    kinetic_energy = 0.5 * jnp.sum(u_wind**2 + v_wind**2)
+    rotated_kinetic_energy = 0.5 * jnp.sum(u_rotated**2 + v_rotated**2)
+
+    assert float(kinetic_energy) > 0.0
+    np.testing.assert_allclose(
+        rotated_kinetic_energy,
+        kinetic_energy,
+        rtol=1e-6,
+        atol=1e-7,
+    )
+
+
+def test_exact_coriolis_rotation_sign_matches_source_negative_curl_convention():
+    """Source `-curl/div(f(-v, u))` implies wind tendency `(f v, -f u)`."""
+    coords, physics_specs, state = _synthetic_coriolis_split_state()
+    equation = _primitive_equation(
+        reference_temperature=np.zeros((coords.vertical.layers,), dtype=np.float32),
+        orography=jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords=coords,
+        physics_specs=physics_specs,
+        include_vertical_advection=False,
+        humidity_key=None,
+    )
+    u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        state.vorticity,
+        state.divergence,
+    )
+    step_seconds = 1e-3
+    angle = equation.coriolis_parameter * step_seconds
+
+    u_rotated = u_wind * jnp.cos(angle) + v_wind * jnp.sin(angle)
+    v_rotated = v_wind * jnp.cos(angle) - u_wind * jnp.sin(angle)
+    u_tendency = (u_rotated - u_wind) / step_seconds
+    v_tendency = (v_rotated - v_wind) / step_seconds
+
+    np.testing.assert_allclose(
+        u_tendency,
+        equation.coriolis_parameter * v_wind,
+        rtol=2e-3,
+        atol=3e-5,
+    )
+    np.testing.assert_allclose(
+        v_tendency,
+        -equation.coriolis_parameter * u_wind,
+        rtol=2e-3,
+        atol=3e-5,
+    )
+
+
+def test_exact_coriolis_rotation_filter_preserves_non_wind_state_exactly():
+    """The rotation filter only replaces modal vorticity and divergence."""
+    coords, physics_specs, next_state = _synthetic_coriolis_split_state()
+    prev_state = _primitive_equation_state(
+        vorticity=jnp.zeros_like(next_state.vorticity),
+        divergence=jnp.zeros_like(next_state.divergence),
+        temperature_variation=jnp.zeros_like(next_state.temperature_variation),
+        log_surface_pressure=jnp.zeros_like(next_state.log_surface_pressure),
+        tracers={
+            name: jnp.zeros_like(value) for name, value in next_state.tracers.items()
+        },
+        sim_time=jnp.asarray(-1.0, dtype=jnp.float32),
+    )
+    step_filter = _exact_coriolis_rotation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=1e-2,
+    )
+
+    rotated = step_filter(prev_state, next_state)
+
+    assert float(jnp.max(jnp.abs(rotated.vorticity - next_state.vorticity))) > 0.0
+    assert float(jnp.max(jnp.abs(rotated.divergence - next_state.divergence))) > 0.0
+    np.testing.assert_array_equal(
+        rotated.temperature_variation,
+        next_state.temperature_variation,
+    )
+    np.testing.assert_array_equal(
+        rotated.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert rotated.tracers.keys() == next_state.tracers.keys()
+    for tracer_name, tracer_value in rotated.tracers.items():
+        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
+    np.testing.assert_array_equal(rotated.sim_time, next_state.sim_time)
+
+
 def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
     """Weak HS composition combines one primitive equation with fixed forcing."""
     compose_calls = []
@@ -1864,6 +2041,242 @@ def test_trajectory_function_sets_up_digital_filter_initialization(monkeypatch):
     )
     assert len(initialized_states) == 1
     _assert_pytree_allclose(first_wrapped_state, initialized_states[0])
+
+
+def test_trajectory_function_splits_rollout_and_dfi_coriolis_physics(monkeypatch):
+    """Exact-Coriolis rollout uses zero Ω while DFI keeps normal physics."""
+    primitive_calls = []
+    rollout_filter_calls = []
+    dfi_calls = []
+    real_primitive_equation = dinosaur_adapter._primitive_equation
+    real_step_with_filters = time_integration.step_with_filters
+
+    def capture_primitive_equation(*args, **kwargs):
+        primitive_calls.append(kwargs["physics_specs"])
+        return real_primitive_equation(*args, **kwargs)
+
+    def capture_step_with_filters(step_fn, filters):
+        rollout_filter_calls.append(tuple(filters))
+        return real_step_with_filters(step_fn, filters)
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(
+            {
+                "equation": equation,
+                "ode_solver": ode_solver,
+                "filters": tuple(filters),
+                "time_span": time_span,
+                "cutoff_period": cutoff_period,
+                "dt": dt,
+            }
+        )
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_primitive_equation",
+        capture_primitive_equation,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "step_with_filters",
+        capture_step_with_filters,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    model = replace(
+        coriolis_split_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+
+    model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=2,
+            temperature_kelvin=model.reference_temperature_kelvin,
+        ),
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+
+    assert len(primitive_calls) == 2
+    rollout_physics_specs, dfi_physics_specs = primitive_calls
+    assert rollout_physics_specs.angular_velocity == 0.0
+    assert dfi_physics_specs.angular_velocity == physics_specs.angular_velocity
+    for field_name in physics_specs.__dataclass_fields__:
+        if field_name == "angular_velocity":
+            continue
+        assert getattr(rollout_physics_specs, field_name) == getattr(
+            physics_specs,
+            field_name,
+        )
+    assert len(rollout_filter_calls) == 1
+    assert len(rollout_filter_calls[0]) == 2
+    assert rollout_filter_calls[0][-1].__name__ == "exact_coriolis_rotation_filter"
+    assert len(dfi_calls) == 1
+    assert len(dfi_calls[0]["filters"]) == 1
+    assert dfi_calls[0]["ode_solver"] is time_integration.imex_rk_sil3
+
+
+def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
+    monkeypatch,
+):
+    """Without the split flag, rollout and DFI share the normal incumbent setup."""
+    primitive_calls = []
+    rollout_filter_calls = []
+    dfi_calls = []
+    real_primitive_equation = dinosaur_adapter._primitive_equation
+    real_step_with_filters = time_integration.step_with_filters
+
+    def capture_primitive_equation(*args, **kwargs):
+        primitive_calls.append(kwargs["physics_specs"])
+        return real_primitive_equation(*args, **kwargs)
+
+    def capture_step_with_filters(step_fn, filters):
+        rollout_filter_calls.append(tuple(filters))
+        return real_step_with_filters(step_fn, filters)
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(tuple(filters))
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_primitive_equation",
+        capture_primitive_equation,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "step_with_filters",
+        capture_step_with_filters,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    model = replace(
+        layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+
+    model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=2,
+            temperature_kelvin=model.reference_temperature_kelvin,
+        ),
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+
+    assert len(primitive_calls) == 1
+    assert primitive_calls[0].angular_velocity == physics_specs.angular_velocity
+    assert len(rollout_filter_calls) == 1
+    assert len(rollout_filter_calls[0]) == 1
+    assert len(dfi_calls) == 1
+    assert len(dfi_calls[0]) == 1
+
+
+def _synthetic_coriolis_split_state():
+    physics_specs = units.SimUnits.from_si()
+    horizontal_grid = spherical_harmonic.Grid(
+        longitude_wavenumbers=3,
+        total_wavenumbers=5,
+        longitude_nodes=8,
+        latitude_nodes=5,
+        latitude_spacing="equiangular",
+        radius=physics_specs.radius,
+    )
+    coords = coordinate_systems.CoordinateSystem(
+        horizontal_grid,
+        sigma_coordinates.SigmaCoordinates.equidistant(2),
+    )
+    state_shape = (coords.vertical.layers, *coords.horizontal.modal_shape)
+    vorticity = (
+        jnp.zeros(state_shape, dtype=jnp.float32)
+        .at[:, 0, 1]
+        .set(jnp.asarray([0.3, -0.2], dtype=jnp.float32))
+        .at[:, 1, 2]
+        .set(jnp.asarray([0.05, 0.08], dtype=jnp.float32))
+    )
+    divergence = (
+        jnp.zeros(state_shape, dtype=jnp.float32)
+        .at[:, 1, 1]
+        .set(jnp.asarray([0.1, 0.05], dtype=jnp.float32))
+        .at[:, 2, 2]
+        .set(jnp.asarray([0.02, -0.03], dtype=jnp.float32))
+    )
+    temperature_variation = (
+        jnp.zeros(state_shape, dtype=jnp.float32)
+        .at[:, 0, 0]
+        .set(jnp.asarray([0.4, -0.1], dtype=jnp.float32))
+    )
+    log_surface_pressure = (
+        jnp.zeros((1, *coords.horizontal.modal_shape), dtype=jnp.float32)
+        .at[0, 0, 0]
+        .set(jnp.float32(0.03))
+    )
+    tracers = {
+        "specific_humidity": (
+            jnp.zeros(state_shape, dtype=jnp.float32)
+            .at[:, 0, 0]
+            .set(jnp.asarray([0.001, 0.002], dtype=jnp.float32))
+        )
+    }
+    return (
+        coords,
+        physics_specs,
+        _primitive_equation_state(
+            vorticity=vorticity,
+            divergence=divergence,
+            temperature_variation=temperature_variation,
+            log_surface_pressure=log_surface_pressure,
+            tracers=tracers,
+            sim_time=jnp.asarray(3.5, dtype=jnp.float32),
+        ),
+    )
 
 
 def _initial_state(*, init_count: int) -> WeatherState:

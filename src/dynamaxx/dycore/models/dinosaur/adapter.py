@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 import jax
@@ -91,6 +91,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     )
     apply_near_surface_residual_correction: bool = False
     near_surface_residual_decay_hours: float = 48.0
+    apply_exact_coriolis_rotation_split: bool = False
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -200,41 +201,68 @@ class DinosaurPrimitiveEquationsDycoreModel:
         use_humidity_in_dynamics: bool,
     ):
         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
-        equation = _primitive_equation(
-            reference_temperature=reference_temperature,
-            orography=orography,
-            coords=coords,
-            physics_specs=physics_specs,
-            include_vertical_advection=self.include_vertical_advection,
-            humidity_key=(
-                SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
-            ),
+        rollout_physics_specs = (
+            replace(physics_specs, angular_velocity=0.0)
+            if self.apply_exact_coriolis_rotation_split
+            else physics_specs
         )
-        if self.apply_weak_held_suarez_relaxation:
-            equation = _compose_weak_held_suarez_equation(
-                equation=equation,
-                coords=coords,
-                physics_specs=physics_specs,
+        humidity_key = SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
+
+        def build_equation(equation_physics_specs: Any) -> Any:
+            equation = _primitive_equation(
                 reference_temperature=reference_temperature,
-                kf_per_day=self.weak_held_suarez_kf_per_day,
-                ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
-                ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
+                orography=orography,
+                coords=coords,
+                physics_specs=equation_physics_specs,
+                include_vertical_advection=self.include_vertical_advection,
+                humidity_key=humidity_key,
             )
+            if self.apply_weak_held_suarez_relaxation:
+                equation = _compose_weak_held_suarez_equation(
+                    equation=equation,
+                    coords=coords,
+                    physics_specs=equation_physics_specs,
+                    reference_temperature=reference_temperature,
+                    kf_per_day=self.weak_held_suarez_kf_per_day,
+                    ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
+                    ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
+                )
+            return equation
+
+        equation = build_equation(rollout_physics_specs)
         step_seconds = _nondimensionalize_seconds(
             physics_specs,
             self.inner_step_seconds,
         )
-        filters = []
-        if self.apply_spectral_filter:
+
+        def build_filters(filter_physics_specs: Any) -> list[Any]:
+            filters = []
+            if self.apply_spectral_filter:
+                filters.append(
+                    _horizontal_diffusion_step_filter(
+                        coords=coords,
+                        physics_specs=filter_physics_specs,
+                        step_seconds=step_seconds,
+                        tau_seconds=self.horizontal_diffusion_tau_seconds,
+                        order=self.horizontal_diffusion_order,
+                    )
+                )
+            return filters
+
+        filters = build_filters(rollout_physics_specs)
+        if self.apply_exact_coriolis_rotation_split:
             filters.append(
-                _horizontal_diffusion_step_filter(
+                _exact_coriolis_rotation_step_filter(
                     coords=coords,
                     physics_specs=physics_specs,
                     step_seconds=step_seconds,
-                    tau_seconds=self.horizontal_diffusion_tau_seconds,
-                    order=self.horizontal_diffusion_order,
                 )
             )
+        dfi_equation = equation
+        dfi_filters = filters
+        if self.apply_exact_coriolis_rotation_split:
+            dfi_equation = build_equation(physics_specs)
+            dfi_filters = build_filters(physics_specs)
         step_fn = time_integration.imex_rk_sil3(equation, time_step=step_seconds)
         if filters:
             step_fn = time_integration.step_with_filters(step_fn, filters)
@@ -254,9 +282,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 self.digital_filter_cutoff_seconds,
             )
             initialize_state = time_integration.digital_filter_initialization(
-                equation,
+                dfi_equation,
                 time_integration.imex_rk_sil3,
-                filters,
+                dfi_filters,
                 time_span=digital_filter_time_span,
                 cutoff_period=digital_filter_cutoff_period,
                 dt=step_seconds,
@@ -268,6 +296,46 @@ class DinosaurPrimitiveEquationsDycoreModel:
 
             trajectory_fn = initialized_trajectory_fn
         return jax.jit(trajectory_fn) if self.jit_forecast else trajectory_fn
+
+
+def _exact_coriolis_rotation_step_filter(
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    step_seconds: float,
+) -> Any:
+    """Return a filter applying the exact positive-time planetary rotation."""
+    _, sin_latitude = coords.horizontal.nodal_mesh
+    coriolis_angle = jnp.asarray(
+        2.0 * physics_specs.angular_velocity * sin_latitude * step_seconds
+    )
+    cosine_angle = jnp.cos(coriolis_angle)
+    sine_angle = jnp.sin(coriolis_angle)
+
+    def exact_coriolis_rotation_filter(prev_state: Any, next_state: Any) -> Any:
+        del prev_state
+        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+            coords.horizontal,
+            next_state.vorticity,
+            next_state.divergence,
+        )
+        u_rotated = u_wind * cosine_angle + v_wind * sine_angle
+        v_rotated = v_wind * cosine_angle - u_wind * sine_angle
+        vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
+            coords.horizontal,
+            u_rotated,
+            v_rotated,
+        )
+        return _primitive_equation_state(
+            vorticity=vorticity,
+            divergence=divergence,
+            temperature_variation=next_state.temperature_variation,
+            log_surface_pressure=next_state.log_surface_pressure,
+            tracers=next_state.tracers,
+            sim_time=next_state.sim_time,
+        )
+
+    return exact_coriolis_rotation_filter
 
 
 def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
@@ -343,6 +411,23 @@ def layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model() ->
         use_log_pressure_initialization=True,
         use_hydrostatic_temperature_initialization=True,
         use_layer_mean_hydrostatic_temperature_initialization=True,
+    )
+
+
+def coriolis_split_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the incumbent with rollout-only exact Coriolis rotation splitting."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_split"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
     )
 
 

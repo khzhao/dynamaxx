@@ -43,6 +43,7 @@ from dynamaxx.dycore.models.dinosaur import (
 )
 from dynamaxx.dycore.models.dinosaur.adapter import (
     DinosaurPrimitiveEquationsDycoreModel,
+    coriolis_split_dinosaur_dycore_model,
     default_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
@@ -63,6 +64,7 @@ __all__ = [
     "DinosaurPrimitiveEquationsDycoreModel",
     "associated_legendre",
     "coordinate_systems",
+    "coriolis_split_dinosaur_dycore_model",
     "default_dinosaur_dycore_model",
     "digital_filter_dinosaur_dycore_model",
     "digital_filter_surface_residual_dinosaur_dycore_model",
