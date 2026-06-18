@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
+    stability_aware_surface_residual_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
 )
 
@@ -90,6 +91,7 @@ __all__ = [
     "shallow_water_states",
     "sigma_coordinates",
     "spherical_harmonic",
+    "stability_aware_surface_residual_dinosaur_dycore_model",
     "time_integration",
     "typing",
     "units",
