@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
+    richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     stability_aware_surface_residual_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
 )
@@ -86,6 +87,7 @@ __all__ = [
     "primitive_equations_states",
     "pytree_utils",
     "radiation",
+    "richardson_10m_wind_diagnostic_dinosaur_dycore_model",
     "scales",
     "shallow_water",
     "shallow_water_states",

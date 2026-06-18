@@ -22,6 +22,9 @@ def test_registry_lists_default_dycore_models():
         "hydrostatic_layer_init_coriolis_strang",
         "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind",
     )
 
 
@@ -230,6 +233,42 @@ def test_registry_creates_stability_aware_surface_residual_candidate_model():
     assert model.horizontal_diffusion_tau_seconds is None
     assert model.include_vertical_advection == incumbent.include_vertical_advection
     assert not incumbent.use_stability_aware_near_surface_residual_decay
+
+
+def test_registry_creates_richardson_10m_wind_candidate_model():
+    """The Richardson 10 m wind diagnostic is registered side by side."""
+    model = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind"
+    )
+    incumbent = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual"
+    )
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind"
+    )
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.use_stability_aware_near_surface_residual_decay
+    assert model.use_surface_layer_richardson_10m_wind_diagnostic
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert model.use_hydrostatic_temperature_initialization
+    assert model.use_layer_mean_hydrostatic_temperature_initialization
+    assert model.apply_exact_coriolis_rotation_split
+    assert model.apply_symmetric_exact_coriolis_rotation_split
+    assert model.inner_step_seconds == incumbent.inner_step_seconds == 900.0
+    assert model.spectral_wavenumbers == incumbent.spectral_wavenumbers == 80
+    assert model.apply_spectral_filter == incumbent.apply_spectral_filter
+    assert model.horizontal_diffusion_order == incumbent.horizontal_diffusion_order
+    assert model.horizontal_diffusion_tau_seconds is None
+    assert model.include_vertical_advection == incumbent.include_vertical_advection
+    assert not incumbent.use_surface_layer_richardson_10m_wind_diagnostic
 
 
 def test_registry_rejects_unknown_dycore_model():
