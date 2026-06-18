@@ -42,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _primitive_equation_state,
     _reference_temperature,
     _stability_aware_near_surface_residual_decay_hours,
+    _surface_layer_richardson_10m_wind,
     _symmetric_exact_coriolis_rotation_step,
     _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
@@ -54,6 +55,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     infer_dinosaur_pressure_levels,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
+    richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     split_pressure_level_channel,
     stability_aware_surface_residual_dinosaur_dycore_model,
     supported_output_variables,
@@ -134,6 +136,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_near_surface_residual_correction
     assert model.near_surface_residual_decay_hours == 48.0
     assert not model.use_stability_aware_near_surface_residual_decay
+    assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
@@ -336,6 +339,27 @@ def test_stability_aware_residual_factory_preserves_incumbent_except_decay():
         if field_name in {
             "name",
             "use_stability_aware_near_surface_residual_decay",
+        }:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_richardson_10m_wind_factory_preserves_incumbent_except_diagnostic():
+    """The candidate changes only name and the raw 10 m wind diagnostic option."""
+    model = richardson_10m_wind_diagnostic_dinosaur_dycore_model()
+    incumbent = stability_aware_surface_residual_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind"
+    )
+    assert model.use_surface_layer_richardson_10m_wind_diagnostic
+    assert not incumbent.use_surface_layer_richardson_10m_wind_diagnostic
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "use_surface_layer_richardson_10m_wind_diagnostic",
         }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
@@ -717,6 +741,54 @@ def test_stability_aware_surface_residual_candidate_forecast_is_finite(monkeypat
     assert bool(jnp.isfinite(forecast.values).all())
 
 
+def test_richardson_10m_wind_candidate_forecast_is_finite(monkeypatch):
+    """The Richardson 10 m wind candidate runs a small non-JIT forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        richardson_10m_wind_diagnostic_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
 def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
     """The residual candidate changes only selected near-surface diagnostics."""
 
@@ -1064,6 +1136,89 @@ def test_stability_aware_residual_correction_preserves_uncorrected_channels():
         corrected.select(("10m_u_component_of_wind",)).values[0, 0],
         initial_state.select(("10m_u_component_of_wind",)).values[0],
     )
+
+
+def test_surface_layer_richardson_10m_wind_scales_stability_regimes():
+    """Stable columns damp and unstable columns relax toward lowest-layer wind."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.99, 1.0], dtype=np.float32)
+    )
+    lower_temperature = 290.0
+    neutral_upper_temperature = lower_temperature * (
+        sigma_coords.centers[-2] / sigma_coords.centers[-1]
+    ) ** (2.0 / 7.0)
+    upper_temperature = jnp.asarray(
+        [
+            neutral_upper_temperature + 12.0,
+            neutral_upper_temperature,
+            neutral_upper_temperature - 12.0,
+        ],
+        dtype=jnp.float32,
+    )
+    temperature = jnp.stack(
+        [
+            upper_temperature,
+            jnp.full_like(upper_temperature, lower_temperature),
+        ],
+        axis=0,
+    )[jnp.newaxis, :, jnp.newaxis, :]
+    u_wind = jnp.stack(
+        [
+            jnp.full_like(upper_temperature, 10.0),
+            jnp.full_like(upper_temperature, 10.0),
+        ],
+        axis=0,
+    )[jnp.newaxis, :, jnp.newaxis, :]
+    v_wind = jnp.stack(
+        [
+            jnp.full_like(upper_temperature, -4.0),
+            jnp.full_like(upper_temperature, -4.0),
+        ],
+        axis=0,
+    )[jnp.newaxis, :, jnp.newaxis, :]
+    surface_pressure_hpa = jnp.full((1, 1, 3), 1000.0, dtype=jnp.float32)
+
+    diagnosed_u_wind, diagnosed_v_wind = _surface_layer_richardson_10m_wind(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+
+    u_factor = diagnosed_u_wind[0, 0] / u_wind[0, -1, 0]
+    v_factor = diagnosed_v_wind[0, 0] / v_wind[0, -1, 0]
+    assert float(u_factor[0]) < float(u_factor[1]) < float(u_factor[2])
+    np.testing.assert_allclose(v_factor, u_factor, rtol=1e-6, atol=1e-6)
+    assert float(jnp.min(u_factor)) >= 0.55
+    assert float(jnp.max(u_factor)) <= 1.05
+
+
+def test_surface_layer_richardson_10m_wind_falls_back_for_invalid_columns():
+    """Nonfinite lower-column values preserve the incumbent lowest-layer wind."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.99, 1.0], dtype=np.float32)
+    )
+    temperature = jnp.asarray(
+        [[[[280.0, jnp.nan]], [[290.0, 290.0]]]],
+        dtype=jnp.float32,
+    )
+    u_wind = jnp.asarray([[[[12.0, 12.0]], [[8.0, 8.0]]]], dtype=jnp.float32)
+    v_wind = jnp.asarray([[[[-6.0, -6.0]], [[4.0, 4.0]]]], dtype=jnp.float32)
+    surface_pressure_hpa = jnp.full((1, 1, 2), 1000.0, dtype=jnp.float32)
+
+    diagnosed_u_wind, diagnosed_v_wind = _surface_layer_richardson_10m_wind(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+
+    assert float(diagnosed_u_wind[0, 0, 0]) != float(u_wind[0, -1, 0, 0])
+    assert float(diagnosed_v_wind[0, 0, 0]) != float(v_wind[0, -1, 0, 0])
+    np.testing.assert_array_equal(diagnosed_u_wind[0, 0, 1], u_wind[0, -1, 0, 1])
+    np.testing.assert_array_equal(diagnosed_v_wind[0, 0, 1], v_wind[0, -1, 0, 1])
 
 
 def test_dinosaur_forecast_handles_multiple_initial_times():
@@ -1776,6 +1931,85 @@ def test_dinosaur_state_to_weather_state_matches_direct_diagnostics():
 
     assert actual.variables == output_variables
     np.testing.assert_allclose(actual.values, expected_values, rtol=1e-5, atol=1e-5)
+
+
+def test_richardson_10m_wind_diagnostic_only_changes_raw_surface_wind():
+    """The opt-in diagnostic leaves non-10 m wind packed outputs unchanged."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value, value]), state)
+    output_variables = (
+        "temperature_500",
+        "u_component_of_wind_500",
+        "v_component_of_wind_500",
+        "geopotential_500",
+        "specific_humidity_500",
+        "surface_pressure",
+        "mean_sea_level_pressure",
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+    )
+    common_kwargs = {
+        "trajectory": trajectory,
+        "coords": grid.coords,
+        "pressure_levels_hpa": pressure_levels_hpa,
+        "latitude_reversed": grid.latitude_reversed,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "output_variables": output_variables,
+    }
+
+    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
+    candidate = dinosaur_state_to_weather_state(
+        **common_kwargs,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+    )
+
+    unchanged_variables = tuple(output_variables[:-2])
+    np.testing.assert_array_equal(
+        candidate.select(unchanged_variables).values,
+        incumbent.select(unchanged_variables).values,
+    )
+    assert bool(jnp.isfinite(candidate.values).all())
+    assert bool(
+        jnp.any(
+            candidate.select(("10m_u_component_of_wind",)).values
+            != incumbent.select(("10m_u_component_of_wind",)).values
+        )
+    )
+    assert bool(
+        jnp.any(
+            candidate.select(("10m_v_component_of_wind",)).values
+            != incumbent.select(("10m_v_component_of_wind",)).values
+        )
+    )
 
 
 def test_equation_and_filter_helpers_match_direct_dinosaur_calls():

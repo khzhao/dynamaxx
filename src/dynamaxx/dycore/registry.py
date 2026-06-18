@@ -100,6 +100,15 @@ def dinosaur_stability_surface_residual_model() -> DycoreModel:
     return stability_aware_surface_residual_dinosaur_dycore_model()
 
 
+def dinosaur_ri_10m_wind_model() -> DycoreModel:
+    """Return the stability residual dycore with Richardson 10 m wind output."""
+    from dynamaxx.dycore.models.dinosaur import (
+        richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+    )
+
+    return richardson_10m_wind_diagnostic_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -129,6 +138,11 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual"
     ): dinosaur_stability_surface_residual_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind"
+    ): dinosaur_ri_10m_wind_model,
 }
 
 
