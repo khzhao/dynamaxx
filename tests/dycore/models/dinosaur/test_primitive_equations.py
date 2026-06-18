@@ -41,9 +41,11 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _primitive_equation,
     _primitive_equation_state,
     _reference_temperature,
+    _symmetric_exact_coriolis_rotation_step,
     _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
     coriolis_split_dinosaur_dycore_model,
+    coriolis_strang_split_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
@@ -132,6 +134,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
+    assert not model.apply_symmetric_exact_coriolis_rotation_split
     assert model.weak_held_suarez_kf_per_day == DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY
     assert (
         model.weak_held_suarez_ka_timescale_days
@@ -215,8 +218,7 @@ def test_hydrostatic_temperature_initialization_factory_extends_incumbent():
     incumbent = log_pressure_initialization_dinosaur_dycore_model()
 
     assert (
-        model.name
-        == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init"
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init"
     )
     assert model.apply_digital_filter_initialization
     assert model.apply_near_surface_residual_correction
@@ -294,6 +296,24 @@ def test_coriolis_split_factory_preserves_incumbent_options_except_split():
     assert not incumbent.apply_exact_coriolis_rotation_split
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "apply_exact_coriolis_rotation_split"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_coriolis_strang_factory_preserves_incumbent_options_except_ordering():
+    """The Strang candidate changes only name and symmetric split ordering."""
+    model = coriolis_strang_split_dinosaur_dycore_model()
+    incumbent = coriolis_split_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang"
+    )
+    assert model.apply_exact_coriolis_rotation_split
+    assert model.apply_symmetric_exact_coriolis_rotation_split
+    assert not incumbent.apply_symmetric_exact_coriolis_rotation_split
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "apply_symmetric_exact_coriolis_rotation_split"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -571,6 +591,49 @@ def test_coriolis_split_candidate_forecast_is_finite(monkeypatch):
     )
     model = replace(
         coriolis_split_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
+def test_coriolis_strang_split_candidate_forecast_is_finite(monkeypatch):
+    """The symmetric exact-Coriolis split runs a small non-JIT forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        coriolis_strang_split_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=output_variables,
@@ -1605,6 +1668,42 @@ def test_exact_coriolis_rotation_filter_preserves_small_angle_kinetic_energy():
     )
 
 
+def test_symmetric_exact_coriolis_step_matches_full_rotation_for_identity_step():
+    """Two exact half rotations match one full rotation without dynamics between."""
+    coords, physics_specs, state = _synthetic_coriolis_split_state()
+    step_seconds = 1e-6
+    step_inputs = []
+    half_rotation_filter = _exact_coriolis_rotation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=0.5 * step_seconds,
+    )
+    full_rotation_filter = _exact_coriolis_rotation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=step_seconds,
+    )
+
+    def identity_step(step_state):
+        step_inputs.append(step_state)
+        return step_state
+
+    symmetric_step = _symmetric_exact_coriolis_rotation_step(
+        identity_step,
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=step_seconds,
+    )
+
+    actual = symmetric_step(state)
+    expected_step_input = half_rotation_filter(state, state)
+    expected = full_rotation_filter(state, state)
+
+    assert len(step_inputs) == 1
+    _assert_pytree_allclose(step_inputs[0], expected_step_input)
+    _assert_pytree_allclose(actual, expected)
+
+
 def test_exact_coriolis_rotation_sign_matches_source_negative_curl_convention():
     """Source `-curl/div(f(-v, u))` implies wind tendency `(f v, -f u)`."""
     coords, physics_specs, state = _synthetic_coriolis_split_state()
@@ -1663,6 +1762,33 @@ def test_exact_coriolis_rotation_filter_preserves_non_wind_state_exactly():
     )
 
     rotated = step_filter(prev_state, next_state)
+
+    assert float(jnp.max(jnp.abs(rotated.vorticity - next_state.vorticity))) > 0.0
+    assert float(jnp.max(jnp.abs(rotated.divergence - next_state.divergence))) > 0.0
+    np.testing.assert_array_equal(
+        rotated.temperature_variation,
+        next_state.temperature_variation,
+    )
+    np.testing.assert_array_equal(
+        rotated.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert rotated.tracers.keys() == next_state.tracers.keys()
+    for tracer_name, tracer_value in rotated.tracers.items():
+        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
+    np.testing.assert_array_equal(rotated.sim_time, next_state.sim_time)
+
+
+def test_exact_coriolis_half_rotation_preserves_non_wind_state_exactly():
+    """A half rotation leaves thermodynamic, tracer, and time leaves unchanged."""
+    coords, physics_specs, next_state = _synthetic_coriolis_split_state()
+    half_rotation_filter = _exact_coriolis_rotation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=0.5e-2,
+    )
+
+    rotated = half_rotation_filter(next_state, next_state)
 
     assert float(jnp.max(jnp.abs(rotated.vorticity - next_state.vorticity))) > 0.0
     assert float(jnp.max(jnp.abs(rotated.divergence - next_state.divergence))) > 0.0
@@ -2135,6 +2261,126 @@ def test_trajectory_function_splits_rollout_and_dfi_coriolis_physics(monkeypatch
     assert len(rollout_filter_calls) == 1
     assert len(rollout_filter_calls[0]) == 2
     assert rollout_filter_calls[0][-1].__name__ == "exact_coriolis_rotation_filter"
+    assert len(dfi_calls) == 1
+    assert len(dfi_calls[0]["filters"]) == 1
+    assert dfi_calls[0]["ode_solver"] is time_integration.imex_rk_sil3
+
+
+def test_trajectory_function_uses_strang_rollout_and_unsplit_dfi(monkeypatch):
+    """Strang rollout wraps diffusion-filtered zero-Ω dynamics and normal-Ω DFI."""
+    primitive_calls = []
+    rollout_filter_calls = []
+    symmetric_step_calls = []
+    dfi_calls = []
+    real_primitive_equation = dinosaur_adapter._primitive_equation
+    real_step_with_filters = time_integration.step_with_filters
+    real_symmetric_step = dinosaur_adapter._symmetric_exact_coriolis_rotation_step
+
+    def capture_primitive_equation(*args, **kwargs):
+        primitive_calls.append(kwargs["physics_specs"])
+        return real_primitive_equation(*args, **kwargs)
+
+    def capture_step_with_filters(step_fn, filters):
+        rollout_filter_calls.append(tuple(filters))
+        return real_step_with_filters(step_fn, filters)
+
+    def capture_symmetric_step(step_fn, *, coords, physics_specs, step_seconds):
+        symmetric_step_calls.append(
+            {
+                "coords": coords,
+                "physics_specs": physics_specs,
+                "step_seconds": step_seconds,
+            }
+        )
+        return real_symmetric_step(
+            step_fn,
+            coords=coords,
+            physics_specs=physics_specs,
+            step_seconds=step_seconds,
+        )
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(
+            {
+                "equation": equation,
+                "ode_solver": ode_solver,
+                "filters": tuple(filters),
+                "time_span": time_span,
+                "cutoff_period": cutoff_period,
+                "dt": dt,
+            }
+        )
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_primitive_equation",
+        capture_primitive_equation,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "step_with_filters",
+        capture_step_with_filters,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_symmetric_exact_coriolis_rotation_step",
+        capture_symmetric_step,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    model = replace(
+        coriolis_strang_split_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    step_seconds = _nondimensionalize_seconds(
+        physics_specs,
+        model.inner_step_seconds,
+    )
+
+    model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=2,
+            temperature_kelvin=model.reference_temperature_kelvin,
+        ),
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+
+    assert len(primitive_calls) == 2
+    rollout_physics_specs, dfi_physics_specs = primitive_calls
+    assert rollout_physics_specs.angular_velocity == 0.0
+    assert dfi_physics_specs.angular_velocity == physics_specs.angular_velocity
+    assert len(rollout_filter_calls) == 1
+    assert len(rollout_filter_calls[0]) == 1
+    assert rollout_filter_calls[0][0].__name__ != "exact_coriolis_rotation_filter"
+    assert len(symmetric_step_calls) == 1
+    assert symmetric_step_calls[0]["coords"] is grid.coords
+    assert symmetric_step_calls[0]["physics_specs"] is physics_specs
+    assert symmetric_step_calls[0]["step_seconds"] == step_seconds
     assert len(dfi_calls) == 1
     assert len(dfi_calls[0]["filters"]) == 1
     assert dfi_calls[0]["ode_solver"] is time_integration.imex_rk_sil3
