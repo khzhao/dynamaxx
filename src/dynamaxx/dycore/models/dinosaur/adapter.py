@@ -92,6 +92,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_near_surface_residual_correction: bool = False
     near_surface_residual_decay_hours: float = 48.0
     apply_exact_coriolis_rotation_split: bool = False
+    apply_symmetric_exact_coriolis_rotation_split: bool = False
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -201,9 +202,13 @@ class DinosaurPrimitiveEquationsDycoreModel:
         use_humidity_in_dynamics: bool,
     ):
         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+        use_coriolis_rotation_split = (
+            self.apply_exact_coriolis_rotation_split
+            or self.apply_symmetric_exact_coriolis_rotation_split
+        )
         rollout_physics_specs = (
             replace(physics_specs, angular_velocity=0.0)
-            if self.apply_exact_coriolis_rotation_split
+            if use_coriolis_rotation_split
             else physics_specs
         )
         humidity_key = SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
@@ -250,7 +255,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
             return filters
 
         filters = build_filters(rollout_physics_specs)
-        if self.apply_exact_coriolis_rotation_split:
+        if (
+            self.apply_exact_coriolis_rotation_split
+            and not self.apply_symmetric_exact_coriolis_rotation_split
+        ):
             filters.append(
                 _exact_coriolis_rotation_step_filter(
                     coords=coords,
@@ -260,12 +268,19 @@ class DinosaurPrimitiveEquationsDycoreModel:
             )
         dfi_equation = equation
         dfi_filters = filters
-        if self.apply_exact_coriolis_rotation_split:
+        if use_coriolis_rotation_split:
             dfi_equation = build_equation(physics_specs)
             dfi_filters = build_filters(physics_specs)
         step_fn = time_integration.imex_rk_sil3(equation, time_step=step_seconds)
         if filters:
             step_fn = time_integration.step_with_filters(step_fn, filters)
+        if self.apply_symmetric_exact_coriolis_rotation_split:
+            step_fn = _symmetric_exact_coriolis_rotation_step(
+                step_fn,
+                coords=coords,
+                physics_specs=physics_specs,
+                step_seconds=step_seconds,
+            )
         trajectory_fn = time_integration.trajectory_from_step(
             step_fn,
             outer_steps=output_count,
@@ -336,6 +351,28 @@ def _exact_coriolis_rotation_step_filter(
         )
 
     return exact_coriolis_rotation_filter
+
+
+def _symmetric_exact_coriolis_rotation_step(
+    step_fn: Any,
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    step_seconds: float,
+) -> Any:
+    """Return a Strang-split step around non-Coriolis dynamics."""
+    half_rotation_filter = _exact_coriolis_rotation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        step_seconds=0.5 * step_seconds,
+    )
+
+    def symmetric_exact_coriolis_rotation_step(state: Any) -> Any:
+        half_rotated_state = half_rotation_filter(state, state)
+        next_state = step_fn(half_rotated_state)
+        return half_rotation_filter(half_rotated_state, next_state)
+
+    return symmetric_exact_coriolis_rotation_step
 
 
 def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
@@ -428,6 +465,26 @@ def coriolis_split_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMo
         use_hydrostatic_temperature_initialization=True,
         use_layer_mean_hydrostatic_temperature_initialization=True,
         apply_exact_coriolis_rotation_split=True,
+    )
+
+
+def coriolis_strang_split_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the exact-Coriolis split with symmetric rollout ordering."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
     )
 
 
@@ -795,9 +852,7 @@ def _hydrostatic_temperature_from_geopotential_thickness(
     if len(pressure_levels_hpa) < 2:
         return analyzed_temperature
 
-    log_pressure = jnp.log(
-        jnp.asarray(pressure_levels_hpa, dtype=geopotential.dtype)
-    )
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=geopotential.dtype))
     dry_air_gas_constant = jnp.asarray(
         dry_air_gas_constant,
         dtype=geopotential.dtype,
@@ -823,13 +878,11 @@ def _hydrostatic_temperature_from_geopotential_thickness(
     safe_log_pressure_difference = jnp.where(
         jnp.abs(log_pressure_difference) > minimum_difference,
         log_pressure_difference,
-        jnp.where(log_pressure_difference < 0.0, -1.0, 1.0)
-        * minimum_difference,
+        jnp.where(log_pressure_difference < 0.0, -1.0, 1.0) * minimum_difference,
     )
 
     virtual_temperature = -geopotential_difference / (
-        dry_air_gas_constant
-        * safe_log_pressure_difference[:, jnp.newaxis, jnp.newaxis]
+        dry_air_gas_constant * safe_log_pressure_difference[:, jnp.newaxis, jnp.newaxis]
     )
     dry_temperature = virtual_temperature
     if specific_humidity is not None:
@@ -838,9 +891,7 @@ def _hydrostatic_temperature_from_geopotential_thickness(
             dtype=geopotential.dtype,
         )
         bounded_humidity = jnp.clip(specific_humidity, 0.0, 1.0)
-        virtual_temperature_factor = 1.0 + (
-            gas_constant_ratio - 1.0
-        ) * bounded_humidity
+        virtual_temperature_factor = 1.0 + (gas_constant_ratio - 1.0) * bounded_humidity
         dry_temperature = virtual_temperature / virtual_temperature_factor
 
     valid_temperature = jnp.isfinite(dry_temperature) & (dry_temperature > 0.0)
@@ -860,9 +911,7 @@ def _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
     if len(pressure_levels_hpa) < 2:
         return analyzed_temperature
 
-    log_pressure = jnp.log(
-        jnp.asarray(pressure_levels_hpa, dtype=geopotential.dtype)
-    )
+    log_pressure = jnp.log(jnp.asarray(pressure_levels_hpa, dtype=geopotential.dtype))
     dry_air_gas_constant = jnp.asarray(
         dry_air_gas_constant,
         dtype=geopotential.dtype,
@@ -870,8 +919,7 @@ def _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
     log_pressure_difference = log_pressure[1:] - log_pressure[:-1]
     geopotential_difference = geopotential[1:] - geopotential[:-1]
     layer_virtual_temperature = -geopotential_difference / (
-        dry_air_gas_constant
-        * log_pressure_difference[:, jnp.newaxis, jnp.newaxis]
+        dry_air_gas_constant * log_pressure_difference[:, jnp.newaxis, jnp.newaxis]
     )
 
     layer_dry_temperature = layer_virtual_temperature
@@ -880,13 +928,9 @@ def _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
             water_vapor_gas_constant / dry_air_gas_constant,
             dtype=geopotential.dtype,
         )
-        layer_specific_humidity = 0.5 * (
-            specific_humidity[1:] + specific_humidity[:-1]
-        )
+        layer_specific_humidity = 0.5 * (specific_humidity[1:] + specific_humidity[:-1])
         bounded_humidity = jnp.clip(layer_specific_humidity, 0.0, 1.0)
-        virtual_temperature_factor = 1.0 + (
-            gas_constant_ratio - 1.0
-        ) * bounded_humidity
+        virtual_temperature_factor = 1.0 + (gas_constant_ratio - 1.0) * bounded_humidity
         layer_dry_temperature = layer_virtual_temperature / virtual_temperature_factor
 
     level_dry_temperature = jnp.concatenate(

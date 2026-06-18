@@ -82,6 +82,15 @@ def dinosaur_coriolis_split_model() -> DycoreModel:
     return coriolis_split_dinosaur_dycore_model()
 
 
+def dinosaur_coriolis_strang_model() -> DycoreModel:
+    """Return the exact-Coriolis split with symmetric rollout ordering."""
+    from dynamaxx.dycore.models.dinosaur import (
+        coriolis_strang_split_dinosaur_dycore_model,
+    )
+
+    return coriolis_strang_split_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -103,6 +112,10 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
         "hydrostatic_layer_init_coriolis_split"
     ): dinosaur_coriolis_split_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang"
+    ): dinosaur_coriolis_strang_model,
 }
 
 
