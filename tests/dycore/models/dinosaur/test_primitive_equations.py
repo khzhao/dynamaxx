@@ -22,6 +22,8 @@ from dynamaxx.dycore.models.dinosaur import (
 )
 from dynamaxx.dycore.models.dinosaur.adapter import (
     _DRY_AIR_GAS_CONSTANT_SI,
+    _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+    _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     DEFAULT_SPECTRAL_WAVENUMBERS,
@@ -30,6 +32,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS,
     DinosaurPrimitiveEquationsDycoreModel,
     _apply_near_surface_residual_correction,
+    _apply_scale_separated_near_surface_residual_correction,
     _compose_weak_held_suarez_equation,
     _exact_coriolis_rotation_step_filter,
     _horizontal_diffusion_step_filter,
@@ -42,6 +45,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _primitive_equation,
     _primitive_equation_state,
     _reference_temperature,
+    _scale_separated_residual_low_mode_mask,
+    _split_near_surface_residual_by_scale,
     _stability_aware_near_surface_residual_decay_hours,
     _surface_layer_richardson_10m_wind,
     _symmetric_exact_coriolis_rotation_step,
@@ -58,6 +63,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+    scale_separated_surface_residual_dinosaur_dycore_model,
     semi_implicit_offcenter_dinosaur_dycore_model,
     split_pressure_level_channel,
     stability_aware_surface_residual_dinosaur_dycore_model,
@@ -141,6 +147,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_near_surface_residual_correction
     assert model.near_surface_residual_decay_hours == 48.0
     assert not model.use_stability_aware_near_surface_residual_decay
+    assert not model.use_scale_separated_near_surface_residual
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
@@ -436,6 +443,25 @@ def test_semi_implicit_offcenter_factory_preserves_incumbent_except_epsilon():
     assert incumbent.semi_implicit_offcentering == 0.0
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "semi_implicit_offcentering"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_scale_separated_residual_factory_preserves_incumbent_except_selector():
+    """The candidate changes only name and the residual scale selector."""
+    model = scale_separated_surface_residual_dinosaur_dycore_model()
+    incumbent = semi_implicit_offcenter_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual"
+    )
+    assert model.use_scale_separated_near_surface_residual
+    assert not incumbent.use_scale_separated_near_surface_residual
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_scale_separated_near_surface_residual"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -1100,6 +1126,58 @@ def test_semi_implicit_offcenter_candidate_forecast_is_finite(monkeypatch):
     )
 
 
+def test_scale_separated_residual_candidate_forecast_is_finite(monkeypatch):
+    """The scale-separated residual candidate runs a small non-JIT forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        scale_separated_surface_residual_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("2m_temperature",)).values[0],
+        forecast_input.initial_state.select(("2m_temperature",)).values,
+    )
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
 def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
     """The residual candidate changes only selected near-surface diagnostics."""
 
@@ -1299,6 +1377,238 @@ def test_near_surface_residual_correction_skips_missing_channels():
     )
 
     np.testing.assert_array_equal(corrected.values, trajectory_state.values[1:2])
+
+
+def test_scale_separated_residual_mask_protects_low_modes_and_tapers():
+    """The fixed low-mode mask protects n<=12 and tapers to zero by n=20."""
+    horizontal_grid = _residual_split_test_grid()
+
+    low_mode_mask = np.asarray(
+        _scale_separated_residual_low_mode_mask(horizontal_grid)
+    )
+
+    _, total_wavenumber = horizontal_grid.modal_mesh
+    valid_modes = np.asarray(horizontal_grid.mask)
+    assert np.isfinite(low_mode_mask).all()
+    np.testing.assert_array_equal(low_mode_mask[~valid_modes], 0.0)
+    np.testing.assert_allclose(
+        low_mode_mask[
+            valid_modes
+            & (total_wavenumber <= _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF)
+        ],
+        1.0,
+        rtol=0.0,
+        atol=0.0,
+    )
+    np.testing.assert_array_equal(
+        low_mode_mask[
+            valid_modes
+            & (total_wavenumber >= _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE)
+        ],
+        0.0,
+    )
+    taper_modes = low_mode_mask[valid_modes & (total_wavenumber == 16)]
+    assert taper_modes.size > 0
+    assert float(np.min(taper_modes)) > 0.0
+    assert float(np.max(taper_modes)) < 1.0
+
+
+def test_scale_separated_residual_split_reconstructs_and_keeps_low_modes():
+    """Low plus high residual reconstructs, and pure low modes do not leak."""
+    horizontal_grid = _residual_split_test_grid()
+    _, total_wavenumber = horizontal_grid.modal_mesh
+    valid_low_modes = np.asarray(horizontal_grid.mask) & (total_wavenumber <= 4)
+    modal_residual = jnp.asarray(
+        np.where(
+            valid_low_modes,
+            0.02 * (1.0 + total_wavenumber),
+            0.0,
+        ),
+        dtype=jnp.float32,
+    )
+    residual_model_order = horizontal_grid.to_nodal(modal_residual)
+    residual_weather_order = residual_model_order[:, ::-1]
+
+    low_mode_residual, high_mode_residual, split_is_valid = (
+        _split_near_surface_residual_by_scale(
+            residual_weather_order,
+            horizontal_grid=horizontal_grid,
+            latitude_reversed=True,
+        )
+    )
+
+    assert bool(split_is_valid)
+    np.testing.assert_allclose(
+        low_mode_residual + high_mode_residual,
+        residual_weather_order,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        low_mode_residual,
+        residual_weather_order,
+        rtol=1e-4,
+        atol=1e-4,
+    )
+    np.testing.assert_allclose(high_mode_residual, 0.0, rtol=1e-4, atol=1e-4)
+
+
+def test_scale_separated_residual_correction_keeps_low_modes_longer():
+    """Low modes use the fixed 96 h memory while other channels stay unchanged."""
+    raw_temperature = jnp.stack(
+        [
+            jnp.full((4, 3), 280.0, dtype=jnp.float32),
+            jnp.full((4, 3), 282.0, dtype=jnp.float32),
+        ]
+    )
+    raw_u_wind = jnp.stack(
+        [
+            jnp.full((4, 3), 1.0, dtype=jnp.float32),
+            jnp.full((4, 3), 1.5, dtype=jnp.float32),
+        ]
+    )
+    raw_pressure = jnp.stack(
+        [
+            jnp.full((4, 3), 100000.0, dtype=jnp.float32),
+            jnp.full((4, 3), 99900.0, dtype=jnp.float32),
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack([raw_temperature, raw_u_wind, raw_pressure], axis=1),
+        variables=(
+            "2m_temperature",
+            "10m_u_component_of_wind",
+            "mean_sea_level_pressure",
+        ),
+    )
+    initial_temperature = jnp.full((4, 3), 284.0, dtype=jnp.float32)
+    initial_u_wind = jnp.full((4, 3), 4.0, dtype=jnp.float32)
+    initial_state = WeatherState(
+        values=jnp.stack([initial_temperature, initial_u_wind]),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    grid = grid_metadata(
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+
+    corrected = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 96),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+    )
+
+    low_mode_decay = np.exp(-1.0)
+    expected_temperature = raw_temperature.at[0].set(initial_temperature)
+    expected_temperature = expected_temperature.at[1].set(
+        raw_temperature[1] + (initial_temperature - raw_temperature[0]) * low_mode_decay
+    )
+    expected_u_wind = raw_u_wind.at[0].set(initial_u_wind)
+    expected_u_wind = expected_u_wind.at[1].set(
+        raw_u_wind[1] + (initial_u_wind - raw_u_wind[0]) * low_mode_decay
+    )
+    np.testing.assert_allclose(
+        corrected.select(("2m_temperature",)).values[:, 0],
+        expected_temperature,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        corrected.select(("10m_u_component_of_wind",)).values[:, 0],
+        expected_u_wind,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_array_equal(
+        corrected.select(("mean_sea_level_pressure",)).values,
+        trajectory_state.select(("mean_sea_level_pressure",)).values,
+    )
+
+
+def test_scale_separated_residual_correction_falls_back_to_incumbent(monkeypatch):
+    """Invalid or incompatible spectral splits use the incumbent correction."""
+    raw_temperature = jnp.stack(
+        [
+            jnp.full((4, 3), 280.0, dtype=jnp.float32),
+            jnp.full((4, 3), 282.0, dtype=jnp.float32),
+        ]
+    )
+    raw_u_wind = jnp.stack(
+        [
+            jnp.full((4, 3), 1.0, dtype=jnp.float32),
+            jnp.full((4, 3), 1.5, dtype=jnp.float32),
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack([raw_temperature, raw_u_wind], axis=1),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    initial_state = WeatherState(
+        values=jnp.stack([raw_temperature[0] + 5.0, raw_u_wind[0] + 2.0]),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    incumbent = _apply_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 24),
+        decay_hours=48.0,
+    )
+    incompatible_grid = spherical_harmonic.Grid(
+        longitude_wavenumbers=2,
+        total_wavenumbers=3,
+        longitude_nodes=5,
+        latitude_nodes=4,
+        latitude_spacing="gauss",
+    )
+    shape_fallback = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 24),
+        decay_hours=48.0,
+        horizontal_grid=incompatible_grid,
+    )
+    np.testing.assert_array_equal(shape_fallback.values, incumbent.values)
+
+    grid = grid_metadata(
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+
+    def invalid_split(residual, *, horizontal_grid, latitude_reversed):
+        del horizontal_grid, latitude_reversed
+        return (
+            jnp.full_like(residual, jnp.nan),
+            jnp.zeros_like(residual),
+            jnp.asarray(False),
+        )
+
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_split_near_surface_residual_by_scale",
+        invalid_split,
+    )
+    nonfinite_fallback = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 24),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+    )
+
+    assert bool(jnp.isfinite(nonfinite_fallback.values).all())
+    np.testing.assert_array_equal(nonfinite_fallback.values, incumbent.values)
 
 
 def test_stability_aware_residual_decay_hours_are_bounded_by_column_state():
@@ -3935,6 +4245,16 @@ def _surface_pressure_field(
     if latitude_reversed:
         return values[..., ::-1]
     return values
+
+
+def _residual_split_test_grid() -> spherical_harmonic.Grid:
+    return spherical_harmonic.Grid(
+        longitude_wavenumbers=10,
+        total_wavenumbers=24,
+        longitude_nodes=64,
+        latitude_nodes=48,
+        latitude_spacing="gauss",
+    )
 
 
 def _assert_pytree_allclose(actual, expected):
