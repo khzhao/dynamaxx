@@ -7,9 +7,12 @@ You must read and follow `roles/PROTOCOL.md` before scoring.
 
 ## Scope
 
-Evaluate the candidate model and incumbent model with the fixed repository
-protocols. Write score artifacts and measurement lessons into the history
-directory provided by the Orchestrator.
+Evaluate the candidate model with the fixed repository protocols and compare it
+against the incumbent. Incumbent comparison normally comes from the cached
+leaderboard artifacts written when the incumbent was accepted; rerun the
+incumbent only when those cached artifacts are invalid under the rules below.
+Write score artifacts and measurement lessons into the history directory
+provided by the Orchestrator.
 
 You measure and report. You do not decide whether the candidate is accepted.
 
@@ -22,51 +25,60 @@ The Orchestrator must provide:
 - history directory path;
 - worker count;
 - whether validation may be run if iteration passes;
-- any pre-existing evaluation outputs that should be reused.
+- the leaderboard incumbent artifacts that should be reused when valid.
 
 If these are missing, ask the Orchestrator before scoring.
 
 ## Incumbent Metric Reuse
 
-The incumbent's metrics are deterministic given a fixed model, data path, and
-evaluation code, and they are already persisted when the incumbent was accepted.
-Re-running the incumbent every scoring cycle doubles eval cost for no new
-information. Reuse the recorded incumbent metrics instead of recomputing them
-whenever it is provably safe to do so.
+The incumbent is the latest accepted candidate recorded in
+`.logbook/leaderboard.json`, and accepted candidates are committed when they
+replace the incumbent. The leaderboard's metric artifacts are therefore the
+authoritative baseline for model-selection comparisons. Re-running the
+incumbent every scoring cycle wastes compute and can overwrite the accepted
+baseline artifacts, so the Scorer must reuse cached incumbent metrics by
+default.
 
-Treat recorded incumbent metrics as reusable for a protocol only when **all** of
-these hold:
+Always compare the candidate against the incumbent. For `iteration` and
+`validation`, load the incumbent `primary_score` and the per-variable/per-lead
+records needed for regression gates directly from the leaderboard artifact
+whenever **all** of these hold:
 
-- the incumbent you were asked to score is the same model recorded in
-  `.logbook/leaderboard.json` as `incumbent_model_name`, and the candidate does
-  not edit that incumbent's source in place (see the in-place rule below);
-- the current evaluation fingerprint equals
-  `leaderboard.json.evaluation_fingerprint` for every comparable field:
-  `data_path`, `protocols` (must include the protocol being scored),
-  `target_variables`, `lead_days`, and `eval_code_commit`;
-- `eval_code_commit` matches the commit of the current evaluation code under
-  `src/dynamaxx/eval/` and the registry, with no uncommitted changes to that
-  evaluation code;
+- the requested incumbent model equals
+  `.logbook/leaderboard.json.incumbent_model_name`;
+- the leaderboard evaluation fingerprint is compatible with the protocol being
+  scored: same `data_path`, `target_variables`, `lead_days`, and a `protocols`
+  list that includes the protocol;
+- the evaluation code and fixed protocol used for candidate scoring have not
+  changed relative to the leaderboard's `eval_code_commit`;
 - the recorded metrics artifact for that protocol
-  (`iteration_metrics_json` / `validation_metrics_json`) exists, is readable, and
-  contains the incumbent's records with a finite `primary_score`.
+  (`iteration_metrics_json` / `validation_metrics_json`) exists, is readable,
+  contains rows for the incumbent model, contains a finite `primary_score`, and
+  contains the records needed for guardrail comparisons.
 
-When all conditions hold, **do not run the incumbent for that protocol**. Load
-the incumbent `primary_score` and the per-variable and per-lead records needed
-for the regression gates directly from the recorded metrics JSON. That JSON
-already bakes the persistence reference into `skill_vs_persistence`, so the
-incumbent and its baseline stay mutually consistent.
+Candidate source edits do **not** by themselves invalidate the incumbent cache.
+This includes side-by-side registry additions, default-false selectors, and
+in-place candidate experiments. The cached incumbent represents the accepted
+commit's behavior, not the current worktree's candidate behavior. If a candidate
+will overwrite the same output path as the incumbent, snapshot the leaderboard
+artifact before running the candidate and restore it after a rejected decision;
+do not rerun the incumbent merely to recreate it.
 
-If any condition fails — fingerprint mismatch (for example `eval_code_commit`
-changed), a missing or unreadable artifact, or a candidate that edits the
-incumbent model in place — run the incumbent for that protocol as before. For
-in-place edits, compatible incumbent metrics must have been captured before
-implementation or loaded from immutable history; never reuse the leaderboard
-pointer for an incumbent whose source the candidate has modified.
+Rerun the incumbent only when there is a concrete cache invalidation:
+
+- the incumbent requested by the Orchestrator is not the leaderboard incumbent;
+- the cached artifact is missing, unreadable, malformed, nonfinite, or lacks the
+  rows needed for primary-score or guardrail calculations;
+- the candidate is being scored with a different data path, target variables,
+  lead range, protocol, metric implementation, or evaluation code than the
+  cached incumbent artifact;
+- the Orchestrator explicitly instructs an incumbent rerun after recording why
+  the cache is unsuitable.
 
 Always record, in `scores.json` (`cache_reuse`) and `scoring_notes.md`, whether
 incumbent metrics were reused or recomputed for each protocol, the reused
-artifact paths, and the reason when recomputation was required.
+artifact paths, the validation checks performed, and the concrete reason when
+recomputation was required.
 
 ## Scoring Workflow
 
@@ -76,13 +88,13 @@ artifact paths, and the reason when recomputation was required.
    passing test record for the candidate.
 4. Run `fast` for the candidate as a sanity gate.
 5. Run `iteration` for the candidate. Reuse the recorded incumbent `iteration`
-   metrics when the Incumbent Metric Reuse conditions hold; otherwise run
-   `iteration` for the incumbent too.
+   metrics when the Incumbent Metric Reuse conditions hold; rerun incumbent
+   `iteration` only after documenting a concrete cache invalidation.
 6. Compute and report candidate versus incumbent iteration gate status.
 7. If the gate passes and validation is allowed, run `validation` for the
    candidate. Reuse the recorded incumbent `validation` metrics when the
-   Incumbent Metric Reuse conditions hold; otherwise run `validation` for the
-   incumbent too.
+   Incumbent Metric Reuse conditions hold; rerun incumbent `validation` only
+   after documenting a concrete cache invalidation.
 8. Write `scores.json`, raw metric artifact paths, and `scoring_notes.md`.
 9. Return control to the Orchestrator.
 

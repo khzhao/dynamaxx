@@ -67,9 +67,10 @@ Before starting a run:
    protocol default.
 6. Record baseline `git status --short` and baseline commit hash before any
    implementation begins.
-7. If the candidate will edit the incumbent model in place, confirm compatible
-   incumbent metrics already exist or run the required incumbent baseline
-   evaluations before implementation.
+7. Confirm compatible incumbent metrics exist in `.logbook/leaderboard.json`
+   and its recorded artifacts. Treat those artifacts as the default comparison
+   baseline; run incumbent baseline evaluations only when the cache is
+   concretely invalid under `roles/PROTOCOL.md`.
 
 If the worktree is dirty before the experiment starts, record the pre-existing
 files and protect them from rollback. Stop if the dirty state makes the
@@ -142,7 +143,8 @@ Scorer delegation must include:
 - worker count;
 - whether validation is allowed after iteration;
 - history directory path for score artifacts;
-- compatible incumbent metric artifacts, if available;
+- compatible leaderboard incumbent metric artifacts and cache-validity
+  instructions;
 - instruction to write `scores.json` and `scoring_notes.md`.
 
 ## Evaluation Policy
