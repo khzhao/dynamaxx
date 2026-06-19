@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import partial
 from typing import Any, cast
 
 import jax
@@ -44,6 +45,7 @@ DEFAULT_SPECTRAL_WAVENUMBERS = 80
 DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY = 0.0
 DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS = 160.0
 DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS = 16.0
+DEFAULT_SEMI_IMPLICIT_OFFCENTERING = 0.05
 _FINITE_SIGMA_TO_PRESSURE_INTERPOLATE = (
     vertical_interpolation.vectorize_vertical_interpolation(
         vertical_interpolation.linear_interp_with_nearest_extrap
@@ -113,6 +115,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
     )
     apply_theta_layer_mean_recentering: bool = False
+    semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -266,6 +269,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             physics_specs,
             self.inner_step_seconds,
         )
+        ode_solver = self._ode_solver()
 
         def build_filters(filter_physics_specs: Any) -> list[Any]:
             filters = []
@@ -306,7 +310,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     reference_temperature=reference_temperature,
                 )
             )
-        step_fn = time_integration.imex_rk_sil3(equation, time_step=step_seconds)
+        step_fn = ode_solver(equation, time_step=step_seconds)
         if filters:
             step_fn = time_integration.step_with_filters(step_fn, filters)
         if self.apply_symmetric_exact_coriolis_rotation_split:
@@ -333,7 +337,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             )
             initialize_state = time_integration.digital_filter_initialization(
                 dfi_equation,
-                time_integration.imex_rk_sil3,
+                ode_solver,
                 dfi_filters,
                 time_span=digital_filter_time_span,
                 cutoff_period=digital_filter_cutoff_period,
@@ -346,6 +350,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
 
             trajectory_fn = initialized_trajectory_fn
         return jax.jit(trajectory_fn) if self.jit_forecast else trajectory_fn
+
+    def _ode_solver(self) -> Any:
+        """Return the SIL3 solver, off-centered only for explicit opt-in models."""
+        if self.semi_implicit_offcentering == 0.0:
+            return time_integration.imex_rk_sil3
+        return partial(
+            time_integration.imex_rk_sil3,
+            implicit_offcentering=self.semi_implicit_offcentering,
+        )
 
 
 def _exact_coriolis_rotation_step_filter(
@@ -702,6 +715,34 @@ def theta_mean_recenter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDyc
             primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
         ),
         apply_theta_layer_mean_recentering=True,
+    )
+
+
+def semi_implicit_offcenter_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the theta incumbent with fixed SIL3 implicit off-centering."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_stability_aware_near_surface_residual_decay=True,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        apply_theta_layer_mean_recentering=True,
+        semi_implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     )
 
 

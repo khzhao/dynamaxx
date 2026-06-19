@@ -42,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur import (
     xarray_utils,
 )
 from dynamaxx.dycore.models.dinosaur.adapter import (
+    DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     DinosaurPrimitiveEquationsDycoreModel,
     coriolis_split_dinosaur_dycore_model,
     coriolis_strang_split_dinosaur_dycore_model,
@@ -52,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+    semi_implicit_offcenter_dinosaur_dycore_model,
     stability_aware_surface_residual_dinosaur_dycore_model,
     theta_mean_recenter_dinosaur_dycore_model,
     theta_tendency_dinosaur_dycore_model,
@@ -66,6 +68,7 @@ __all__ = [
     "UPSTREAM_PACKAGE",
     "UPSTREAM_VERSION",
     "__version__",
+    "DEFAULT_SEMI_IMPLICIT_OFFCENTERING",
     "DinosaurPrimitiveEquationsDycoreModel",
     "associated_legendre",
     "coordinate_systems",
@@ -91,6 +94,7 @@ __all__ = [
     "radiation",
     "richardson_10m_wind_diagnostic_dinosaur_dycore_model",
     "scales",
+    "semi_implicit_offcenter_dinosaur_dycore_model",
     "shallow_water",
     "shallow_water_states",
     "sigma_coordinates",
