@@ -50,6 +50,16 @@ The leaderboard is a pointer to the incumbent and its comparable baseline
 artifacts. It is not the full experiment record; full records live under
 `.logbook/history/`.
 
+Accepted candidates are committed when they become the incumbent. Therefore the
+leaderboard's incumbent artifacts are the authoritative cached baseline for
+future comparisons. The Scorer should reuse those artifacts by default and rerun
+the incumbent only when the cache is concretely invalid: missing, unreadable, or
+nonfinite artifacts; incompatible data path, protocol, target variables, lead
+range, metrics, or evaluation code; a requested incumbent that is not the
+leaderboard incumbent; or an explicit Orchestrator instruction with rationale.
+Candidate source edits in the current worktree do not by themselves invalidate
+the accepted incumbent cache.
+
 ## Fixed Evaluation Commands
 
 Use these commands unless the Orchestrator explicitly changes worker count after
@@ -358,10 +368,12 @@ evaluation result. It is currently the mean candidate skill against persistence
 across reported records.
 
 Candidate and incumbent scores are comparable only when they use the same
-protocol, data path, target variables, lead times, and evaluation code. If the
-candidate edits the incumbent model in place, compatible incumbent metrics must
-be captured before implementation or loaded from immutable history before any
-acceptance decision is made.
+protocol, data path, target variables, lead times, and evaluation code.
+Compatible incumbent metrics should be loaded from `.logbook/leaderboard.json`
+and its recorded artifacts before any acceptance decision is made. Do not rerun
+the incumbent only because the candidate edits shared dycore source; the cached
+incumbent represents the latest accepted commit. Rerun the incumbent only when
+the leaderboard cache is invalid under the cache policy above.
 
 The fixed gates are intentionally conservative:
 
