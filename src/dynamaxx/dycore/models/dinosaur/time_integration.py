@@ -406,9 +406,95 @@ def imex_runge_kutta(
     return step_fn
 
 
+def _shift_implicit_weight_to_current_stage(
+    row: Sequence[float],
+    implicit_offcentering: float,
+) -> list[float]:
+    """Move implicit weight from previous stages to the current stage."""
+    previous_coefficients = [float(coefficient) for coefficient in row[:-1]]
+    current_coefficient = float(row[-1])
+    previous_weight = sum(previous_coefficients)
+    if previous_weight <= 0.0:
+        raise ValueError(
+            "implicit off-centering requires positive previous implicit weight"
+        )
+    if implicit_offcentering > previous_weight:
+        raise ValueError(
+            "implicit off-centering cannot exceed previous implicit row weight"
+        )
+
+    previous_scale = (previous_weight - implicit_offcentering) / previous_weight
+    shifted_previous = [
+        coefficient * previous_scale for coefficient in previous_coefficients
+    ]
+    return shifted_previous + [current_coefficient + implicit_offcentering]
+
+
+def _offcentered_implicit_tableau(
+    tableau: ImExButcherTableau,
+    implicit_offcentering: float,
+) -> ImExButcherTableau:
+    """Return a row-sum-preserving off-centered implicit tableau."""
+    if implicit_offcentering < 0.0 or not math.isfinite(implicit_offcentering):
+        raise ValueError("implicit off-centering must be a finite nonnegative value")
+    if implicit_offcentering == 0.0:
+        return tableau
+
+    return ImExButcherTableau(
+        a_ex=tableau.a_ex,
+        a_im=[
+            _shift_implicit_weight_to_current_stage(row, implicit_offcentering)
+            for row in tableau.a_im
+        ],
+        b_ex=tableau.b_ex,
+        b_im=_shift_implicit_weight_to_current_stage(
+            tableau.b_im,
+            implicit_offcentering,
+        ),
+    )
+
+
+def _pytree_all_finite(state: PyTreeState) -> jax.Array:
+    """Return a scalar JAX boolean indicating whether all numeric leaves are finite."""
+    finite_leaves = [
+        jnp.all(jnp.isfinite(leaf)) for leaf in jax.tree_util.tree_leaves(state)
+    ]
+    if not finite_leaves:
+        return jnp.asarray(True)
+    return jnp.all(jnp.asarray(finite_leaves))
+
+
+def _guarded_nonfinite_fallback_step(
+    candidate_step: TimeStepFn,
+    fallback_step: TimeStepFn,
+) -> TimeStepFn:
+    """Use the fallback step if the candidate step emits nonfinite leaves."""
+
+    def step_fn(state: PyTreeState) -> PyTreeState:
+        candidate_next = candidate_step(state)
+
+        def keep_candidate(args):
+            del args
+            return candidate_next
+
+        def run_fallback(input_state):
+            return fallback_step(input_state)
+
+        return jax.lax.cond(
+            _pytree_all_finite(candidate_next),
+            keep_candidate,
+            run_fallback,
+            state,
+        )
+
+    return step_fn
+
+
 def imex_rk_sil3(
     equation: ImplicitExplicitODE,
     time_step: float,
+    *,
+    implicit_offcentering: float = 0.0,
 ) -> TimeStepFn:
     """Time stepping with the SIL3 implicit-explicit RK scheme.
 
@@ -418,6 +504,9 @@ def imex_rk_sil3(
     Args:
       equation: equation to solve.
       time_step: time step.
+      implicit_offcentering: optional row-sum-preserving shift of implicit
+        weight from previous stages to the current implicit stage. The default
+        value of 0 keeps the centered SIL3 tableau exactly unchanged.
 
     Returns:
       Function that performs a time step.
@@ -427,16 +516,30 @@ def imex_rk_sil3(
       Fast-Slow Wave Problems. Monthly Weather Review vol. 141 3426-3434 (2013)
       http://dx.doi.org/10.1175/mwr-d-13-00132.1
     """
-    return imex_runge_kutta(
-        tableau=ImExButcherTableau(
-            a_ex=[[1 / 3], [1 / 6, 1 / 2], [1 / 2, -1 / 2, 1]],
-            a_im=[[1 / 6, 1 / 6], [1 / 3, 0, 1 / 3], [3 / 8, 0, 3 / 8, 1 / 4]],
-            b_ex=[1 / 2, -1 / 2, 1, 0],
-            b_im=[3 / 8, 0, 3 / 8, 1 / 4],
+    implicit_offcentering = float(implicit_offcentering)
+    centered_tableau = ImExButcherTableau(
+        a_ex=[[1 / 3], [1 / 6, 1 / 2], [1 / 2, -1 / 2, 1]],
+        a_im=[[1 / 6, 1 / 6], [1 / 3, 0, 1 / 3], [3 / 8, 0, 3 / 8, 1 / 4]],
+        b_ex=[1 / 2, -1 / 2, 1, 0],
+        b_im=[3 / 8, 0, 3 / 8, 1 / 4],
+    )
+    centered_step = imex_runge_kutta(
+        tableau=centered_tableau,
+        equation=equation,
+        time_step=time_step,
+    )
+    if implicit_offcentering == 0.0:
+        return centered_step
+
+    offcentered_step = imex_runge_kutta(
+        tableau=_offcentered_implicit_tableau(
+            centered_tableau,
+            implicit_offcentering,
         ),
         equation=equation,
         time_step=time_step,
     )
+    return _guarded_nonfinite_fallback_step(offcentered_step, centered_step)
 
 
 #  =============================================================================

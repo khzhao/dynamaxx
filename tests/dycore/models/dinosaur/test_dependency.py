@@ -84,6 +84,12 @@ assert (
     "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
     "ri_10m_wind_theta_tendency_theta_mean_recenter"
 )
+assert (
+    dinosaur.semi_implicit_offcenter_dinosaur_dycore_model().name
+    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -160,6 +166,9 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter",
     )
 
     model = create_dycore_model("dinosaur")
@@ -475,6 +484,43 @@ def test_dinosaur_theta_mean_recenter_is_registered():
     assert model.temperature_tendency_formulation == "potential_temperature"
     assert model.apply_theta_layer_mean_recentering
     assert not incumbent.apply_theta_layer_mean_recentering
+
+
+def test_dinosaur_semi_implicit_offcenter_is_registered():
+    """The SIL3 off-centering candidate is side-by-side with the incumbent."""
+    model = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
+    )
+    incumbent = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter"
+    )
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
+    )
+    assert model.apply_digital_filter_initialization
+    assert model.apply_near_surface_residual_correction
+    assert model.use_stability_aware_near_surface_residual_decay
+    assert model.use_surface_layer_richardson_10m_wind_diagnostic
+    assert model.apply_weak_held_suarez_relaxation
+    assert model.use_log_pressure_initialization
+    assert model.use_hydrostatic_temperature_initialization
+    assert model.use_layer_mean_hydrostatic_temperature_initialization
+    assert model.apply_exact_coriolis_rotation_split
+    assert model.apply_symmetric_exact_coriolis_rotation_split
+    assert model.temperature_tendency_formulation == "potential_temperature"
+    assert model.apply_theta_layer_mean_recentering
+    assert model.semi_implicit_offcentering == 0.05
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "semi_implicit_offcentering"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
 
 
 def test_dinosaur_has_local_runtime_modules_and_data():

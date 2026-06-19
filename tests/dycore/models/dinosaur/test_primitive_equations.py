@@ -23,6 +23,7 @@ from dynamaxx.dycore.models.dinosaur import (
 from dynamaxx.dycore.models.dinosaur.adapter import (
     _DRY_AIR_GAS_CONSTANT_SI,
     DEFAULT_INNER_STEP_SECONDS,
+    DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     DEFAULT_SPECTRAL_WAVENUMBERS,
     DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS,
     DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY,
@@ -57,6 +58,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+    semi_implicit_offcenter_dinosaur_dycore_model,
     split_pressure_level_channel,
     stability_aware_surface_residual_dinosaur_dycore_model,
     theta_mean_recenter_dinosaur_dycore_model,
@@ -145,6 +147,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_exact_coriolis_rotation_split
     assert not model.apply_symmetric_exact_coriolis_rotation_split
     assert not model.apply_theta_layer_mean_recentering
+    assert model.semi_implicit_offcentering == 0.0
     assert (
         model.temperature_tendency_formulation
         == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
@@ -413,6 +416,120 @@ def test_theta_mean_recenter_factory_preserves_incumbent_except_wrapper():
         if field_name in {"name", "apply_theta_layer_mean_recentering"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_semi_implicit_offcenter_factory_preserves_incumbent_except_epsilon():
+    """The candidate changes only name and the SIL3 off-centering weight."""
+    model = semi_implicit_offcenter_dinosaur_dycore_model()
+    incumbent = theta_mean_recenter_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
+    )
+    assert (
+        model.semi_implicit_offcentering
+        == DEFAULT_SEMI_IMPLICIT_OFFCENTERING
+        == 0.05
+    )
+    assert incumbent.semi_implicit_offcentering == 0.0
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "semi_implicit_offcentering"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+    """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+    equation = _linear_implicit_oscillator_equation(frequency=2.0)
+    initial_state = jnp.asarray([1.0, 0.25], dtype=jnp.float32)
+
+    centered_step = time_integration.imex_rk_sil3(equation, time_step=0.1)
+    zero_offcentered_step = time_integration.imex_rk_sil3(
+        equation,
+        time_step=0.1,
+        implicit_offcentering=0.0,
+    )
+
+    np.testing.assert_array_equal(
+        zero_offcentered_step(initial_state),
+        centered_step(initial_state),
+    )
+
+
+def test_imex_rk_sil3_offcentering_damps_fast_implicit_mode():
+    """Positive off-centering damps a fast mode while preserving a slow one."""
+    initial_state = jnp.asarray([1.0, 0.0], dtype=jnp.float32)
+    fast_equation = _linear_implicit_oscillator_equation(frequency=20.0)
+    slow_equation = _linear_implicit_oscillator_equation(frequency=0.1)
+
+    centered_fast_step = time_integration.imex_rk_sil3(
+        fast_equation,
+        time_step=0.2,
+    )
+    offcentered_fast_step = time_integration.imex_rk_sil3(
+        fast_equation,
+        time_step=0.2,
+        implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+    )
+    fast_centered_amplitude = jnp.linalg.norm(centered_fast_step(initial_state))
+    fast_offcentered_amplitude = jnp.linalg.norm(
+        offcentered_fast_step(initial_state)
+    )
+
+    centered_slow_step = time_integration.imex_rk_sil3(
+        slow_equation,
+        time_step=0.2,
+    )
+    offcentered_slow_step = time_integration.imex_rk_sil3(
+        slow_equation,
+        time_step=0.2,
+        implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+    )
+    slow_centered_amplitude = jnp.linalg.norm(centered_slow_step(initial_state))
+    slow_offcentered_amplitude = jnp.linalg.norm(
+        offcentered_slow_step(initial_state)
+    )
+
+    assert fast_offcentered_amplitude < 0.95 * fast_centered_amplitude
+    assert abs(float(slow_offcentered_amplitude) - 1.0) < 1e-3
+    assert abs(float(slow_offcentered_amplitude - slow_centered_amplitude)) < 1e-3
+
+
+def test_imex_rk_sil3_offcentered_step_falls_back_on_nonfinite_state():
+    """The positive-offcentering path locally falls back to centered SIL3."""
+
+    def explicit_terms(state):
+        return jnp.zeros_like(state)
+
+    def implicit_terms(state):
+        return state
+
+    def implicit_inverse(state, step_size):
+        return jnp.where(
+            step_size > 0.36,
+            jnp.full_like(state, jnp.nan),
+            state,
+        )
+
+    equation = time_integration.ImplicitExplicitODE.from_functions(
+        explicit_terms,
+        implicit_terms,
+        implicit_inverse,
+    )
+    initial_state = jnp.asarray([1.0, -0.5], dtype=jnp.float32)
+    centered_step = time_integration.imex_rk_sil3(equation, time_step=1.0)
+    offcentered_step = time_integration.imex_rk_sil3(
+        equation,
+        time_step=1.0,
+        implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+    )
+
+    np.testing.assert_array_equal(
+        offcentered_step(initial_state),
+        centered_step(initial_state),
+    )
 
 
 def test_dinosaur_forecast_returns_requested_channels():
@@ -914,6 +1031,54 @@ def test_theta_mean_recenter_candidate_forecast_is_finite(monkeypatch):
     )
     model = replace(
         theta_mean_recenter_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
+def test_semi_implicit_offcenter_candidate_forecast_is_finite(monkeypatch):
+    """The offcentered SIL3 candidate runs a small non-JIT smoke forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        semi_implicit_offcenter_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=output_variables,
@@ -3115,6 +3280,107 @@ def test_trajectory_function_sets_up_digital_filter_initialization(monkeypatch):
     _assert_pytree_allclose(first_wrapped_state, initialized_states[0])
 
 
+def test_trajectory_function_threads_offcentered_solver_to_rollout_and_dfi(
+    monkeypatch,
+):
+    """The offcentered candidate uses the same epsilon-bound solver in DFI."""
+    solver_calls = []
+    dfi_calls = []
+
+    def capture_imex_rk_sil3(
+        equation,
+        time_step,
+        *,
+        implicit_offcentering=0.0,
+    ):
+        solver_calls.append(
+            {
+                "equation": equation,
+                "time_step": time_step,
+                "implicit_offcentering": implicit_offcentering,
+            }
+        )
+        return lambda state: state
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(
+            {
+                "equation": equation,
+                "ode_solver": ode_solver,
+                "filters": tuple(filters),
+                "time_span": time_span,
+                "cutoff_period": cutoff_period,
+                "dt": dt,
+            }
+        )
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "imex_rk_sil3",
+        capture_imex_rk_sil3,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    incumbent = replace(
+        theta_mean_recenter_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+    candidate = replace(
+        semi_implicit_offcenter_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+
+    for model in (incumbent, candidate):
+        model._trajectory_function(
+            coords=grid.coords,
+            physics_specs=physics_specs,
+            reference_temperature=reference_temperature,
+            inner_steps=1,
+            output_count=1,
+            use_humidity_in_dynamics=False,
+        )
+
+    assert [call["implicit_offcentering"] for call in solver_calls] == [
+        0.0,
+        DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+    ]
+    assert dfi_calls[0]["ode_solver"] is time_integration.imex_rk_sil3
+    candidate_ode_solver = dfi_calls[1]["ode_solver"]
+    assert candidate_ode_solver.func is time_integration.imex_rk_sil3
+    assert candidate_ode_solver.keywords == {
+        "implicit_offcentering": DEFAULT_SEMI_IMPLICIT_OFFCENTERING
+    }
+
+
 def test_trajectory_function_splits_rollout_and_dfi_coriolis_physics(monkeypatch):
     """Exact-Coriolis rollout uses zero Ω while DFI keeps normal physics."""
     primitive_calls = []
@@ -3536,6 +3802,32 @@ def _synthetic_coriolis_split_state():
             tracers=tracers,
             sim_time=jnp.asarray(3.5, dtype=jnp.float32),
         ),
+    )
+
+
+def _linear_implicit_oscillator_equation(
+    frequency: float,
+) -> time_integration.ImplicitExplicitODE:
+    """Return a linear two-component oscillator in the implicit terms."""
+    operator = jnp.asarray(
+        [[0.0, -frequency], [frequency, 0.0]],
+        dtype=jnp.float32,
+    )
+
+    def explicit_terms(state):
+        return jnp.zeros_like(state)
+
+    def implicit_terms(state):
+        return operator @ state
+
+    def implicit_inverse(state, step_size):
+        identity = jnp.eye(2, dtype=state.dtype)
+        return jnp.linalg.solve(identity - step_size * operator, state)
+
+    return time_integration.ImplicitExplicitODE.from_functions(
+        explicit_terms,
+        implicit_terms,
+        implicit_inverse,
     )
 
 
