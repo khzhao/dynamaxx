@@ -62,6 +62,8 @@ _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND = 4.0
 _STABILITY_AWARE_WEAK_FLOW_SCALE_METERS_PER_SECOND = 12.0
 _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
+_SURFACE_LAYER_MONOTONE_STABLE_MAX_FACTOR = 1.0
+_SURFACE_LAYER_MONOTONE_UNSTABLE_MAX_FACTOR = 1.02
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
 _SURFACE_LAYER_REFERENCE_HEIGHT_METERS = 10.0
 _DRY_AIR_GAS_CONSTANT_SI = float(
@@ -107,6 +109,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     near_surface_residual_decay_hours: float = 48.0
     use_stability_aware_near_surface_residual_decay: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+    use_monotone_surface_layer_10m_wind_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
     temperature_tendency_formulation: str = (
@@ -192,6 +195,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 output_variables=output_variables,
                 use_surface_layer_richardson_10m_wind_diagnostic=(
                     self.use_surface_layer_richardson_10m_wind_diagnostic
+                ),
+                use_monotone_surface_layer_10m_wind_diagnostic=(
+                    self.use_monotone_surface_layer_10m_wind_diagnostic
                 ),
             )
             if self.apply_near_surface_residual_correction:
@@ -705,6 +711,32 @@ def theta_mean_recenter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDyc
     )
 
 
+def monotone_10m_wind_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the theta incumbent with a monotone Richardson 10 m wind cap."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_stability_aware_near_surface_residual_decay=True,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+        use_monotone_surface_layer_10m_wind_diagnostic=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        apply_theta_layer_mean_recentering=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -844,6 +876,7 @@ def dinosaur_state_to_weather_state(
     reference_temperature: np.ndarray,
     output_variables: tuple[str, ...],
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
+    use_monotone_surface_layer_10m_wind_diagnostic: bool = False,
 ) -> WeatherState:
     """Convert a Dinosaur trajectory into packed WeatherState channels."""
     temperature = (
@@ -916,7 +949,17 @@ def dinosaur_state_to_weather_state(
     }
     ten_meter_u_wind = u_wind[:, -1]
     ten_meter_v_wind = v_wind[:, -1]
-    if use_surface_layer_richardson_10m_wind_diagnostic:
+    if use_monotone_surface_layer_10m_wind_diagnostic:
+        ten_meter_u_wind, ten_meter_v_wind = (
+            _surface_layer_richardson_10m_wind_with_monotone_speed_limit(
+                temperature=temperature,
+                u_wind=u_wind,
+                v_wind=v_wind,
+                surface_pressure_hpa=surface_pressure_hpa,
+                sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
+            )
+        )
+    elif use_surface_layer_richardson_10m_wind_diagnostic:
         ten_meter_u_wind, ten_meter_v_wind = _surface_layer_richardson_10m_wind(
             temperature=temperature,
             u_wind=u_wind,
@@ -1056,6 +1099,137 @@ def _surface_layer_richardson_10m_wind(
     finite_mask = jnp.all(jnp.isfinite(required_values), axis=0)
     wind_factor = jnp.where(finite_mask, wind_factor, 1.0)
     return lowest_u_wind * wind_factor, lowest_v_wind * wind_factor
+
+
+def _surface_layer_richardson_10m_wind_with_monotone_speed_limit(
+    *,
+    temperature: jax.Array,
+    u_wind: jax.Array,
+    v_wind: jax.Array,
+    surface_pressure_hpa: jax.Array,
+    sigma_coords: sigma_coordinates.SigmaCoordinates,
+) -> tuple[jax.Array, jax.Array]:
+    """Apply the incumbent Richardson diagnostic with a monotone speed cap."""
+    lowest_u_wind = u_wind[:, -1]
+    lowest_v_wind = v_wind[:, -1]
+    if sigma_coords.layers < 2:
+        return lowest_u_wind, lowest_v_wind
+
+    richardson_u_wind, richardson_v_wind = _surface_layer_richardson_10m_wind(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+
+    lower_sigma = float(sigma_coords.centers[-1])
+    upper_sigma = float(sigma_coords.centers[-2])
+    lower_pressure_hpa = jnp.maximum(surface_pressure_hpa * lower_sigma, 1.0)
+    upper_pressure_hpa = jnp.maximum(surface_pressure_hpa * upper_sigma, 1.0)
+    lower_temperature = temperature[:, -1]
+    upper_temperature = temperature[:, -2]
+    lower_theta = lower_temperature * (
+        1000.0 / lower_pressure_hpa
+    ) ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    upper_theta = upper_temperature * (
+        1000.0 / upper_pressure_hpa
+    ) ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    mean_temperature = jnp.maximum(0.5 * (lower_temperature + upper_temperature), 1.0)
+    mean_theta = jnp.maximum(0.5 * (lower_theta + upper_theta), 1.0)
+
+    pressure_ratio = jnp.maximum(lower_pressure_hpa / upper_pressure_hpa, 1.0)
+    layer_separation_meters = (
+        (_DRY_AIR_GAS_CONSTANT_SI * mean_temperature / _GRAVITY_ACCELERATION_SI)
+        * jnp.log(pressure_ratio)
+    )
+    lowest_layer_height_meters = (
+        (_DRY_AIR_GAS_CONSTANT_SI * lower_temperature / _GRAVITY_ACCELERATION_SI)
+        * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
+    )
+    layer_separation_meters = jnp.maximum(layer_separation_meters, 1.0)
+    lowest_layer_height_meters = jnp.maximum(lowest_layer_height_meters, 10.0)
+
+    squared_shear = (u_wind[:, -2] - lowest_u_wind) ** 2 + (
+        v_wind[:, -2] - lowest_v_wind
+    ) ** 2
+    squared_shear = jnp.maximum(
+        squared_shear,
+        _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND**2,
+    )
+    richardson_number = (
+        (_GRAVITY_ACCELERATION_SI / mean_theta)
+        * (upper_theta - lower_theta)
+        * layer_separation_meters
+        / squared_shear
+    )
+    richardson_number = jnp.clip(richardson_number, -1.0, 1.0)
+
+    neutral_factor = jnp.log1p(_SURFACE_LAYER_REFERENCE_HEIGHT_METERS) / jnp.log1p(
+        lowest_layer_height_meters
+    )
+    stable_damping = 1.0 / (1.0 + 2.0 * jnp.maximum(richardson_number, 0.0))
+    unstable_mixing = (
+        1.0
+        - neutral_factor
+    ) * jnp.minimum(jnp.maximum(-richardson_number, 0.0), 1.0)
+    wind_factor = neutral_factor * stable_damping + unstable_mixing
+    wind_factor = jnp.clip(
+        wind_factor,
+        _SURFACE_LAYER_WIND_MIN_FACTOR,
+        _SURFACE_LAYER_WIND_MAX_FACTOR,
+    )
+
+    lowest_speed = jnp.sqrt(lowest_u_wind**2 + lowest_v_wind**2)
+    richardson_speed = jnp.sqrt(richardson_u_wind**2 + richardson_v_wind**2)
+    envelope_factor = jnp.where(
+        richardson_number < 0.0,
+        _SURFACE_LAYER_MONOTONE_UNSTABLE_MAX_FACTOR,
+        _SURFACE_LAYER_MONOTONE_STABLE_MAX_FACTOR,
+    )
+    maximum_speed = envelope_factor * lowest_speed
+    speed_limiter = jnp.minimum(
+        1.0,
+        maximum_speed / jnp.maximum(richardson_speed, 1.0e-12),
+    )
+    speed_limiter = jnp.where(richardson_speed > 0.0, speed_limiter, 1.0)
+    corrected_u_wind = richardson_u_wind * speed_limiter
+    corrected_v_wind = richardson_v_wind * speed_limiter
+
+    required_values = jnp.stack(
+        [
+            lower_temperature,
+            upper_temperature,
+            lower_pressure_hpa,
+            upper_pressure_hpa,
+            lower_theta,
+            upper_theta,
+            lowest_u_wind,
+            u_wind[:, -2],
+            lowest_v_wind,
+            v_wind[:, -2],
+            surface_pressure_hpa,
+            squared_shear,
+            layer_separation_meters,
+            lowest_layer_height_meters,
+            richardson_number,
+            wind_factor,
+            richardson_u_wind,
+            richardson_v_wind,
+            lowest_speed,
+            richardson_speed,
+            envelope_factor,
+            maximum_speed,
+            speed_limiter,
+            corrected_u_wind,
+            corrected_v_wind,
+        ]
+    )
+    finite_mask = jnp.all(jnp.isfinite(required_values), axis=0)
+    return (
+        jnp.where(finite_mask, corrected_u_wind, lowest_u_wind),
+        jnp.where(finite_mask, corrected_v_wind, lowest_v_wind),
+    )
 
 
 def _apply_near_surface_residual_correction(
