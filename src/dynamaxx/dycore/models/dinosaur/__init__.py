@@ -53,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     log_pressure_initialization_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     stability_aware_surface_residual_dinosaur_dycore_model,
+    theta_mean_recenter_dinosaur_dycore_model,
     theta_tendency_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
 )
@@ -95,6 +96,7 @@ __all__ = [
     "sigma_coordinates",
     "spherical_harmonic",
     "stability_aware_surface_residual_dinosaur_dycore_model",
+    "theta_mean_recenter_dinosaur_dycore_model",
     "theta_tendency_dinosaur_dycore_model",
     "time_integration",
     "typing",

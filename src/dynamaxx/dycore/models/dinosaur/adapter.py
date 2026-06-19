@@ -112,6 +112,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     temperature_tendency_formulation: str = (
         primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
     )
+    apply_theta_layer_mean_recentering: bool = False
     jit_forecast: bool = True
 
     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
@@ -293,10 +294,18 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 )
             )
         dfi_equation = equation
-        dfi_filters = filters
+        dfi_filters = list(filters)
         if use_coriolis_rotation_split:
             dfi_equation = build_equation(physics_specs)
             dfi_filters = build_filters(physics_specs)
+        if self.apply_theta_layer_mean_recentering:
+            filters.append(
+                _theta_layer_mean_recenter_step_filter(
+                    coords=coords,
+                    physics_specs=physics_specs,
+                    reference_temperature=reference_temperature,
+                )
+            )
         step_fn = time_integration.imex_rk_sil3(equation, time_step=step_seconds)
         if filters:
             step_fn = time_integration.step_with_filters(step_fn, filters)
@@ -399,6 +408,95 @@ def _symmetric_exact_coriolis_rotation_step(
         return half_rotation_filter(half_rotated_state, next_state)
 
     return symmetric_exact_coriolis_rotation_step
+
+
+def _theta_layer_mean_recenter_step_filter(
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+) -> Any:
+    """Return a filter that preserves layerwise area-mean dry theta."""
+    sigma_centers = jnp.asarray(coords.vertical.centers)[:, jnp.newaxis, jnp.newaxis]
+    reference_temperature = jnp.asarray(reference_temperature)[
+        :, jnp.newaxis, jnp.newaxis
+    ]
+    unit_registry = cast(Any, scales.units)
+    reference_pressure = float(
+        physics_specs.nondimensionalize(
+            unit_registry.Quantity(100000.0, "pascal")
+        )
+    )
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    weight_sum = jnp.sum(quadrature_weights)
+
+    def layer_mean(nodal_field: jax.Array) -> jax.Array:
+        return jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1)) / weight_sum
+
+    def nodal_pressure(state: Any) -> jax.Array:
+        surface_pressure = jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
+        return sigma_centers * surface_pressure
+
+    def full_temperature(state: Any) -> jax.Array:
+        return coords.horizontal.to_nodal(state.temperature_variation) + reference_temperature
+
+    def theta_layer_mean_recenter_filter(prev_state: Any, next_state: Any) -> Any:
+        prev_pressure = nodal_pressure(prev_state)
+        next_pressure = nodal_pressure(next_state)
+        prev_temperature = full_temperature(prev_state)
+        next_temperature = full_temperature(next_state)
+        prev_theta = primitive_equations.potential_temperature_from_temperature(
+            prev_temperature,
+            prev_pressure,
+            reference_pressure,
+            physics_specs.kappa,
+        )
+        next_theta = primitive_equations.potential_temperature_from_temperature(
+            next_temperature,
+            next_pressure,
+            reference_pressure,
+            physics_specs.kappa,
+        )
+        next_temperature_to_theta_factor = (
+            reference_pressure / next_pressure
+        ) ** physics_specs.kappa
+        temperature_increment = (
+            layer_mean(prev_theta) - layer_mean(next_theta)
+        ) / layer_mean(next_temperature_to_theta_factor)
+        corrected_temperature_variation = spherical_harmonic.add_constant(
+            next_state.temperature_variation,
+            temperature_increment,
+        )
+        finite_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(jnp.isfinite(prev_pressure)),
+                    jnp.all(prev_pressure > 0),
+                    jnp.all(jnp.isfinite(next_pressure)),
+                    jnp.all(next_pressure > 0),
+                    jnp.all(jnp.isfinite(prev_theta)),
+                    jnp.all(jnp.isfinite(next_theta)),
+                    jnp.all(jnp.isfinite(next_temperature_to_theta_factor)),
+                    jnp.all(jnp.isfinite(temperature_increment)),
+                    jnp.all(jnp.isfinite(corrected_temperature_variation)),
+                ]
+            )
+        )
+        temperature_variation = jnp.where(
+            finite_diagnostics,
+            corrected_temperature_variation,
+            next_state.temperature_variation,
+        )
+        return _primitive_equation_state(
+            vorticity=next_state.vorticity,
+            divergence=next_state.divergence,
+            temperature_variation=temperature_variation,
+            log_surface_pressure=next_state.log_surface_pressure,
+            tracers=next_state.tracers,
+            sim_time=next_state.sim_time,
+        )
+
+    return theta_layer_mean_recenter_filter
 
 
 def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
@@ -579,6 +677,31 @@ def theta_tendency_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMo
         temperature_tendency_formulation=(
             primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
         ),
+    )
+
+
+def theta_mean_recenter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the theta incumbent with rollout-only theta mean recentering."""
+    return DinosaurPrimitiveEquationsDycoreModel(
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter"
+        ),
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        apply_near_surface_residual_correction=True,
+        use_stability_aware_near_surface_residual_decay=True,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        apply_theta_layer_mean_recentering=True,
     )
 
 
