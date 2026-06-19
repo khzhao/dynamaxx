@@ -68,21 +68,52 @@ def run_protocol(
     resume: bool = True,
 ) -> int:
     """Run one fixed WeatherBench2 protocol."""
-    from dynamaxx.data.weatherbench2 import WeatherBench2Source
-    from dynamaxx.dycore.registry import create_dycore_model
+    # Lightweight imports needed to compute the cache key; the heavy forecast
+    # and data dependencies are deferred until a cache miss so served results
+    # avoid importing the model registry and JAX entirely.
+    from dynamaxx.eval import metric_cache
     from dynamaxx.eval.protocols import chunk_initial_count, create_case
-    from dynamaxx.eval.runner import (
-        evaluate_case,
-        evaluate_case_parallel,
-        write_metric_csv,
-        write_metric_json,
-    )
 
     assert worker_count >= 1
     case = create_case(protocol)
     logger.info("Model: %s", model_name)
 
     logger.info("Data: WeatherBench2")
+
+    output_path = OUTPUT_DIR
+    stem = f"{case.name}_{model_name}"
+    output_json = output_path / f"{stem}.json"
+    output_csv = output_path / f"{stem}.csv"
+    cache_key = metric_cache.result_cache_key(
+        model_name=model_name,
+        protocol=protocol,
+        case_fingerprint=metric_cache.case_fingerprint(case),
+        data_path=str(WEATHERBENCH2_ERA5_1P5DEG_6H_PATH),
+        harness_fingerprint=metric_cache.eval_harness_fingerprint(),
+    )
+    if resume:
+        cached = metric_cache.lookup(output_path, cache_key)
+        if cached is not None:
+            primary_score = metric_cache.serve(cached, output_json, output_csv)
+            logger.info(
+                "Result: case=%s model=%s served from engine cache key=%s "
+                "primary_score=%.6g metrics=%s",
+                case.name,
+                model_name,
+                cache_key[:12],
+                primary_score,
+                output_json,
+            )
+            return 0
+
+    from dynamaxx.data.weatherbench2 import WeatherBench2Source
+    from dynamaxx.dycore.registry import create_dycore_model
+    from dynamaxx.eval.runner import (
+        evaluate_case,
+        evaluate_case_parallel,
+        write_metric_csv,
+        write_metric_json,
+    )
 
     logger.info(
         "Forecast: %s starts=%d lead_days=1..15 chunk=%d workers=%d",
@@ -113,10 +144,9 @@ def run_protocol(
         )
 
     logger.info("Metrics: writing")
-    output_path = OUTPUT_DIR
-    stem = f"{result.case.name}_{result.model_name}"
-    write_metric_json(result, output_path / f"{stem}.json")
-    write_metric_csv(result, output_path / f"{stem}.csv")
+    write_metric_json(result, output_json)
+    write_metric_csv(result, output_csv)
+    metric_cache.store(output_path, cache_key, output_json, output_csv)
     _log_summary(result, output_path)
     return 0
 
