@@ -90,6 +90,13 @@ assert (
     "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
 )
+assert (
+    dinosaur.scale_separated_surface_residual_dinosaur_dycore_model().name
+    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+    "scale_surface_residual"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -169,6 +176,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual",
     )
 
     model = create_dycore_model("dinosaur")

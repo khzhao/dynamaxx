@@ -62,6 +62,9 @@ _STABILITY_AWARE_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
 _STABILITY_AWARE_TEMPERATURE_RESIDUAL_SCALE_KELVIN = 4.0
 _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND = 4.0
 _STABILITY_AWARE_WEAK_FLOW_SCALE_METERS_PER_SECOND = 12.0
+_SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF = 12
+_SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
+_SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
 _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
@@ -108,6 +111,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_near_surface_residual_correction: bool = False
     near_surface_residual_decay_hours: float = 48.0
     use_stability_aware_near_surface_residual_decay: bool = False
+    use_scale_separated_near_surface_residual: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
@@ -198,7 +202,18 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
             )
             if self.apply_near_surface_residual_correction:
-                trajectory_state = _apply_near_surface_residual_correction(
+                residual_correction = (
+                    _apply_scale_separated_near_surface_residual_correction
+                    if self.use_scale_separated_near_surface_residual
+                    else _apply_near_surface_residual_correction
+                )
+                residual_kwargs: dict[str, Any] = {}
+                if self.use_scale_separated_near_surface_residual:
+                    residual_kwargs = {
+                        "horizontal_grid": grid.coords.horizontal,
+                        "latitude_reversed": grid.latitude_reversed,
+                    }
+                trajectory_state = residual_correction(
                     trajectory_state,
                     initial_state=single_state,
                     lead_steps=forecast_input.lead_steps,
@@ -207,6 +222,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     use_stability_aware_decay=(
                         self.use_stability_aware_near_surface_residual_decay
                     ),
+                    **residual_kwargs,
                 )
                 forecasts.append(trajectory_state.values)
             else:
@@ -746,6 +762,22 @@ def semi_implicit_offcenter_dinosaur_dycore_model() -> (
     )
 
 
+def scale_separated_surface_residual_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the offcenter incumbent with scale-separated residual memory."""
+    return replace(
+        semi_implicit_offcenter_dinosaur_dycore_model(),
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+            "scale_surface_residual"
+        ),
+        use_scale_separated_near_surface_residual=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -1158,6 +1190,193 @@ def _apply_near_surface_residual_correction(
         values=corrected_values,
         variables=trajectory_state.variables,
     )
+
+
+def _apply_scale_separated_near_surface_residual_correction(
+    trajectory_state: WeatherState,
+    *,
+    initial_state: WeatherState,
+    lead_steps: tuple[int, ...],
+    lead_hours: tuple[int, ...],
+    decay_hours: float,
+    use_stability_aware_decay: bool = False,
+    horizontal_grid: spherical_harmonic.Grid | None = None,
+    latitude_reversed: bool = False,
+) -> WeatherState:
+    """Apply low- and high-wavenumber residual memory to near-surface outputs."""
+    incumbent_state = _apply_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=lead_steps,
+        lead_hours=lead_hours,
+        decay_hours=decay_hours,
+        use_stability_aware_decay=use_stability_aware_decay,
+    )
+    if horizontal_grid is None:
+        return incumbent_state
+
+    assert decay_hours > 0.0
+    assert len(lead_steps) == len(lead_hours)
+
+    lead_indices = jnp.asarray(lead_steps, dtype=jnp.int32)
+    corrected_values = jnp.take(trajectory_state.values, lead_indices, axis=0)
+    lead_hours_array = jnp.asarray(lead_hours, dtype=corrected_values.dtype)
+    high_mode_decay, low_mode_decay = _scale_separated_residual_decays(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_indices=lead_indices,
+        lead_hours_array=lead_hours_array,
+        decay_hours=decay_hours,
+        use_stability_aware_decay=use_stability_aware_decay,
+    )
+    lead_zero_mask = lead_indices == 0
+
+    for channel in _NEAR_SURFACE_RESIDUAL_VARIABLES:
+        if (
+            channel not in initial_state.variables
+            or channel not in trajectory_state.variables
+        ):
+            continue
+        output_index = int(trajectory_state.variable_indices((channel,))[0])
+        initial_index = int(initial_state.variable_indices((channel,))[0])
+        initial_channel = initial_state.values[initial_index]
+        raw_lead_zero = trajectory_state.values[0, output_index]
+        residual = initial_channel - raw_lead_zero
+        try:
+            low_mode_residual, high_mode_residual, split_is_valid = (
+                _split_near_surface_residual_by_scale(
+                    residual,
+                    horizontal_grid=horizontal_grid,
+                    latitude_reversed=latitude_reversed,
+                )
+            )
+        except (AssertionError, AttributeError, TypeError, ValueError):
+            return incumbent_state
+
+        candidate_channel_values = corrected_values[:, output_index] + (
+            low_mode_residual[jnp.newaxis, ...] * low_mode_decay
+            + high_mode_residual[jnp.newaxis, ...] * high_mode_decay
+        )
+        candidate_channel_values = jnp.where(
+            lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
+            initial_channel[jnp.newaxis, ...],
+            candidate_channel_values,
+        )
+        channel_values = jnp.where(
+            split_is_valid,
+            candidate_channel_values,
+            incumbent_state.values[:, output_index],
+        )
+        corrected_values = corrected_values.at[:, output_index].set(channel_values)
+
+    return WeatherState(
+        values=corrected_values,
+        variables=trajectory_state.variables,
+    )
+
+
+def _scale_separated_residual_decays(
+    trajectory_state: WeatherState,
+    *,
+    initial_state: WeatherState,
+    lead_indices: jax.Array,
+    lead_hours_array: jax.Array,
+    decay_hours: float,
+    use_stability_aware_decay: bool,
+) -> tuple[jax.Array, jax.Array]:
+    """Return incumbent high-mode and longer low-mode residual decay factors."""
+    if use_stability_aware_decay:
+        high_mode_decay_hours = _stability_aware_near_surface_residual_decay_hours(
+            trajectory_state,
+            initial_state=initial_state,
+            lead_indices=lead_indices,
+            base_decay_hours=decay_hours,
+        )
+        base_decay_hours = float(
+            np.clip(
+                decay_hours,
+                _STABILITY_AWARE_MIN_RESIDUAL_DECAY_HOURS,
+                _STABILITY_AWARE_MAX_RESIDUAL_DECAY_HOURS,
+            )
+        )
+        local_decay_multiplier = high_mode_decay_hours / jnp.asarray(
+            base_decay_hours,
+            dtype=high_mode_decay_hours.dtype,
+        )
+        low_mode_decay_hours = (
+            jnp.asarray(
+                _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS,
+                dtype=high_mode_decay_hours.dtype,
+            )
+            * local_decay_multiplier
+        )
+        lead_hours = lead_hours_array[:, jnp.newaxis, jnp.newaxis]
+        return (
+            jnp.exp(-lead_hours / high_mode_decay_hours),
+            jnp.exp(-lead_hours / low_mode_decay_hours),
+        )
+
+    lead_hours = lead_hours_array[:, jnp.newaxis, jnp.newaxis]
+    high_mode_decay_hours = jnp.asarray(decay_hours, dtype=lead_hours_array.dtype)
+    low_mode_decay_hours = jnp.asarray(
+        _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS,
+        dtype=lead_hours_array.dtype,
+    )
+    return (
+        jnp.exp(-lead_hours / high_mode_decay_hours),
+        jnp.exp(-lead_hours / low_mode_decay_hours),
+    )
+
+
+def _split_near_surface_residual_by_scale(
+    residual: jax.Array,
+    *,
+    horizontal_grid: spherical_harmonic.Grid,
+    latitude_reversed: bool,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Split a gridpoint residual into low and high horizontal-scale parts."""
+    if tuple(residual.shape[-2:]) != tuple(horizontal_grid.nodal_shape):
+        raise ValueError(
+            "near-surface residual shape does not match Dinosaur horizontal grid"
+        )
+
+    residual_in_model_order = _to_dinosaur_latitude_order(residual, latitude_reversed)
+    modal_residual = horizontal_grid.to_modal(residual_in_model_order)
+    low_mode_mask = _scale_separated_residual_low_mode_mask(horizontal_grid)
+    low_mode_residual = horizontal_grid.to_nodal(modal_residual * low_mode_mask)
+    low_mode_residual = _from_dinosaur_latitude_order(
+        low_mode_residual,
+        latitude_reversed,
+    )
+    high_mode_residual = residual - low_mode_residual
+    split_is_valid = (
+        jnp.all(jnp.isfinite(residual))
+        & jnp.all(jnp.isfinite(low_mode_residual))
+        & jnp.all(jnp.isfinite(high_mode_residual))
+    )
+    return low_mode_residual, high_mode_residual, split_is_valid
+
+
+def _scale_separated_residual_low_mode_mask(
+    horizontal_grid: spherical_harmonic.Grid,
+) -> jax.Array:
+    """Return the fixed spectral taper for low-mode residual memory."""
+    _, total_wavenumber = horizontal_grid.modal_mesh
+    transition = (
+        total_wavenumber - _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF
+    ) / (
+        _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE
+        - _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF
+    )
+    transition = np.clip(transition, 0.0, 1.0)
+    taper = 0.5 * (1.0 + np.cos(np.pi * transition))
+    taper = np.where(
+        total_wavenumber >= _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+        0.0,
+        taper,
+    )
+    taper = np.where(np.asarray(horizontal_grid.mask), taper, 0.0)
+    return jnp.asarray(taper, dtype=jnp.float32)
 
 
 def _stability_aware_near_surface_residual_decay_hours(
