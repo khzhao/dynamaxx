@@ -44,6 +44,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _stability_aware_near_surface_residual_decay_hours,
     _surface_layer_richardson_10m_wind,
     _symmetric_exact_coriolis_rotation_step,
+    _theta_layer_mean_recenter_step_filter,
     _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
     coriolis_split_dinosaur_dycore_model,
@@ -58,6 +59,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     split_pressure_level_channel,
     stability_aware_surface_residual_dinosaur_dycore_model,
+    theta_mean_recenter_dinosaur_dycore_model,
     supported_output_variables,
     theta_tendency_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
@@ -142,6 +144,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
     assert not model.apply_symmetric_exact_coriolis_rotation_split
+    assert not model.apply_theta_layer_mean_recentering
     assert (
         model.temperature_tendency_formulation
         == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
@@ -390,6 +393,24 @@ def test_theta_tendency_factory_preserves_incumbent_except_thermal_formulation()
     )
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "temperature_tendency_formulation"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_theta_mean_recenter_factory_preserves_incumbent_except_wrapper():
+    """The recentering candidate changes only name and the rollout wrapper."""
+    model = theta_mean_recenter_dinosaur_dycore_model()
+    incumbent = theta_tendency_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter"
+    )
+    assert model.apply_theta_layer_mean_recentering
+    assert not incumbent.apply_theta_layer_mean_recentering
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "apply_theta_layer_mean_recentering"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -845,6 +866,54 @@ def test_theta_tendency_candidate_forecast_is_finite(monkeypatch):
     )
     model = replace(
         theta_tendency_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
+def test_theta_mean_recenter_candidate_forecast_is_finite(monkeypatch):
+    """The theta-recenter candidate runs a small non-JIT smoke forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        theta_mean_recenter_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=output_variables,
@@ -2577,6 +2646,112 @@ def test_exact_coriolis_half_rotation_preserves_non_wind_state_exactly():
     np.testing.assert_array_equal(rotated.sim_time, next_state.sim_time)
 
 
+def test_theta_layer_mean_recenter_matches_previous_theta_zero_mode_only():
+    """The theta recentering filter changes only layerwise temperature zero modes."""
+    coords, physics_specs, prev_state = _synthetic_coriolis_split_state()
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    next_temperature_variation = spherical_harmonic.add_constant(
+        prev_state.temperature_variation,
+        jnp.asarray([2.0, -1.5], dtype=jnp.float32),
+    ).at[:, 1, 1].set(jnp.asarray([0.05, -0.03], dtype=jnp.float32))
+    next_state = _primitive_equation_state(
+        vorticity=prev_state.vorticity + jnp.float32(0.01),
+        divergence=prev_state.divergence - jnp.float32(0.02),
+        temperature_variation=next_temperature_variation,
+        log_surface_pressure=prev_state.log_surface_pressure,
+        tracers={
+            name: value + jnp.float32(0.001)
+            for name, value in prev_state.tracers.items()
+        },
+        sim_time=jnp.asarray(4.0, dtype=jnp.float32),
+    )
+    step_filter = _theta_layer_mean_recenter_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    assert float(
+        jnp.max(
+            jnp.abs(corrected.temperature_variation - next_state.temperature_variation)
+        )
+    ) > 0.0
+    modal_delta = corrected.temperature_variation - next_state.temperature_variation
+    np.testing.assert_allclose(
+        modal_delta.at[:, 0, 0].set(0.0),
+        0.0,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        _theta_layer_mean(coords, physics_specs, reference_temperature, corrected),
+        _theta_layer_mean(coords, physics_specs, reference_temperature, prev_state),
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+    np.testing.assert_array_equal(corrected.divergence, next_state.divergence)
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert corrected.tracers.keys() == next_state.tracers.keys()
+    for tracer_name, tracer_value in corrected.tracers.items():
+        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
+    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+
+
+def test_theta_layer_mean_recenter_falls_back_for_nonfinite_pressure():
+    """Invalid pressure diagnostics preserve the incumbent next state exactly."""
+    coords, physics_specs, prev_state = _synthetic_coriolis_split_state()
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    bad_next_state = _primitive_equation_state(
+        vorticity=prev_state.vorticity,
+        divergence=prev_state.divergence,
+        temperature_variation=spherical_harmonic.add_constant(
+            prev_state.temperature_variation,
+            jnp.asarray([1.0, -2.0], dtype=jnp.float32),
+        ),
+        log_surface_pressure=prev_state.log_surface_pressure.at[0, 0, 0].set(jnp.nan),
+        tracers=prev_state.tracers,
+        sim_time=prev_state.sim_time,
+    )
+    step_filter = _theta_layer_mean_recenter_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+
+    corrected = step_filter(prev_state, bad_next_state)
+
+    np.testing.assert_array_equal(
+        corrected.temperature_variation,
+        bad_next_state.temperature_variation,
+    )
+    np.testing.assert_array_equal(corrected.vorticity, bad_next_state.vorticity)
+    np.testing.assert_array_equal(corrected.divergence, bad_next_state.divergence)
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        bad_next_state.log_surface_pressure,
+    )
+    assert corrected.tracers.keys() == bad_next_state.tracers.keys()
+    for tracer_name, tracer_value in corrected.tracers.items():
+        np.testing.assert_array_equal(
+            tracer_value,
+            bad_next_state.tracers[tracer_name],
+        )
+    np.testing.assert_array_equal(corrected.sim_time, bad_next_state.sim_time)
+
+
+
 def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
     """Weak HS composition combines one primitive equation with fixed forcing."""
     compose_calls = []
@@ -3157,6 +3332,74 @@ def test_trajectory_function_uses_strang_rollout_and_unsplit_dfi(monkeypatch):
     assert dfi_calls[0]["ode_solver"] is time_integration.imex_rk_sil3
 
 
+def test_trajectory_function_applies_theta_recenter_to_rollout_only(monkeypatch):
+    """The theta recentering wrapper is excluded from time-reversed DFI filters."""
+    rollout_filter_calls = []
+    dfi_calls = []
+    real_step_with_filters = time_integration.step_with_filters
+
+    def capture_step_with_filters(step_fn, filters):
+        rollout_filter_calls.append(tuple(filters))
+        return real_step_with_filters(step_fn, filters)
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(tuple(filters))
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "step_with_filters",
+        capture_step_with_filters,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    model = replace(
+        theta_mean_recenter_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+
+    model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=2,
+            temperature_kelvin=model.reference_temperature_kelvin,
+        ),
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+
+    assert len(rollout_filter_calls) == 1
+    rollout_filter_names = [filter_fn.__name__ for filter_fn in rollout_filter_calls[0]]
+    assert rollout_filter_names[-1] == "theta_layer_mean_recenter_filter"
+    assert len(rollout_filter_names) == 2
+    assert len(dfi_calls) == 1
+    assert [
+        filter_fn.__name__ for filter_fn in dfi_calls[0]
+    ] == rollout_filter_names[:-1]
+
+
 def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
     monkeypatch,
 ):
@@ -3409,6 +3652,36 @@ def _assert_pytree_allclose(actual, expected):
         strict=True,
     ):
         np.testing.assert_allclose(actual_leaf, expected_leaf, rtol=1e-6, atol=1e-6)
+
+
+def _theta_layer_mean(
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    state: Any,
+) -> jax.Array:
+    pressure = (
+        jnp.asarray(coords.vertical.centers)[:, jnp.newaxis, jnp.newaxis]
+        * jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
+    )
+    temperature = (
+        coords.horizontal.to_nodal(state.temperature_variation)
+        + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
+    )
+    unit_registry = cast(Any, scales.units)
+    reference_pressure = float(
+        physics_specs.nondimensionalize(
+            unit_registry.Quantity(100000.0, "pascal")
+        )
+    )
+    theta = primitive_equations.potential_temperature_from_temperature(
+        temperature,
+        pressure,
+        reference_pressure,
+        physics_specs.kappa,
+    )
+    weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    return jnp.sum(theta * weights, axis=(-2, -1)) / jnp.sum(weights)
 
 
 def _forecast_input(

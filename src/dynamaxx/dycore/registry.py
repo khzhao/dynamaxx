@@ -116,6 +116,15 @@ def dinosaur_theta_tendency_model() -> DycoreModel:
     return theta_tendency_dinosaur_dycore_model()
 
 
+def dinosaur_theta_mean_recenter_model() -> DycoreModel:
+    """Return the theta incumbent with rollout-only theta mean recentering."""
+    from dynamaxx.dycore.models.dinosaur import (
+        theta_mean_recenter_dinosaur_dycore_model,
+    )
+
+    return theta_mean_recenter_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -155,6 +164,11 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency"
     ): dinosaur_theta_tendency_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter"
+    ): dinosaur_theta_mean_recenter_model,
 }
 
 
