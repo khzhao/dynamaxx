@@ -44,6 +44,7 @@ from dynamaxx.dycore.models.dinosaur import (
 from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     DinosaurPrimitiveEquationsDycoreModel,
+    analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
     coriolis_split_dinosaur_dycore_model,
     coriolis_strang_split_dinosaur_dycore_model,
     default_dinosaur_dycore_model,
@@ -71,6 +72,7 @@ __all__ = [
     "__version__",
     "DEFAULT_SEMI_IMPLICIT_OFFCENTERING",
     "DinosaurPrimitiveEquationsDycoreModel",
+    "analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model",
     "associated_legendre",
     "coordinate_systems",
     "coriolis_split_dinosaur_dycore_model",

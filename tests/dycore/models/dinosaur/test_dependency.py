@@ -97,6 +97,13 @@ assert (
     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
     "scale_surface_residual"
 )
+assert (
+    dinosaur.analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model().name
+    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+    "scale_surface_residual_analysis_hs_eq"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -180,6 +187,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq",
     )
 
     model = create_dycore_model("dinosaur")
@@ -530,6 +541,38 @@ def test_dinosaur_semi_implicit_offcenter_is_registered():
     assert model.semi_implicit_offcentering == 0.05
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "semi_implicit_offcentering"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_analysis_offset_hs_eq_is_registered():
+    """The analysis-offset HS equilibrium candidate is side-by-side."""
+    model = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq"
+    )
+    incumbent = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual"
+    )
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq"
+    )
+    assert model.use_analysis_offset_weak_held_suarez_equilibrium
+    assert not incumbent.use_analysis_offset_weak_held_suarez_equilibrium
+    for field_name in model.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "use_analysis_offset_weak_held_suarez_equilibrium",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
