@@ -46,6 +46,9 @@ DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY = 0.0
 DEFAULT_WEAK_HELD_SUAREZ_KA_TIMESCALE_DAYS = 160.0
 DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS = 16.0
 DEFAULT_SEMI_IMPLICIT_OFFCENTERING = 0.05
+_ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN = 20.0
+_ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER = 3
+_ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER = 12
 _FINITE_SIGMA_TO_PRESSURE_INTERPOLATE = (
     vertical_interpolation.vectorize_vertical_interpolation(
         vertical_interpolation.linear_interp_with_nearest_extrap
@@ -108,6 +111,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     weak_held_suarez_ks_timescale_days: float = (
         DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS
     )
+    use_analysis_offset_weak_held_suarez_equilibrium: bool = False
     apply_near_surface_residual_correction: bool = False
     near_surface_residual_decay_hours: float = 48.0
     use_stability_aware_near_surface_residual_decay: bool = False
@@ -257,8 +261,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
             else physics_specs
         )
         humidity_key = SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
+        use_analysis_offset_equilibrium = (
+            self.apply_weak_held_suarez_relaxation
+            and self.use_analysis_offset_weak_held_suarez_equilibrium
+        )
 
-        def build_equation(equation_physics_specs: Any) -> Any:
+        def build_equation(
+            equation_physics_specs: Any,
+            equilibrium_temperature_offset: jax.Array | None = None,
+        ) -> Any:
             equation = _primitive_equation(
                 reference_temperature=reference_temperature,
                 orography=orography,
@@ -277,10 +288,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     kf_per_day=self.weak_held_suarez_kf_per_day,
                     ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
                     ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
+                    equilibrium_temperature_offset=equilibrium_temperature_offset,
                 )
             return equation
 
-        equation = build_equation(rollout_physics_specs)
         step_seconds = _nondimensionalize_seconds(
             physics_specs,
             self.inner_step_seconds,
@@ -301,70 +312,100 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 )
             return filters
 
-        filters = build_filters(rollout_physics_specs)
-        if (
-            self.apply_exact_coriolis_rotation_split
-            and not self.apply_symmetric_exact_coriolis_rotation_split
-        ):
-            filters.append(
-                _exact_coriolis_rotation_step_filter(
+        def build_trajectory(
+            equilibrium_temperature_offset: jax.Array | None = None,
+        ) -> Any:
+            equation = build_equation(
+                rollout_physics_specs,
+                equilibrium_temperature_offset=equilibrium_temperature_offset,
+            )
+            filters = build_filters(rollout_physics_specs)
+            if (
+                self.apply_exact_coriolis_rotation_split
+                and not self.apply_symmetric_exact_coriolis_rotation_split
+            ):
+                filters.append(
+                    _exact_coriolis_rotation_step_filter(
+                        coords=coords,
+                        physics_specs=physics_specs,
+                        step_seconds=step_seconds,
+                    )
+                )
+            dfi_equation = equation
+            dfi_filters = list(filters)
+            if use_coriolis_rotation_split:
+                dfi_equation = build_equation(
+                    physics_specs,
+                    equilibrium_temperature_offset=equilibrium_temperature_offset,
+                )
+                dfi_filters = build_filters(physics_specs)
+            if self.apply_theta_layer_mean_recentering:
+                filters.append(
+                    _theta_layer_mean_recenter_step_filter(
+                        coords=coords,
+                        physics_specs=physics_specs,
+                        reference_temperature=reference_temperature,
+                    )
+                )
+            step_fn = ode_solver(equation, time_step=step_seconds)
+            if filters:
+                step_fn = time_integration.step_with_filters(step_fn, filters)
+            if self.apply_symmetric_exact_coriolis_rotation_split:
+                step_fn = _symmetric_exact_coriolis_rotation_step(
+                    step_fn,
                     coords=coords,
                     physics_specs=physics_specs,
                     step_seconds=step_seconds,
                 )
-            )
-        dfi_equation = equation
-        dfi_filters = list(filters)
-        if use_coriolis_rotation_split:
-            dfi_equation = build_equation(physics_specs)
-            dfi_filters = build_filters(physics_specs)
-        if self.apply_theta_layer_mean_recentering:
-            filters.append(
-                _theta_layer_mean_recenter_step_filter(
-                    coords=coords,
-                    physics_specs=physics_specs,
-                    reference_temperature=reference_temperature,
-                )
-            )
-        step_fn = ode_solver(equation, time_step=step_seconds)
-        if filters:
-            step_fn = time_integration.step_with_filters(step_fn, filters)
-        if self.apply_symmetric_exact_coriolis_rotation_split:
-            step_fn = _symmetric_exact_coriolis_rotation_step(
+            trajectory_fn = time_integration.trajectory_from_step(
                 step_fn,
-                coords=coords,
-                physics_specs=physics_specs,
-                step_seconds=step_seconds,
+                outer_steps=output_count,
+                inner_steps=inner_steps,
+                start_with_input=True,
             )
-        trajectory_fn = time_integration.trajectory_from_step(
-            step_fn,
-            outer_steps=output_count,
-            inner_steps=inner_steps,
-            start_with_input=True,
-        )
-        if self.apply_digital_filter_initialization:
-            digital_filter_time_span = _nondimensionalize_seconds(
-                physics_specs,
-                self.digital_filter_time_span_seconds,
-            )
-            digital_filter_cutoff_period = _nondimensionalize_seconds(
-                physics_specs,
-                self.digital_filter_cutoff_seconds,
-            )
-            initialize_state = time_integration.digital_filter_initialization(
-                dfi_equation,
-                ode_solver,
-                dfi_filters,
-                time_span=digital_filter_time_span,
-                cutoff_period=digital_filter_cutoff_period,
-                dt=step_seconds,
-            )
-            base_trajectory_fn = trajectory_fn
+            if self.apply_digital_filter_initialization:
+                digital_filter_time_span = _nondimensionalize_seconds(
+                    physics_specs,
+                    self.digital_filter_time_span_seconds,
+                )
+                digital_filter_cutoff_period = _nondimensionalize_seconds(
+                    physics_specs,
+                    self.digital_filter_cutoff_seconds,
+                )
+                initialize_state = time_integration.digital_filter_initialization(
+                    dfi_equation,
+                    ode_solver,
+                    dfi_filters,
+                    time_span=digital_filter_time_span,
+                    cutoff_period=digital_filter_cutoff_period,
+                    dt=step_seconds,
+                )
+                base_trajectory_fn = trajectory_fn
 
-            def initialized_trajectory_fn(dinosaur_state):
-                return base_trajectory_fn(initialize_state(dinosaur_state))
+                def initialized_trajectory_fn(dinosaur_state):
+                    return base_trajectory_fn(initialize_state(dinosaur_state))
 
-            trajectory_fn = initialized_trajectory_fn
+                trajectory_fn = initialized_trajectory_fn
+            return trajectory_fn
+
+        if use_analysis_offset_equilibrium:
+
+            def trajectory_fn(dinosaur_state):
+                equilibrium_temperature_offset = (
+                    _analysis_offset_weak_held_suarez_equilibrium(
+                        dinosaur_state,
+                        coords=coords,
+                        physics_specs=physics_specs,
+                        reference_temperature=reference_temperature,
+                    )
+                )
+                offset_trajectory_fn = build_trajectory(
+                    equilibrium_temperature_offset=equilibrium_temperature_offset,
+                )
+                return offset_trajectory_fn(dinosaur_state)
+
+        else:
+            trajectory_fn = build_trajectory()
         return jax.jit(trajectory_fn) if self.jit_forecast else trajectory_fn
 
     def _ode_solver(self) -> Any:
@@ -375,6 +416,59 @@ class DinosaurPrimitiveEquationsDycoreModel:
             time_integration.imex_rk_sil3,
             implicit_offcentering=self.semi_implicit_offcentering,
         )
+
+
+def _analysis_offset_weak_held_suarez_equilibrium(
+    state: Any,
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+) -> jax.Array:
+    """Return a bounded low-order offset to the standard HS equilibrium."""
+    nodal_temperature = (
+        coords.horizontal.to_nodal(state.temperature_variation)
+        + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
+    )
+    nodal_surface_pressure = jnp.exp(
+        coords.horizontal.to_nodal(state.log_surface_pressure)
+    )
+    forcing = _TracerSafeHeldSuarezForcingSigma(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+    standard_equilibrium = forcing.equilibrium_temperature(nodal_surface_pressure)
+    raw_offset = nodal_temperature - standard_equilibrium
+    modal_offset = coords.horizontal.to_modal(raw_offset)
+    low_mode_mask = _analysis_offset_weak_hs_low_mode_mask(coords.horizontal)
+    filtered_offset = coords.horizontal.to_nodal(modal_offset * low_mode_mask)
+    offset_is_finite = jnp.all(jnp.isfinite(filtered_offset))
+    offset_cap = _unit_factor(physics_specs, "kelvin") * (
+        _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN
+    )
+    clipped_offset = jnp.clip(filtered_offset, -offset_cap, offset_cap)
+    return jnp.where(
+        offset_is_finite,
+        clipped_offset,
+        jnp.zeros_like(clipped_offset),
+    )
+
+
+def _analysis_offset_weak_hs_low_mode_mask(
+    horizontal_grid: spherical_harmonic.Grid,
+) -> jax.Array:
+    """Return the fixed low-order spectral mask for analysis HS offsets."""
+    longitude_wavenumber, total_wavenumber = horizontal_grid.modal_mesh
+    low_mode_mask = (
+        np.asarray(horizontal_grid.mask)
+        & (
+            np.abs(longitude_wavenumber)
+            <= _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER
+        )
+        & (total_wavenumber <= _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER)
+    )
+    return jnp.asarray(low_mode_mask, dtype=jnp.float32)
 
 
 def _exact_coriolis_rotation_step_filter(
@@ -775,6 +869,22 @@ def scale_separated_surface_residual_dinosaur_dycore_model() -> (
             "scale_surface_residual"
         ),
         use_scale_separated_near_surface_residual=True,
+    )
+
+
+def analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the scale-residual incumbent with analysis-offset HS equilibrium."""
+    return replace(
+        scale_separated_surface_residual_dinosaur_dycore_model(),
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+            "scale_surface_residual_analysis_hs_eq"
+        ),
+        use_analysis_offset_weak_held_suarez_equilibrium=True,
     )
 
 
@@ -1783,6 +1893,24 @@ def _primitive_equation(
 class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
     """Thermal-only Held-Suarez forcing with passive tracer tendency leaves."""
 
+    def __init__(
+        self,
+        *args: Any,
+        equilibrium_temperature_offset: jax.Array | None = None,
+        **kwargs: Any,
+    ):
+        super().__init__(*args, **kwargs)
+        self.equilibrium_temperature_offset = equilibrium_temperature_offset
+
+    def _equilibrium_temperature(
+        self,
+        nodal_surface_pressure: jax.Array,
+    ) -> jax.Array:
+        equilibrium_temperature = self.equilibrium_temperature(nodal_surface_pressure)
+        if self.equilibrium_temperature_offset is None:
+            return equilibrium_temperature
+        return equilibrium_temperature + self.equilibrium_temperature_offset
+
     def explicit_terms(
         self,
         state: primitive_equations.State,
@@ -1799,7 +1927,9 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
             state.log_surface_pressure
         )
         nodal_surface_pressure = jnp.exp(nodal_log_surface_pressure)
-        equilibrium_temperature = self.equilibrium_temperature(nodal_surface_pressure)
+        equilibrium_temperature = self._equilibrium_temperature(
+            nodal_surface_pressure
+        )
         nodal_temperature_tendency = -self.kt() * (
             nodal_temperature - equilibrium_temperature
         )
@@ -1825,6 +1955,7 @@ def _compose_weak_held_suarez_equation(
     kf_per_day: float,
     ka_timescale_days: float,
     ks_timescale_days: float,
+    equilibrium_temperature_offset: jax.Array | None = None,
 ) -> Any:
     """Compose primitive equations with the fixed weak Held-Suarez forcing."""
     assert ka_timescale_days > 0.0
@@ -1838,6 +1969,7 @@ def _compose_weak_held_suarez_equation(
         kf=float(kf_per_day) / day,
         ka=1 / (float(ka_timescale_days) * day),
         ks=1 / (float(ks_timescale_days) * day),
+        equilibrium_temperature_offset=equilibrium_temperature_offset,
     )
     return time_integration.compose_equations([equation, forcing])
 

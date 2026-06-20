@@ -21,6 +21,9 @@ from dynamaxx.dycore.models.dinosaur import (
     vertical_interpolation,
 )
 from dynamaxx.dycore.models.dinosaur.adapter import (
+    _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN,
+    _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER,
+    _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
     _DRY_AIR_GAS_CONSTANT_SI,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
@@ -31,6 +34,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY,
     DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS,
     DinosaurPrimitiveEquationsDycoreModel,
+    _analysis_offset_weak_held_suarez_equilibrium,
+    _analysis_offset_weak_hs_low_mode_mask,
     _apply_near_surface_residual_correction,
     _apply_scale_separated_near_surface_residual_correction,
     _compose_weak_held_suarez_equation,
@@ -53,6 +58,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _theta_layer_mean_recenter_step_filter,
     _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
+    analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
     coriolis_split_dinosaur_dycore_model,
     coriolis_strang_split_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
@@ -146,6 +152,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
     assert not model.apply_near_surface_residual_correction
     assert model.near_surface_residual_decay_hours == 48.0
+    assert not model.use_analysis_offset_weak_held_suarez_equilibrium
     assert not model.use_stability_aware_near_surface_residual_decay
     assert not model.use_scale_separated_near_surface_residual
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
@@ -462,6 +469,28 @@ def test_scale_separated_residual_factory_preserves_incumbent_except_selector():
     assert not incumbent.use_scale_separated_near_surface_residual
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_scale_separated_near_surface_residual"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_analysis_offset_hs_eq_factory_preserves_incumbent_except_selector():
+    """The candidate changes only name and the analysis-HS-equilibrium selector."""
+    model = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
+    incumbent = scale_separated_surface_residual_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq"
+    )
+    assert model.use_analysis_offset_weak_held_suarez_equilibrium
+    assert not incumbent.use_analysis_offset_weak_held_suarez_equilibrium
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "use_analysis_offset_weak_held_suarez_equilibrium",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -1153,6 +1182,58 @@ def test_scale_separated_residual_candidate_forecast_is_finite(monkeypatch):
     )
     model = replace(
         scale_separated_surface_residual_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("2m_temperature",)).values[0],
+        forecast_input.initial_state.select(("2m_temperature",)).values,
+    )
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
+def test_analysis_offset_hs_eq_candidate_forecast_is_finite(monkeypatch):
+    """The analysis-offset HS-equilibrium candidate runs a non-JIT smoke forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=output_variables,
@@ -3341,6 +3422,180 @@ def test_weak_held_suarez_forcing_is_thermal_only_and_tracer_safe():
         )
 
 
+def test_weak_held_suarez_zero_offset_reproduces_incumbent_tendency():
+    """A zero HS-equilibrium offset leaves the incumbent tendency unchanged."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1), lead_steps=(0,)
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    dinosaur_state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    incumbent_forcing = _TracerSafeHeldSuarezForcingSigma(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        kf=0.0 / scales.units.day,
+        ka=1 / (160.0 * scales.units.day),
+        ks=1 / (16.0 * scales.units.day),
+    )
+    zero_offset_forcing = _TracerSafeHeldSuarezForcingSigma(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        kf=0.0 / scales.units.day,
+        ka=1 / (160.0 * scales.units.day),
+        ks=1 / (16.0 * scales.units.day),
+        equilibrium_temperature_offset=jnp.zeros(
+            grid.coords.nodal_shape,
+            dtype=jnp.float32,
+        ),
+    )
+
+    incumbent_tendency = incumbent_forcing.explicit_terms(dinosaur_state)
+    zero_offset_tendency = zero_offset_forcing.explicit_terms(dinosaur_state)
+
+    _assert_pytree_allclose(zero_offset_tendency, incumbent_tendency)
+
+
+def test_analysis_offset_hs_eq_mask_uses_fixed_wavenumber_cutoffs():
+    """The analysis-offset mask keeps the area mean and fixed low-order modes."""
+    horizontal_grid = _residual_split_test_grid()
+
+    low_mode_mask = np.asarray(
+        _analysis_offset_weak_hs_low_mode_mask(horizontal_grid)
+    )
+
+    longitude_wavenumber, total_wavenumber = horizontal_grid.modal_mesh
+    expected_mask = (
+        np.asarray(horizontal_grid.mask)
+        & (
+            np.abs(longitude_wavenumber)
+            <= _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER
+        )
+        & (total_wavenumber <= _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER)
+    )
+    np.testing.assert_array_equal(low_mode_mask, expected_mask.astype(np.float32))
+    assert low_mode_mask[0, 0] == 1.0
+
+
+def test_analysis_offset_hs_eq_offset_clips_and_falls_back_to_zero():
+    """Offset construction clips finite amplitudes and zeros nonfinite offsets."""
+    coords, physics_specs, reference_temperature = _analysis_offset_test_setup()
+    offset_cap = (
+        _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN
+        * _unit_factor(physics_specs, "kelvin")
+    )
+    raw_offset = jnp.full(coords.nodal_shape, 3.0 * offset_cap, dtype=jnp.float32)
+    dinosaur_state = _dinosaur_state_with_hs_equilibrium_offset(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        equilibrium_offset=raw_offset,
+    )
+
+    offset = _analysis_offset_weak_held_suarez_equilibrium(
+        dinosaur_state,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+
+    assert bool(jnp.isfinite(offset).all())
+    np.testing.assert_allclose(offset, offset_cap, rtol=1e-5, atol=1e-5)
+
+    invalid_state = _dinosaur_state_with_hs_equilibrium_offset(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        equilibrium_offset=raw_offset.at[0, 0, 0].set(jnp.nan),
+    )
+    fallback_offset = _analysis_offset_weak_held_suarez_equilibrium(
+        invalid_state,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+
+    np.testing.assert_array_equal(fallback_offset, jnp.zeros_like(fallback_offset))
+
+
+def test_analysis_offset_hs_eq_offset_applies_low_order_mask():
+    """Offset construction removes modes outside the fixed low-order mask."""
+    coords, physics_specs, reference_temperature = _analysis_offset_test_setup()
+    longitude_wavenumber, total_wavenumber = coords.horizontal.modal_mesh
+    valid_modes = np.asarray(coords.horizontal.mask)
+    low_mode_index = tuple(
+        np.argwhere(
+            valid_modes
+            & (np.abs(longitude_wavenumber) == 2)
+            & (total_wavenumber == 4)
+        )[0]
+    )
+    high_mode_index = tuple(
+        np.argwhere(
+            valid_modes
+            & (
+                np.abs(longitude_wavenumber)
+                > _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER
+            )
+            & (total_wavenumber == 4)
+        )[0]
+    )
+    modal_offset = jnp.zeros(coords.modal_shape, dtype=jnp.float32)
+    modal_offset = modal_offset.at[:, low_mode_index[0], low_mode_index[1]].set(0.2)
+    modal_offset = modal_offset.at[:, high_mode_index[0], high_mode_index[1]].set(0.2)
+    raw_offset = coords.horizontal.to_nodal(modal_offset)
+    dinosaur_state = _dinosaur_state_with_hs_equilibrium_offset(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        equilibrium_offset=raw_offset,
+    )
+
+    filtered_offset = _analysis_offset_weak_held_suarez_equilibrium(
+        dinosaur_state,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+
+    filtered_modal_offset = coords.horizontal.to_modal(filtered_offset)
+    low_mode_mask = _analysis_offset_weak_hs_low_mode_mask(coords.horizontal)
+    np.testing.assert_allclose(
+        filtered_modal_offset * (1.0 - low_mode_mask),
+        0.0,
+        rtol=1e-5,
+        atol=1e-5,
+    )
+    retained_low_mode = filtered_modal_offset[
+        :,
+        low_mode_index[0],
+        low_mode_index[1],
+    ]
+    assert float(jnp.abs(retained_low_mode).max()) > 0.1
+
+
 def test_weak_held_suarez_helper_uses_dinosaur_forcing_type():
     """The helper composes a Dinosaur explicit forcing with primitive equations."""
     forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
@@ -3379,6 +3634,94 @@ def test_weak_held_suarez_helper_uses_dinosaur_forcing_type():
     assert issubclass(
         _TracerSafeHeldSuarezForcingSigma, held_suarez.HeldSuarezForcingSigma
     )
+
+
+def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+    monkeypatch,
+):
+    """The candidate passes one initial-state offset into rollout and DFI forcing."""
+    compose_calls = []
+    real_compose_equations = time_integration.compose_equations
+
+    def capture_compose_equations(equations):
+        compose_calls.append(tuple(equations))
+        return real_compose_equations(equations)
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "compose_equations",
+        capture_compose_equations,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1), lead_steps=(0,)
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    dinosaur_state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=False,
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+    )
+    model = replace(
+        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        apply_spectral_filter=False,
+        jit_forecast=False,
+    )
+    trajectory_fn = model._trajectory_function(
+        coords=grid.coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+
+    trajectory_fn(dinosaur_state)
+
+    assert len(compose_calls) == 2
+    for primitive_equation, forcing in compose_calls:
+        assert isinstance(primitive_equation, primitive_equations.PrimitiveEquations)
+        assert isinstance(forcing, _TracerSafeHeldSuarezForcingSigma)
+        assert forcing.equilibrium_temperature_offset is not None
+        assert forcing.equilibrium_temperature_offset.shape == grid.coords.nodal_shape
+        assert bool(jnp.isfinite(forcing.equilibrium_temperature_offset).all())
 
 
 def test_trajectory_function_matches_direct_dinosaur_package_call():
@@ -4254,6 +4597,54 @@ def _residual_split_test_grid() -> spherical_harmonic.Grid:
         longitude_nodes=64,
         latitude_nodes=48,
         latitude_spacing="gauss",
+    )
+
+
+def _analysis_offset_test_setup(
+    *,
+    layer_count: int = 2,
+) -> tuple[coordinate_systems.CoordinateSystem, Any, np.ndarray]:
+    coords = coordinate_systems.CoordinateSystem(
+        horizontal=_residual_split_test_grid(),
+        vertical=sigma_coordinates.SigmaCoordinates.equidistant(layer_count),
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=layer_count,
+        temperature_kelvin=250.0,
+    )
+    return coords, physics_specs, reference_temperature
+
+
+def _dinosaur_state_with_hs_equilibrium_offset(
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    equilibrium_offset: jax.Array,
+) -> Any:
+    surface_pressure = jnp.full(
+        coords.horizontal.nodal_shape,
+        100_000.0 * _unit_factor(physics_specs, "pascal"),
+        dtype=jnp.float32,
+    )
+    forcing = _TracerSafeHeldSuarezForcingSigma(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+    )
+    equilibrium_temperature = forcing.equilibrium_temperature(surface_pressure)
+    temperature = equilibrium_temperature + equilibrium_offset
+    return _primitive_equation_state(
+        vorticity=jnp.zeros(coords.modal_shape, dtype=jnp.float32),
+        divergence=jnp.zeros(coords.modal_shape, dtype=jnp.float32),
+        temperature_variation=coords.horizontal.to_modal(
+            temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=coords.horizontal.to_modal(
+            jnp.log(surface_pressure)
+        )[jnp.newaxis],
+        tracers={},
     )
 
 

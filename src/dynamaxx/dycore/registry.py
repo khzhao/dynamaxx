@@ -143,6 +143,15 @@ def dinosaur_scale_separated_surface_residual_model() -> DycoreModel:
     return scale_separated_surface_residual_dinosaur_dycore_model()
 
 
+def dinosaur_analysis_offset_held_suarez_equilibrium_model() -> DycoreModel:
+    """Return the scale-residual dycore with analysis-offset HS equilibrium."""
+    from dynamaxx.dycore.models.dinosaur import (
+        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
+    )
+
+    return analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -198,6 +207,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual"
     ): dinosaur_scale_separated_surface_residual_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq"
+    ): dinosaur_analysis_offset_held_suarez_equilibrium_model,
 }
 
 
