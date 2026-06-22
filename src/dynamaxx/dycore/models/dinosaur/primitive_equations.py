@@ -48,6 +48,8 @@ TEMPERATURE_TENDENCY_FORMULATIONS = (
     TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE,
     TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE,
 )
+HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL = 0.5
+HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT = 1.0e-6
 
 OrographyInitFn = Callable[..., Array]
 
@@ -879,6 +881,14 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         default=TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE,
         kw_only=True,
     )
+    use_horizontal_semilagrangian_theta_transport: bool = dataclasses.field(
+        default=False,
+        kw_only=True,
+    )
+    horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+        default=0.0,
+        kw_only=True,
+    )
 
     def __post_init__(self):
         super().__post_init__()
@@ -1212,6 +1222,195 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         )
 
     @jax.named_call
+    def _horizontal_semilagrangian_theta_departure_displacement(
+        self,
+        aux_state: DiagnosticStateSigma,
+        dtype: Any,
+    ) -> tuple[Array, Array, Array]:
+        """Return capped backward angular displacements for theta transport."""
+        horizontal_grid = self.coords.horizontal
+        u_cos_lat, v_cos_lat = aux_state.cos_lat_u
+        step = jnp.asarray(
+            self.horizontal_semilagrangian_theta_transport_step,
+            dtype=dtype,
+        )
+        radius = jnp.asarray(horizontal_grid.radius, dtype=dtype)
+        cos_lat = jnp.asarray(horizontal_grid.cos_lat, dtype=dtype)
+        safe_cos_lat = jnp.maximum(
+            cos_lat,
+            jnp.asarray(HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT, dtype=dtype),
+        )
+
+        raw_longitude_displacement = (
+            step * u_cos_lat / (radius * safe_cos_lat * safe_cos_lat)
+        )
+        raw_latitude_displacement = step * v_cos_lat / (radius * safe_cos_lat)
+        finite_raw_displacement = jnp.all(
+            jnp.isfinite(raw_longitude_displacement)
+        ) & jnp.all(jnp.isfinite(raw_latitude_displacement))
+        raw_longitude_displacement = jnp.where(
+            jnp.isfinite(raw_longitude_displacement),
+            raw_longitude_displacement,
+            0.0,
+        )
+        raw_latitude_displacement = jnp.where(
+            jnp.isfinite(raw_latitude_displacement),
+            raw_latitude_displacement,
+            0.0,
+        )
+
+        longitude_count, latitude_count = horizontal_grid.nodal_shape
+        longitude_spacing = jnp.asarray(2.0 * np.pi / longitude_count, dtype=dtype)
+        latitude_values = jnp.asarray(horizontal_grid.latitudes, dtype=dtype)
+        latitude_spacing = jnp.min(jnp.diff(latitude_values))
+        max_longitude_displacement = (
+            HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL * longitude_spacing
+        )
+        max_latitude_displacement = (
+            HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL * latitude_spacing
+        )
+        longitude_displacement = jnp.clip(
+            raw_longitude_displacement,
+            -max_longitude_displacement,
+            max_longitude_displacement,
+        )
+        latitude_displacement = jnp.clip(
+            raw_latitude_displacement,
+            -max_latitude_displacement,
+            max_latitude_displacement,
+        )
+        bounded_displacement = (
+            jnp.all(jnp.abs(longitude_displacement) <= max_longitude_displacement)
+            & jnp.all(jnp.abs(latitude_displacement) <= max_latitude_displacement)
+        )
+        valid_displacement = (
+            (step > 0)
+            & jnp.isfinite(step)
+            & (radius > 0)
+            & jnp.isfinite(radius)
+            & jnp.isfinite(latitude_spacing)
+            & (latitude_count > 1)
+            & finite_raw_displacement
+            & bounded_displacement
+        )
+        return longitude_displacement, latitude_displacement, valid_displacement
+
+    @jax.named_call
+    def _horizontal_semilagrangian_remap_layer(
+        self,
+        scalar_layer: Array,
+        longitude_displacement: Array,
+        latitude_displacement: Array,
+    ) -> Array:
+        """Bilinearly remap one layer from bounded backward departure points."""
+        horizontal_grid = self.coords.horizontal
+        longitude_values = jnp.asarray(
+            horizontal_grid.longitudes,
+            dtype=scalar_layer.dtype,
+        )
+        latitude_values = jnp.asarray(
+            horizontal_grid.latitudes,
+            dtype=scalar_layer.dtype,
+        )
+        longitude_mesh, latitude_mesh = jnp.meshgrid(
+            longitude_values,
+            latitude_values,
+            indexing="ij",
+        )
+        longitude_count, latitude_count = horizontal_grid.nodal_shape
+        longitude_spacing = jnp.asarray(2.0 * np.pi / longitude_count, dtype=scalar_layer.dtype)
+        longitude_origin = longitude_values[0]
+        departure_longitude = (
+            jnp.mod(
+                longitude_mesh - longitude_displacement - longitude_origin,
+                2.0 * np.pi,
+            )
+            + longitude_origin
+        )
+        longitude_index = (
+            departure_longitude - longitude_origin
+        ) / longitude_spacing
+        longitude_index_floor = jnp.floor(longitude_index).astype(jnp.int32)
+        longitude_index_weight = longitude_index - longitude_index_floor
+        longitude_index_floor = jnp.mod(longitude_index_floor, longitude_count)
+        longitude_index_ceil = jnp.mod(longitude_index_floor + 1, longitude_count)
+
+        departure_latitude = jnp.clip(
+            latitude_mesh - latitude_displacement,
+            latitude_values[0],
+            latitude_values[-1],
+        )
+        latitude_index_floor = (
+            jnp.searchsorted(latitude_values, departure_latitude, side="right") - 1
+        )
+        latitude_index_floor = jnp.clip(
+            latitude_index_floor,
+            0,
+            latitude_count - 2,
+        ).astype(jnp.int32)
+        latitude_index_ceil = latitude_index_floor + 1
+        latitude_lower = latitude_values[latitude_index_floor]
+        latitude_upper = latitude_values[latitude_index_ceil]
+        latitude_index_weight = (departure_latitude - latitude_lower) / (
+            latitude_upper - latitude_lower
+        )
+
+        southwest = scalar_layer[longitude_index_floor, latitude_index_floor]
+        southeast = scalar_layer[longitude_index_ceil, latitude_index_floor]
+        northwest = scalar_layer[longitude_index_floor, latitude_index_ceil]
+        northeast = scalar_layer[longitude_index_ceil, latitude_index_ceil]
+        south = southwest * (1.0 - longitude_index_weight) + (
+            southeast * longitude_index_weight
+        )
+        north = northwest * (1.0 - longitude_index_weight) + (
+            northeast * longitude_index_weight
+        )
+        return south * (1.0 - latitude_index_weight) + north * latitude_index_weight
+
+    @jax.named_call
+    def horizontal_semilagrangian_theta_transport(
+        self,
+        theta_anomaly: Array,
+        aux_state: DiagnosticStateSigma,
+        incumbent_horizontal_tendency: Array,
+    ) -> Array:
+        """Compute bounded horizontal semi-Lagrangian theta anomaly transport."""
+        (
+            longitude_displacement,
+            latitude_displacement,
+            valid_displacement,
+        ) = self._horizontal_semilagrangian_theta_departure_displacement(
+            aux_state,
+            theta_anomaly.dtype,
+        )
+        remapped_theta_anomaly = jax.vmap(
+            self._horizontal_semilagrangian_remap_layer
+        )(theta_anomaly, longitude_displacement, latitude_displacement)
+        step = jnp.asarray(
+            self.horizontal_semilagrangian_theta_transport_step,
+            dtype=theta_anomaly.dtype,
+        )
+        candidate_horizontal_tendency = (remapped_theta_anomaly - theta_anomaly) / step
+        finite_candidate = (
+            valid_displacement
+            & jnp.all(jnp.isfinite(remapped_theta_anomaly))
+            & jnp.all(jnp.isfinite(candidate_horizontal_tendency))
+        )
+        horizontal_wind_present = jnp.any(
+            jnp.asarray(
+                [
+                    jnp.any(aux_state.cos_lat_u[0] != 0.0),
+                    jnp.any(aux_state.cos_lat_u[1] != 0.0),
+                ]
+            )
+        )
+        return jnp.where(
+            finite_candidate & horizontal_wind_present,
+            candidate_horizontal_tendency,
+            incumbent_horizontal_tendency,
+        )
+
+    @jax.named_call
     def temperature_tendency_potential_temperature_form(
         self,
         state: State,
@@ -1228,6 +1427,18 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         dtheta_dt_horizontal_nodal, dtheta_dt_horizontal_modal = (
             self.horizontal_scalar_advection(theta_anomaly, aux_state)
         )
+        incumbent_dtheta_dt_horizontal_nodal = (
+            dtheta_dt_horizontal_nodal
+            + self.coords.horizontal.to_nodal(dtheta_dt_horizontal_modal)
+        )
+        if self.use_horizontal_semilagrangian_theta_transport:
+            dtheta_dt_horizontal_nodal = self.horizontal_semilagrangian_theta_transport(
+                theta_anomaly,
+                aux_state,
+                incumbent_dtheta_dt_horizontal_nodal,
+            )
+        else:
+            dtheta_dt_horizontal_nodal = incumbent_dtheta_dt_horizontal_nodal
         if self.include_vertical_advection:
             dtheta_dt_vertical = self._vertical_tendency(
                 aux_state.sigma_dot_full,
@@ -1235,11 +1446,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             )
         else:
             dtheta_dt_vertical = 0
-        dtheta_dt_nodal = (
-            dtheta_dt_horizontal_nodal
-            + self.coords.horizontal.to_nodal(dtheta_dt_horizontal_modal)
-            + dtheta_dt_vertical
-        )
+        dtheta_dt_nodal = dtheta_dt_horizontal_nodal + dtheta_dt_vertical
         temperature_transport_nodal = temperature_from_potential_temperature(
             dtheta_dt_nodal,
             pressure,
@@ -2687,6 +2894,8 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
         temperature_tendency_formulation: str = (
             TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
         ),
+        use_horizontal_semilagrangian_theta_transport: bool = False,
+        horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
             reference_temperature,
@@ -2700,6 +2909,12 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             humidity_key=None,
             cloud_keys=None,
             temperature_tendency_formulation=temperature_tendency_formulation,
+            use_horizontal_semilagrangian_theta_transport=(
+                use_horizontal_semilagrangian_theta_transport
+            ),
+            horizontal_semilagrangian_theta_transport_step=(
+                horizontal_semilagrangian_theta_transport_step
+            ),
         )
 
 
@@ -2725,6 +2940,8 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
         temperature_tendency_formulation: str = (
             TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
         ),
+        use_horizontal_semilagrangian_theta_transport: bool = False,
+        horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
             reference_temperature,
@@ -2738,6 +2955,12 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             humidity_key="specific_humidity",
             cloud_keys=None,
             temperature_tendency_formulation=temperature_tendency_formulation,
+            use_horizontal_semilagrangian_theta_transport=(
+                use_horizontal_semilagrangian_theta_transport
+            ),
+            horizontal_semilagrangian_theta_transport_step=(
+                horizontal_semilagrangian_theta_transport_step
+            ),
         )
 
 
@@ -2760,6 +2983,8 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
         temperature_tendency_formulation: str = (
             TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
         ),
+        use_horizontal_semilagrangian_theta_transport: bool = False,
+        horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
             reference_temperature,
@@ -2776,6 +3001,12 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
                 "specific_cloud_ice_water_content",
             ),
             temperature_tendency_formulation=temperature_tendency_formulation,
+            use_horizontal_semilagrangian_theta_transport=(
+                use_horizontal_semilagrangian_theta_transport
+            ),
+            horizontal_semilagrangian_theta_transport_step=(
+                horizontal_semilagrangian_theta_transport_step
+            ),
         )
 
 

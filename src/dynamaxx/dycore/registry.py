@@ -170,6 +170,15 @@ def dinosaur_ocean_bulk_sensible_heat_flux_model() -> DycoreModel:
     return ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
 
 
+def dino_hsl_theta_model() -> DycoreModel:
+    """Return the ocean-bulk incumbent with horizontal SL theta transport."""
+    from dynamaxx.dycore.models.dinosaur import (
+        horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+    )
+
+    return horizontal_semilagrangian_theta_transport_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -243,6 +252,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
     ): dinosaur_ocean_bulk_sensible_heat_flux_model,
+    "dino_hsl_theta": dino_hsl_theta_model,
 }
 
 
