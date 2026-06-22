@@ -118,6 +118,12 @@ assert (
     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
     "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
 )
+assert dinosaur.horizontal_semilagrangian_theta_transport_dinosaur_dycore_model().name == (
+    "dino_hsl_theta"
+)
+assert dinosaur.midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().name == (
+    "dino_hsl2_theta"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -214,6 +220,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
         "dino_hsl_theta",
+        "dino_hsl2_theta",
     )
 
     model = create_dycore_model("dinosaur")
