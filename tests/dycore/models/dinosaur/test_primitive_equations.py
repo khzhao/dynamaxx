@@ -25,6 +25,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER,
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
     _DRY_AIR_GAS_CONSTANT_SI,
+    _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
     DEFAULT_INNER_STEP_SECONDS,
@@ -44,6 +45,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _hydrostatic_temperature_from_geopotential_thickness,
     _inner_steps_per_forecast_step,
     _interp_sigma_to_pressure_by_time,
+    _land_sea_surface_temperature_residual_decays,
     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
     _nondimensionalize_seconds,
     _pressure_coordinates,
@@ -58,6 +60,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _theta_layer_mean_recenter_step_filter,
     _TracerSafeHeldSuarezForcingSigma,
     _unit_factor,
+    _valid_land_sea_fraction_or_none,
     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
     coriolis_split_dinosaur_dycore_model,
     coriolis_strang_split_dinosaur_dycore_model,
@@ -66,6 +69,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     dinosaur_state_to_weather_state,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
+    land_sea_surface_temperature_dinosaur_dycore_model,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
@@ -155,6 +159,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_analysis_offset_weak_held_suarez_equilibrium
     assert not model.use_stability_aware_near_surface_residual_decay
     assert not model.use_scale_separated_near_surface_residual
+    assert not model.use_land_sea_surface_temperature_residual
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
@@ -491,6 +496,25 @@ def test_analysis_offset_hs_eq_factory_preserves_incumbent_except_selector():
             "name",
             "use_analysis_offset_weak_held_suarez_equilibrium",
         }:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_land_sea_surface_temperature_factory_preserves_incumbent_except_selector():
+    """The candidate changes only name and the land-sea residual selector."""
+    model = land_sea_surface_temperature_dinosaur_dycore_model()
+    incumbent = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface"
+    )
+    assert model.use_land_sea_surface_temperature_residual
+    assert not incumbent.use_land_sea_surface_temperature_residual
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_land_sea_surface_temperature_residual"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -1259,6 +1283,67 @@ def test_analysis_offset_hs_eq_candidate_forecast_is_finite(monkeypatch):
     )
 
 
+def test_land_sea_surface_temperature_candidate_forecast_is_finite(monkeypatch):
+    """The land-sea T2m residual candidate runs a non-JIT smoke forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        return lambda dinosaur_state: dinosaur_state
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        land_sea_surface_temperature_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+    np.testing.assert_array_equal(
+        forecast.select(("2m_temperature",)).values[0],
+        forecast_input.initial_state.select(("2m_temperature",)).values,
+    )
+    np.testing.assert_array_equal(
+        forecast.select(("10m_u_component_of_wind",)).values[0],
+        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
+    )
+
+
 def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
     """The residual candidate changes only selected near-surface diagnostics."""
 
@@ -1610,6 +1695,215 @@ def test_scale_separated_residual_correction_keeps_low_modes_longer():
         corrected.select(("mean_sea_level_pressure",)).values,
         trajectory_state.select(("mean_sea_level_pressure",)).values,
     )
+
+
+def test_land_sea_surface_temperature_decay_blends_land_ocean_and_coast():
+    """Land keeps incumbent memory, ocean lengthens it, and coasts interpolate."""
+    high_mode_decay = jnp.asarray([[[0.25, 0.25, 0.25]]], dtype=jnp.float32)
+    low_mode_decay = jnp.asarray([[[0.36, 0.36, 0.36]]], dtype=jnp.float32)
+    land_sea_fraction = jnp.asarray([[1.0, 0.0, 0.25]], dtype=jnp.float32)
+
+    high_decay, low_decay = _land_sea_surface_temperature_residual_decays(
+        high_mode_decay=high_mode_decay,
+        low_mode_decay=low_mode_decay,
+        land_sea_fraction=land_sea_fraction,
+    )
+
+    expected_high_ocean = 0.25**_LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT
+    expected_low_ocean = 0.36**_LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT
+    np.testing.assert_allclose(
+        high_decay,
+        [[[0.25, expected_high_ocean, 0.25 * 0.25 + 0.75 * expected_high_ocean]]],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        low_decay,
+        [[[0.36, expected_low_ocean, 0.25 * 0.36 + 0.75 * expected_low_ocean]]],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
+def test_land_sea_fraction_validation_rejects_unsafe_masks():
+    """Invalid masks are rejected before they can alter residual memory."""
+    assert _valid_land_sea_fraction_or_none(None, (2, 2)) is None
+    assert _valid_land_sea_fraction_or_none(jnp.ones((2, 3)), (2, 2)) is None
+    assert (
+        _valid_land_sea_fraction_or_none(
+            jnp.asarray([[1.0, jnp.nan], [0.5, 0.0]]),
+            (2, 2),
+        )
+        is None
+    )
+    assert (
+        _valid_land_sea_fraction_or_none(
+            jnp.asarray([[1.1, 0.0], [0.5, 0.0]]),
+            (2, 2),
+        )
+        is None
+    )
+    valid = _valid_land_sea_fraction_or_none(
+        jnp.asarray([[1.0, 0.0], [0.5, 0.25]]),
+        (2, 2),
+    )
+
+    assert valid is not None
+    np.testing.assert_array_equal(valid, [[1.0, 0.0], [0.5, 0.25]])
+
+
+def test_land_sea_surface_temperature_correction_preserves_non_t2m_channels():
+    """The land-sea residual blend changes only T2m and keeps lead zero exact."""
+    raw_temperature = jnp.stack(
+        [
+            jnp.full((4, 3), 280.0, dtype=jnp.float32),
+            jnp.full((4, 3), 282.0, dtype=jnp.float32),
+        ]
+    )
+    raw_u_wind = jnp.stack(
+        [
+            jnp.full((4, 3), 1.0, dtype=jnp.float32),
+            jnp.full((4, 3), 1.5, dtype=jnp.float32),
+        ]
+    )
+    raw_pressure = jnp.stack(
+        [
+            jnp.full((4, 3), 100000.0, dtype=jnp.float32),
+            jnp.full((4, 3), 99900.0, dtype=jnp.float32),
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack([raw_temperature, raw_u_wind, raw_pressure], axis=1),
+        variables=(
+            "2m_temperature",
+            "10m_u_component_of_wind",
+            "mean_sea_level_pressure",
+        ),
+    )
+    initial_temperature = jnp.full((4, 3), 284.0, dtype=jnp.float32)
+    initial_u_wind = jnp.full((4, 3), 4.0, dtype=jnp.float32)
+    initial_state = WeatherState(
+        values=jnp.stack([initial_temperature, initial_u_wind]),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    grid = grid_metadata(
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    land_sea_fraction = jnp.asarray(
+        [
+            [1.0, 0.0, 0.25],
+            [1.0, 0.0, 0.25],
+            [1.0, 0.0, 0.25],
+            [1.0, 0.0, 0.25],
+        ],
+        dtype=jnp.float32,
+    )
+
+    incumbent = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 96),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+    )
+    corrected = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 96),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+        land_sea_fraction=land_sea_fraction,
+    )
+
+    incumbent_decay = np.exp(-1.0)
+    ocean_decay = incumbent_decay**_LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT
+    expected_decay = land_sea_fraction * incumbent_decay + (
+        1.0 - land_sea_fraction
+    ) * ocean_decay
+    expected_temperature = raw_temperature.at[0].set(initial_temperature)
+    expected_temperature = expected_temperature.at[1].set(
+        raw_temperature[1] + (initial_temperature - raw_temperature[0]) * expected_decay
+    )
+    np.testing.assert_allclose(
+        corrected.select(("2m_temperature",)).values[:, 0],
+        expected_temperature,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        corrected.select(("10m_u_component_of_wind",)).values,
+        incumbent.select(("10m_u_component_of_wind",)).values,
+        rtol=0.0,
+        atol=0.0,
+    )
+    np.testing.assert_array_equal(
+        corrected.select(("mean_sea_level_pressure",)).values,
+        trajectory_state.select(("mean_sea_level_pressure",)).values,
+    )
+
+
+def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
+    """Missing or unsafe masks leave the scale-separated incumbent unchanged."""
+    raw_temperature = jnp.stack(
+        [
+            jnp.full((4, 3), 280.0, dtype=jnp.float32),
+            jnp.full((4, 3), 282.0, dtype=jnp.float32),
+        ]
+    )
+    raw_u_wind = jnp.stack(
+        [
+            jnp.full((4, 3), 1.0, dtype=jnp.float32),
+            jnp.full((4, 3), 1.5, dtype=jnp.float32),
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack([raw_temperature, raw_u_wind], axis=1),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    initial_state = WeatherState(
+        values=jnp.stack([raw_temperature[0] + 5.0, raw_u_wind[0] + 2.0]),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    grid = grid_metadata(
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    incumbent = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 24),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+    )
+
+    for invalid_mask in (
+        jnp.ones((5, 3), dtype=jnp.float32),
+        jnp.full((4, 3), jnp.nan, dtype=jnp.float32),
+        jnp.full((4, 3), 1.1, dtype=jnp.float32),
+    ):
+        fallback = _apply_scale_separated_near_surface_residual_correction(
+            trajectory_state,
+            initial_state=initial_state,
+            lead_steps=(0, 1),
+            lead_hours=(0, 24),
+            decay_hours=48.0,
+            horizontal_grid=grid.coords.horizontal,
+            latitude_reversed=grid.latitude_reversed,
+            land_sea_fraction=invalid_mask,
+        )
+
+        np.testing.assert_array_equal(fallback.values, incumbent.values)
 
 
 def test_scale_separated_residual_correction_falls_back_to_incumbent(monkeypatch):

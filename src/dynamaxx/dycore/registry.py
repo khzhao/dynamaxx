@@ -152,6 +152,15 @@ def dinosaur_analysis_offset_held_suarez_equilibrium_model() -> DycoreModel:
     return analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
 
 
+def dinosaur_land_sea_surface_temperature_model() -> DycoreModel:
+    """Return the analysis-HS dycore with land-sea T2m residual memory."""
+    from dynamaxx.dycore.models.dinosaur import (
+        land_sea_surface_temperature_dinosaur_dycore_model,
+    )
+
+    return land_sea_surface_temperature_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -213,6 +222,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq"
     ): dinosaur_analysis_offset_held_suarez_equilibrium_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface"
+    ): dinosaur_land_sea_surface_temperature_model,
 }
 
 
