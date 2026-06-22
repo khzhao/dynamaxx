@@ -70,6 +70,10 @@ _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
 _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
 _LAND_SEA_MASK_CHANNEL = "land_sea_mask"
 _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT = 0.5
+_OCEAN_BULK_SHF_TRANSFER_COEFFICIENT = 1.0e-3
+_OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS = 10_000.0
+_OCEAN_BULK_SHF_MIN_EFOLDING_DAYS = 6.0
+_OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
 _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
@@ -121,6 +125,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_stability_aware_near_surface_residual_decay: bool = False
     use_scale_separated_near_surface_residual: bool = False
     use_land_sea_surface_temperature_residual: bool = False
+    apply_ocean_bulk_sensible_heat_flux: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
@@ -166,6 +171,28 @@ class DinosaurPrimitiveEquationsDycoreModel:
             forecast_input.step_seconds,
             self.inner_step_seconds,
         )
+        land_sea_fraction = None
+        if (
+            self.use_land_sea_surface_temperature_residual
+            or self.apply_ocean_bulk_sensible_heat_flux
+        ):
+            land_sea_fraction = _load_land_sea_fraction_for_grid(
+                longitude=forecast_input.longitude,
+                latitude=forecast_input.latitude,
+                initial_time=forecast_input.initial_times[0],
+            )
+        ocean_bulk_shf_ocean_weight = None
+        if self.apply_ocean_bulk_sensible_heat_flux:
+            valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
+                land_sea_fraction,
+                (forecast_input.longitude.size, forecast_input.latitude.size),
+            )
+            if valid_land_sea_fraction is not None:
+                ocean_bulk_shf_ocean_weight = 1.0 - _to_dinosaur_latitude_order(
+                    valid_land_sea_fraction,
+                    grid.latitude_reversed,
+                )
+
         trajectory_fn = self._trajectory_function(
             coords=grid.coords,
             physics_specs=physics_specs,
@@ -173,14 +200,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
             inner_steps=inner_steps,
             output_count=max(forecast_input.lead_steps) + 1,
             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
+            ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
         )
-        land_sea_fraction = None
-        if self.use_land_sea_surface_temperature_residual:
-            land_sea_fraction = _load_land_sea_fraction_for_grid(
-                longitude=forecast_input.longitude,
-                latitude=forecast_input.latitude,
-                initial_time=forecast_input.initial_times[0],
-            )
 
         forecasts = []
         for initial_index in range(forecast_input.initial_times.size):
@@ -204,7 +225,26 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     self.use_layer_mean_hydrostatic_temperature_initialization
                 ),
             )
-            _, trajectory = trajectory_fn(dinosaur_state)
+            if (
+                self.apply_ocean_bulk_sensible_heat_flux
+                and ocean_bulk_shf_ocean_weight is not None
+            ):
+                ocean_bulk_shf_temperature_anchor = (
+                    _ocean_bulk_sensible_heat_flux_temperature_anchor(
+                        single_state,
+                        dinosaur_state=dinosaur_state,
+                        coords=grid.coords,
+                        latitude_reversed=grid.latitude_reversed,
+                        physics_specs=physics_specs,
+                        reference_temperature=reference_temperature,
+                    )
+                )
+                _, trajectory = trajectory_fn(
+                    dinosaur_state,
+                    ocean_bulk_shf_temperature_anchor,
+                )
+            else:
+                _, trajectory = trajectory_fn(dinosaur_state)
             trajectory_state = dinosaur_state_to_weather_state(
                 trajectory,
                 coords=grid.coords,
@@ -263,6 +303,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         inner_steps: int,
         output_count: int,
         use_humidity_in_dynamics: bool,
+        ocean_bulk_shf_ocean_weight: jax.Array | None = None,
     ):
         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
         use_coriolis_rotation_split = (
@@ -279,10 +320,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
             self.apply_weak_held_suarez_relaxation
             and self.use_analysis_offset_weak_held_suarez_equilibrium
         )
+        use_ocean_bulk_sensible_heat_flux = (
+            self.apply_ocean_bulk_sensible_heat_flux
+            and ocean_bulk_shf_ocean_weight is not None
+        )
 
         def build_equation(
             equation_physics_specs: Any,
             equilibrium_temperature_offset: jax.Array | None = None,
+            ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
         ) -> Any:
             equation = _primitive_equation(
                 reference_temperature=reference_temperature,
@@ -303,6 +349,19 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
                     ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                )
+            if (
+                use_ocean_bulk_sensible_heat_flux
+                and ocean_bulk_shf_temperature_anchor is not None
+            ):
+                equation = _compose_ocean_bulk_sensible_heat_flux_equation(
+                    equation=equation,
+                    coords=coords,
+                    physics_specs=equation_physics_specs,
+                    reference_temperature=reference_temperature,
+                    ocean_weight=cast(jax.Array, ocean_bulk_shf_ocean_weight),
+                    temperature_anchor=ocean_bulk_shf_temperature_anchor,
+                    step_seconds=step_seconds,
                 )
             return equation
 
@@ -328,10 +387,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
 
         def build_trajectory(
             equilibrium_temperature_offset: jax.Array | None = None,
+            ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
         ) -> Any:
             equation = build_equation(
                 rollout_physics_specs,
                 equilibrium_temperature_offset=equilibrium_temperature_offset,
+                ocean_bulk_shf_temperature_anchor=ocean_bulk_shf_temperature_anchor,
             )
             filters = build_filters(rollout_physics_specs)
             if (
@@ -353,6 +414,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     equilibrium_temperature_offset=equilibrium_temperature_offset,
                 )
                 dfi_filters = build_filters(physics_specs)
+            elif use_ocean_bulk_sensible_heat_flux:
+                dfi_equation = build_equation(
+                    rollout_physics_specs,
+                    equilibrium_temperature_offset=equilibrium_temperature_offset,
+                )
             if self.apply_theta_layer_mean_recentering:
                 filters.append(
                     _theta_layer_mean_recenter_step_filter(
@@ -403,20 +469,56 @@ class DinosaurPrimitiveEquationsDycoreModel:
             return trajectory_fn
 
         if use_analysis_offset_equilibrium:
+            if use_ocean_bulk_sensible_heat_flux:
 
-            def trajectory_fn(dinosaur_state):
-                equilibrium_temperature_offset = (
-                    _analysis_offset_weak_held_suarez_equilibrium(
-                        dinosaur_state,
-                        coords=coords,
-                        physics_specs=physics_specs,
-                        reference_temperature=reference_temperature,
+                def trajectory_fn(
+                    dinosaur_state,
+                    ocean_bulk_shf_temperature_anchor,
+                ):
+                    equilibrium_temperature_offset = (
+                        _analysis_offset_weak_held_suarez_equilibrium(
+                            dinosaur_state,
+                            coords=coords,
+                            physics_specs=physics_specs,
+                            reference_temperature=reference_temperature,
+                        )
                     )
+                    offset_trajectory_fn = build_trajectory(
+                        equilibrium_temperature_offset=(equilibrium_temperature_offset),
+                        ocean_bulk_shf_temperature_anchor=(
+                            ocean_bulk_shf_temperature_anchor
+                        ),
+                    )
+                    return offset_trajectory_fn(dinosaur_state)
+
+            else:
+
+                def trajectory_fn(dinosaur_state):
+                    equilibrium_temperature_offset = (
+                        _analysis_offset_weak_held_suarez_equilibrium(
+                            dinosaur_state,
+                            coords=coords,
+                            physics_specs=physics_specs,
+                            reference_temperature=reference_temperature,
+                        )
+                    )
+                    offset_trajectory_fn = build_trajectory(
+                        equilibrium_temperature_offset=equilibrium_temperature_offset,
+                    )
+                    return offset_trajectory_fn(dinosaur_state)
+
+        elif use_ocean_bulk_sensible_heat_flux:
+
+            def trajectory_fn(
+                dinosaur_state,
+                ocean_bulk_shf_temperature_anchor,
+            ):
+                ocean_bulk_shf_trajectory_fn = build_trajectory(
+                    ocean_bulk_shf_temperature_anchor=(
+                        ocean_bulk_shf_temperature_anchor
+                    ),
                 )
-                offset_trajectory_fn = build_trajectory(
-                    equilibrium_temperature_offset=equilibrium_temperature_offset,
-                )
-                return offset_trajectory_fn(dinosaur_state)
+                return ocean_bulk_shf_trajectory_fn(dinosaur_state)
 
         else:
             trajectory_fn = build_trajectory()
@@ -915,6 +1017,22 @@ def land_sea_surface_temperature_dinosaur_dycore_model() -> (
             "scale_surface_residual_analysis_hs_eq_landsea_surface"
         ),
         use_land_sea_surface_temperature_residual=True,
+    )
+
+
+def ocean_bulk_sensible_heat_flux_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with weak ocean-only bulk sensible heat exchange."""
+    return replace(
+        land_sea_surface_temperature_dinosaur_dycore_model(),
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+            "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+        ),
+        apply_ocean_bulk_sensible_heat_flux=True,
     )
 
 
@@ -1477,6 +1595,62 @@ def _valid_land_sea_fraction_or_none(
     if candidate.size == 0:
         return None
     if float(np.min(candidate)) < 0.0 or float(np.max(candidate)) > 1.0:
+        return None
+    candidate.setflags(write=False)
+    return jnp.asarray(candidate, dtype=jnp.float32)
+
+
+def _ocean_bulk_sensible_heat_flux_temperature_anchor(
+    initial_state: WeatherState,
+    *,
+    dinosaur_state: Any,
+    coords: coordinate_systems.CoordinateSystem,
+    latitude_reversed: bool,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+) -> jax.Array | None:
+    """Return a finite lead-zero ocean thermal anchor in Dinosaur latitude order."""
+    if TWO_METER_TEMPERATURE_VARIABLE in initial_state.variables:
+        temperature_index = int(
+            initial_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
+        )
+        anchor_temperature = initial_state.values[temperature_index] * _unit_factor(
+            physics_specs, "kelvin"
+        )
+        anchor_temperature = _to_dinosaur_latitude_order(
+            anchor_temperature,
+            latitude_reversed,
+        )
+    else:
+        full_temperature = (
+            coords.horizontal.to_nodal(dinosaur_state.temperature_variation)
+            + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
+        )
+        anchor_temperature = full_temperature[-1]
+    return _valid_ocean_bulk_shf_temperature_anchor_or_none(
+        anchor_temperature,
+        coords.horizontal.nodal_shape,
+    )
+
+
+def _valid_ocean_bulk_shf_temperature_anchor_or_none(
+    temperature_anchor: jax.Array | None,
+    spatial_shape: tuple[int, int],
+) -> jax.Array | None:
+    """Return a positive finite anchor field or `None` for incumbent fallback."""
+    if temperature_anchor is None:
+        return None
+    try:
+        candidate = np.asarray(jax.device_get(temperature_anchor), dtype=np.float32)
+    except Exception:
+        return None
+    if candidate.shape != tuple(spatial_shape):
+        return None
+    if candidate.size == 0:
+        return None
+    if not bool(np.isfinite(candidate).all()):
+        return None
+    if float(np.min(candidate)) <= 0.0:
         return None
     candidate.setflags(write=False)
     return jnp.asarray(candidate, dtype=jnp.float32)
@@ -2101,6 +2275,139 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
             tracers=jax.tree_util.tree_map(jnp.zeros_like, state.tracers),
             sim_time=None if state.sim_time is None else 0.0,
         )
+
+
+class _OceanBulkSensibleHeatFluxForcingSigma(time_integration.ExplicitODE):
+    """Weak ocean-weighted bulk sensible heat flux for the lowest sigma layer."""
+
+    def __init__(
+        self,
+        *,
+        coords: coordinate_systems.CoordinateSystem,
+        physics_specs: Any,
+        reference_temperature: np.ndarray,
+        ocean_weight: jax.Array,
+        temperature_anchor: jax.Array,
+        step_seconds: float,
+    ):
+        assert step_seconds > 0.0
+        self.coords = coords
+        self.physics_specs = physics_specs
+        self.reference_temperature = jnp.asarray(reference_temperature)
+        self.ocean_weight = jnp.asarray(ocean_weight, dtype=jnp.float32)
+        self.temperature_anchor = jnp.asarray(temperature_anchor, dtype=jnp.float32)
+        self.step_seconds = float(step_seconds)
+        self.wind_unit_factor = _unit_factor(physics_specs, "meter / second")
+        self.rate_unit_factor = _unit_factor(physics_specs, "1 / second")
+        self.temperature_unit_factor = _unit_factor(physics_specs, "kelvin")
+
+    def explicit_terms(
+        self,
+        state: primitive_equations.State,
+    ) -> primitive_equations.State:
+        nodal_temperature = (
+            self.coords.horizontal.to_nodal(state.temperature_variation)
+            + self.reference_temperature[:, jnp.newaxis, jnp.newaxis]
+        )
+        current_temperature = nodal_temperature[-1]
+        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+            self.coords.horizontal,
+            state.vorticity,
+            state.divergence,
+        )
+        lowest_u_wind = u_wind[-1]
+        lowest_v_wind = v_wind[-1]
+        wind_speed = jnp.sqrt(jnp.maximum(lowest_u_wind**2 + lowest_v_wind**2, 0.0))
+        wind_speed_meters_per_second = wind_speed / self.wind_unit_factor
+        exchange_rate_per_second = (
+            _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT
+            * wind_speed_meters_per_second
+            / _OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS
+        )
+        max_exchange_rate_per_second = 1.0 / (
+            _OCEAN_BULK_SHF_MIN_EFOLDING_DAYS * 24.0 * 3600.0
+        )
+        exchange_rate = (
+            jnp.minimum(exchange_rate_per_second, max_exchange_rate_per_second)
+            * self.rate_unit_factor
+        )
+        temperature_tendency = (
+            self.ocean_weight
+            * exchange_rate
+            * (self.temperature_anchor - current_temperature)
+        )
+        max_temperature_tendency = (
+            _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+            * self.temperature_unit_factor
+            / self.step_seconds
+        )
+        temperature_tendency = jnp.clip(
+            temperature_tendency,
+            -max_temperature_tendency,
+            max_temperature_tendency,
+        )
+        finite_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(jnp.isfinite(self.ocean_weight)),
+                    jnp.all(jnp.isfinite(self.temperature_anchor)),
+                    jnp.all(jnp.isfinite(current_temperature)),
+                    jnp.all(jnp.isfinite(lowest_u_wind)),
+                    jnp.all(jnp.isfinite(lowest_v_wind)),
+                    jnp.all(jnp.isfinite(wind_speed_meters_per_second)),
+                    jnp.all(jnp.isfinite(exchange_rate)),
+                    jnp.all(jnp.isfinite(temperature_tendency)),
+                ]
+            )
+        )
+        temperature_tendency = jnp.where(
+            finite_diagnostics,
+            temperature_tendency,
+            jnp.zeros_like(temperature_tendency),
+        )
+        nodal_temperature_tendency = (
+            jnp.zeros_like(nodal_temperature).at[-1].set(temperature_tendency)
+        )
+        modal_temperature_tendency = self.coords.horizontal.to_modal(
+            nodal_temperature_tendency
+        )
+        modal_temperature_tendency = jnp.where(
+            jnp.all(jnp.isfinite(modal_temperature_tendency)),
+            modal_temperature_tendency,
+            jnp.zeros_like(modal_temperature_tendency),
+        )
+        return primitive_equations.State(
+            vorticity=jnp.zeros_like(state.vorticity),
+            divergence=jnp.zeros_like(state.divergence),
+            temperature_variation=modal_temperature_tendency,
+            log_surface_pressure=jnp.zeros_like(state.log_surface_pressure),
+            tracers=jax.tree_util.tree_map(jnp.zeros_like, state.tracers),
+            sim_time=None if state.sim_time is None else 0.0,
+        )
+
+
+def _compose_ocean_bulk_sensible_heat_flux_equation(
+    *,
+    equation: Any,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    ocean_weight: jax.Array,
+    temperature_anchor: jax.Array | None,
+    step_seconds: float,
+) -> Any:
+    """Compose primitive equations with the opt-in ocean sensible heat flux."""
+    if temperature_anchor is None:
+        return equation
+    forcing = _OceanBulkSensibleHeatFluxForcingSigma(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        ocean_weight=ocean_weight,
+        temperature_anchor=temperature_anchor,
+        step_seconds=step_seconds,
+    )
+    return time_integration.compose_equations([equation, forcing])
 
 
 def _compose_weak_held_suarez_equation(

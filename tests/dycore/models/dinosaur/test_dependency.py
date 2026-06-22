@@ -111,6 +111,13 @@ assert (
     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
     "scale_surface_residual_analysis_hs_eq_landsea_surface"
 )
+assert (
+    dinosaur.ocean_bulk_sensible_heat_flux_dinosaur_dycore_model().name
+    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+    "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -202,6 +209,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
     )
 
     model = create_dycore_model("dinosaur")
@@ -613,6 +624,35 @@ def test_dinosaur_land_sea_surface_temperature_is_registered():
     assert not incumbent.use_land_sea_surface_temperature_residual
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_land_sea_surface_temperature_residual"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_ocean_bulk_shf_is_registered():
+    """The ocean bulk SHF candidate is side-by-side with the incumbent."""
+    model = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+    )
+    incumbent = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface"
+    )
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+    )
+    assert model.apply_ocean_bulk_sensible_heat_flux
+    assert not incumbent.apply_ocean_bulk_sensible_heat_flux
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
