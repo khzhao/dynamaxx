@@ -68,6 +68,8 @@ _STABILITY_AWARE_WEAK_FLOW_SCALE_METERS_PER_SECOND = 12.0
 _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF = 12
 _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
 _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
+_LAND_SEA_MASK_CHANNEL = "land_sea_mask"
+_LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT = 0.5
 _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
@@ -81,6 +83,8 @@ _GRAVITY_ACCELERATION_SI = float(
 _WATER_VAPOR_GAS_CONSTANT_SI = float(
     scales.IDEAL_GAS_CONSTANT_H20.to("meter ** 2 / second ** 2 / kelvin").magnitude
 )
+_LandSeaMaskCacheKey = tuple[str, tuple[int, ...], bytes, tuple[int, ...], bytes]
+_LAND_SEA_FRACTION_CACHE: dict[_LandSeaMaskCacheKey, jax.Array] = {}
 
 
 @dataclass(frozen=True)
@@ -116,6 +120,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     near_surface_residual_decay_hours: float = 48.0
     use_stability_aware_near_surface_residual_decay: bool = False
     use_scale_separated_near_surface_residual: bool = False
+    use_land_sea_surface_temperature_residual: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
@@ -169,6 +174,13 @@ class DinosaurPrimitiveEquationsDycoreModel:
             output_count=max(forecast_input.lead_steps) + 1,
             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
         )
+        land_sea_fraction = None
+        if self.use_land_sea_surface_temperature_residual:
+            land_sea_fraction = _load_land_sea_fraction_for_grid(
+                longitude=forecast_input.longitude,
+                latitude=forecast_input.latitude,
+                initial_time=forecast_input.initial_times[0],
+            )
 
         forecasts = []
         for initial_index in range(forecast_input.initial_times.size):
@@ -217,6 +229,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         "horizontal_grid": grid.coords.horizontal,
                         "latitude_reversed": grid.latitude_reversed,
                     }
+                    if self.use_land_sea_surface_temperature_residual:
+                        residual_kwargs["land_sea_fraction"] = land_sea_fraction
                 trajectory_state = residual_correction(
                     trajectory_state,
                     initial_state=single_state,
@@ -888,6 +902,22 @@ def analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model() -> (
     )
 
 
+def land_sea_surface_temperature_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with land-sea-aware 2 m temperature residual memory."""
+    return replace(
+        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
+        name=(
+            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+            "scale_surface_residual_analysis_hs_eq_landsea_surface"
+        ),
+        use_land_sea_surface_temperature_residual=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -1312,6 +1342,7 @@ def _apply_scale_separated_near_surface_residual_correction(
     use_stability_aware_decay: bool = False,
     horizontal_grid: spherical_harmonic.Grid | None = None,
     latitude_reversed: bool = False,
+    land_sea_fraction: jax.Array | None = None,
 ) -> WeatherState:
     """Apply low- and high-wavenumber residual memory to near-surface outputs."""
     incumbent_state = _apply_near_surface_residual_correction(
@@ -1324,6 +1355,10 @@ def _apply_scale_separated_near_surface_residual_correction(
     )
     if horizontal_grid is None:
         return incumbent_state
+    valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
+        land_sea_fraction,
+        trajectory_state.spatial_shape,
+    )
 
     assert decay_hours > 0.0
     assert len(lead_steps) == len(lead_hours)
@@ -1363,9 +1398,23 @@ def _apply_scale_separated_near_surface_residual_correction(
         except (AssertionError, AttributeError, TypeError, ValueError):
             return incumbent_state
 
+        channel_high_mode_decay = high_mode_decay
+        channel_low_mode_decay = low_mode_decay
+        if (
+            channel == TWO_METER_TEMPERATURE_VARIABLE
+            and valid_land_sea_fraction is not None
+        ):
+            channel_high_mode_decay, channel_low_mode_decay = (
+                _land_sea_surface_temperature_residual_decays(
+                    high_mode_decay=high_mode_decay,
+                    low_mode_decay=low_mode_decay,
+                    land_sea_fraction=valid_land_sea_fraction,
+                )
+            )
+
         candidate_channel_values = corrected_values[:, output_index] + (
-            low_mode_residual[jnp.newaxis, ...] * low_mode_decay
-            + high_mode_residual[jnp.newaxis, ...] * high_mode_decay
+            low_mode_residual[jnp.newaxis, ...] * channel_low_mode_decay
+            + high_mode_residual[jnp.newaxis, ...] * channel_high_mode_decay
         )
         candidate_channel_values = jnp.where(
             lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
@@ -1382,6 +1431,114 @@ def _apply_scale_separated_near_surface_residual_correction(
     return WeatherState(
         values=corrected_values,
         variables=trajectory_state.variables,
+    )
+
+
+def _land_sea_surface_temperature_residual_decays(
+    *,
+    high_mode_decay: jax.Array,
+    low_mode_decay: jax.Array,
+    land_sea_fraction: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Return T2m residual decays that keep land incumbent and ocean persistent."""
+    land_fraction = jnp.asarray(land_sea_fraction, dtype=high_mode_decay.dtype)
+    ocean_fraction = 1.0 - land_fraction
+    ocean_high_mode_decay = jnp.power(
+        jnp.clip(high_mode_decay, 0.0, 1.0),
+        _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+    )
+    ocean_low_mode_decay = jnp.power(
+        jnp.clip(low_mode_decay, 0.0, 1.0),
+        _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+    )
+    land_fraction = land_fraction[jnp.newaxis, ...]
+    ocean_fraction = ocean_fraction[jnp.newaxis, ...]
+    return (
+        land_fraction * high_mode_decay + ocean_fraction * ocean_high_mode_decay,
+        land_fraction * low_mode_decay + ocean_fraction * ocean_low_mode_decay,
+    )
+
+
+def _valid_land_sea_fraction_or_none(
+    land_sea_fraction: jax.Array | None,
+    spatial_shape: tuple[int, int],
+) -> jax.Array | None:
+    """Return a finite `[0, 1]` land fraction or `None` for exact fallback."""
+    if land_sea_fraction is None:
+        return None
+    try:
+        candidate = np.asarray(jax.device_get(land_sea_fraction), dtype=np.float32)
+    except Exception:
+        return None
+    if candidate.shape != tuple(spatial_shape):
+        return None
+    if not bool(np.isfinite(candidate).all()):
+        return None
+    if candidate.size == 0:
+        return None
+    if float(np.min(candidate)) < 0.0 or float(np.max(candidate)) > 1.0:
+        return None
+    candidate.setflags(write=False)
+    return jnp.asarray(candidate, dtype=jnp.float32)
+
+
+def _load_land_sea_fraction_for_grid(
+    *,
+    longitude: np.ndarray,
+    latitude: np.ndarray,
+    initial_time: np.datetime64,
+) -> jax.Array | None:
+    """Load a WeatherBench2 land fraction only when it exactly matches the grid."""
+    from dynamaxx.data.weatherbench2 import WeatherBench2Source
+
+    longitude = np.asarray(longitude, dtype=np.float64)
+    latitude = np.asarray(latitude, dtype=np.float64)
+    source = WeatherBench2Source()
+    cache_key = _land_sea_fraction_cache_key(source.path, longitude, latitude)
+    cached_mask = _LAND_SEA_FRACTION_CACHE.get(cache_key)
+    if cached_mask is not None:
+        return cached_mask
+
+    try:
+        source_longitude, source_latitude = source.spatial_coordinates(
+            time=initial_time
+        )
+        if not (
+            np.array_equal(source_longitude, longitude)
+            and np.array_equal(source_latitude, latitude)
+        ):
+            return None
+        constants = source.read_constants([_LAND_SEA_MASK_CHANNEL])
+        constants_array = np.asarray(jax.device_get(constants))
+    except Exception:
+        return None
+
+    if constants_array.shape != (1, longitude.size, latitude.size):
+        return None
+    mask = _valid_land_sea_fraction_or_none(
+        constants_array[0],
+        (longitude.size, latitude.size),
+    )
+    if mask is None:
+        return None
+    _LAND_SEA_FRACTION_CACHE[cache_key] = mask
+    return mask
+
+
+def _land_sea_fraction_cache_key(
+    path: str,
+    longitude: np.ndarray,
+    latitude: np.ndarray,
+) -> _LandSeaMaskCacheKey:
+    """Build a value-based key so cached masks cannot cross grids."""
+    longitude = np.ascontiguousarray(np.asarray(longitude, dtype=np.float64))
+    latitude = np.ascontiguousarray(np.asarray(latitude, dtype=np.float64))
+    return (
+        str(path),
+        tuple(int(size) for size in longitude.shape),
+        longitude.tobytes(),
+        tuple(int(size) for size in latitude.shape),
+        latitude.tobytes(),
     )
 
 
