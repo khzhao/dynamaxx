@@ -50,6 +50,7 @@ def test_registry_lists_default_dycore_models():
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+        "dino_hsl_theta",
     )
 
 
@@ -537,6 +538,26 @@ def test_registry_creates_ocean_bulk_shf_candidate_model():
     assert not incumbent.apply_ocean_bulk_sensible_heat_flux
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_hsl_theta_candidate_model():
+    """The short alias adds only the horizontal SL theta selector."""
+    model = create_dycore_model("dino_hsl_theta")
+    incumbent = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+    )
+
+    assert model.name == "dino_hsl_theta"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert not incumbent.use_horizontal_semilagrangian_theta_transport
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_horizontal_semilagrangian_theta_transport"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

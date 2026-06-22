@@ -133,6 +133,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
     )
     apply_theta_layer_mean_recentering: bool = False
+    use_horizontal_semilagrangian_theta_transport: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -338,6 +339,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 include_vertical_advection=self.include_vertical_advection,
                 humidity_key=humidity_key,
                 temperature_tendency_formulation=self.temperature_tendency_formulation,
+                use_horizontal_semilagrangian_theta_transport=(
+                    self.use_horizontal_semilagrangian_theta_transport
+                ),
+                horizontal_semilagrangian_theta_transport_step=step_seconds,
             )
             if self.apply_weak_held_suarez_relaxation:
                 equation = _compose_weak_held_suarez_equation(
@@ -1033,6 +1038,17 @@ def ocean_bulk_sensible_heat_flux_dinosaur_dycore_model() -> (
             "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
         ),
         apply_ocean_bulk_sensible_heat_flux=True,
+    )
+
+
+def horizontal_semilagrangian_theta_transport_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the ocean-bulk incumbent with horizontal SL theta transport."""
+    return replace(
+        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model(),
+        name="dino_hsl_theta",
+        use_horizontal_semilagrangian_theta_transport=True,
     )
 
 
@@ -2199,6 +2215,8 @@ def _primitive_equation(
     temperature_tendency_formulation: str = (
         primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
     ),
+    use_horizontal_semilagrangian_theta_transport: bool = False,
+    horizontal_semilagrangian_theta_transport_step: float = 0.0,
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
     if humidity_key is None:
@@ -2209,6 +2227,12 @@ def _primitive_equation(
             physics_specs,
             include_vertical_advection=include_vertical_advection,
             temperature_tendency_formulation=temperature_tendency_formulation,
+            use_horizontal_semilagrangian_theta_transport=(
+                use_horizontal_semilagrangian_theta_transport
+            ),
+            horizontal_semilagrangian_theta_transport_step=(
+                horizontal_semilagrangian_theta_transport_step
+            ),
         )
     return primitive_equations.PrimitiveEquationsSigma(
         reference_temperature,
@@ -2218,6 +2242,12 @@ def _primitive_equation(
         include_vertical_advection=include_vertical_advection,
         humidity_key=humidity_key,
         temperature_tendency_formulation=temperature_tendency_formulation,
+        use_horizontal_semilagrangian_theta_transport=(
+            use_horizontal_semilagrangian_theta_transport
+        ),
+        horizontal_semilagrangian_theta_transport_step=(
+            horizontal_semilagrangian_theta_transport_step
+        ),
     )
 
 

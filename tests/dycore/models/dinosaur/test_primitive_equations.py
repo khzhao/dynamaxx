@@ -72,6 +72,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
+    horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
     land_sea_surface_temperature_dinosaur_dycore_model,
@@ -540,6 +541,20 @@ def test_ocean_bulk_shf_factory_preserves_incumbent_except_selector():
     assert not incumbent.apply_ocean_bulk_sensible_heat_flux
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_hsl_theta_factory_preserves_incumbent_except_selector():
+    """The short candidate changes only name and horizontal theta transport."""
+    model = horizontal_semilagrangian_theta_transport_dinosaur_dycore_model()
+    incumbent = ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl_theta"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert not incumbent.use_horizontal_semilagrangian_theta_transport
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_horizontal_semilagrangian_theta_transport"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -3985,6 +4000,261 @@ def test_ocean_bulk_shf_zero_ocean_weight_reproduces_incumbent_tendency():
     _assert_pytree_allclose(candidate_tendency, incumbent_tendency)
 
 
+def test_hsl_theta_zero_wind_reproduces_incumbent_theta_transport():
+    """Zero horizontal wind keeps the accepted theta tendency bitwise unchanged."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    zero_wind_state = _primitive_equation_state(
+        vorticity=jnp.zeros_like(state.vorticity),
+        divergence=jnp.zeros_like(state.divergence),
+        temperature_variation=state.temperature_variation,
+        log_surface_pressure=state.log_surface_pressure,
+        tracers={},
+    )
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+    }
+    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    candidate_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_horizontal_semilagrangian_theta_transport=True,
+        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(
+        zero_wind_state,
+        coords,
+    )
+
+    incumbent_tendency = incumbent_equation.temperature_tendency_potential_temperature_form(
+        zero_wind_state,
+        aux_state,
+    )
+    candidate_tendency = candidate_equation.temperature_tendency_potential_temperature_form(
+        zero_wind_state,
+        aux_state,
+    )
+
+    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
+
+
+def test_hsl_theta_semilagrangian_transport_is_finite_and_bounded():
+    """Capped departures stay finite at polar and equatorial rows."""
+    physics_specs = units.SimUnits.from_si()
+    horizontal_grid = spherical_harmonic.Grid(
+        longitude_wavenumbers=4,
+        total_wavenumbers=6,
+        longitude_nodes=16,
+        latitude_nodes=9,
+        latitude_spacing="equiangular_with_poles",
+        radius=physics_specs.radius,
+    )
+    coords = coordinate_systems.CoordinateSystem(
+        horizontal_grid,
+        sigma_coordinates.SigmaCoordinates.equidistant(2),
+    )
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=False,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_horizontal_semilagrangian_theta_transport=True,
+        horizontal_semilagrangian_theta_transport_step=1.0e-3,
+    )
+    longitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[0],
+        dtype=jnp.float32,
+    )[:, jnp.newaxis]
+    latitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[1],
+        dtype=jnp.float32,
+    )[jnp.newaxis, :]
+    theta_anomaly = jnp.stack(
+        [
+            longitude_pattern + 0.25 * latitude_pattern,
+            0.5 * longitude_pattern - 0.1 * latitude_pattern,
+        ],
+        axis=0,
+    )
+    wind_shape = coords.nodal_shape
+    equator_index = coords.horizontal.nodal_shape[1] // 2
+    u_cos_lat = (
+        jnp.zeros(wind_shape, dtype=jnp.float32)
+        .at[:, :, 0]
+        .set(2.0e-3)
+        .at[:, :, equator_index]
+        .set(1.0e-1)
+        .at[:, :, -1]
+        .set(-2.0e-3)
+    )
+    v_cos_lat = (
+        jnp.zeros(wind_shape, dtype=jnp.float32)
+        .at[:, :, 0]
+        .set(1.0e-3)
+        .at[:, :, equator_index]
+        .set(-5.0e-2)
+        .at[:, :, -1]
+        .set(-1.0e-3)
+    )
+    zero_layer_boundaries = jnp.zeros(
+        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
+        dtype=jnp.float32,
+    )
+    aux_state = primitive_equations.DiagnosticStateSigma(
+        vorticity=jnp.zeros(wind_shape, dtype=jnp.float32),
+        divergence=jnp.zeros(wind_shape, dtype=jnp.float32),
+        temperature_variation=theta_anomaly,
+        cos_lat_u=(u_cos_lat, v_cos_lat),
+        sigma_dot_explicit=zero_layer_boundaries,
+        sigma_dot_full=zero_layer_boundaries,
+        cos_lat_grad_log_sp=(
+            jnp.zeros((1,) + coords.horizontal.nodal_shape, dtype=jnp.float32),
+            jnp.zeros((1,) + coords.horizontal.nodal_shape, dtype=jnp.float32),
+        ),
+        u_dot_grad_log_sp=jnp.zeros(wind_shape, dtype=jnp.float32),
+        tracers={},
+    )
+
+    longitude_displacement, latitude_displacement, valid_displacement = (
+        equation._horizontal_semilagrangian_theta_departure_displacement(
+            aux_state,
+            theta_anomaly.dtype,
+        )
+    )
+    tendency = equation.horizontal_semilagrangian_theta_transport(
+        theta_anomaly,
+        aux_state,
+        incumbent_horizontal_tendency=jnp.zeros_like(theta_anomaly),
+    )
+    longitude_spacing = 2.0 * np.pi / coords.horizontal.nodal_shape[0]
+    latitude_spacing = float(jnp.min(jnp.diff(jnp.asarray(coords.horizontal.latitudes))))
+    inspected_rows = jnp.asarray([0, equator_index, coords.horizontal.nodal_shape[1] - 1])
+
+    assert bool(valid_displacement)
+    assert bool(jnp.isfinite(longitude_displacement[:, :, inspected_rows]).all())
+    assert bool(jnp.isfinite(latitude_displacement[:, :, inspected_rows]).all())
+    cap_tolerance = 1.0e-6
+    assert float(jnp.max(jnp.abs(longitude_displacement))) <= (
+        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL
+        * longitude_spacing
+        + cap_tolerance
+    )
+    assert float(jnp.max(jnp.abs(latitude_displacement))) <= (
+        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL
+        * latitude_spacing
+        + cap_tolerance
+    )
+    assert bool(jnp.isfinite(tendency).all())
+    assert float(jnp.max(jnp.abs(tendency))) > 0.0
+
+
+def test_hsl_theta_nonfinite_remap_falls_back_to_incumbent_theta_transport():
+    """A nonfinite wind diagnostic selects the incumbent theta horizontal term."""
+    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=False,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_horizontal_semilagrangian_theta_transport=True,
+        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    )
+    theta_anomaly = jnp.arange(
+        np.prod(coords.nodal_shape),
+        dtype=jnp.float32,
+    ).reshape(coords.nodal_shape)
+    u_cos_lat = jnp.ones(coords.nodal_shape, dtype=jnp.float32).at[0, 0, 0].set(
+        jnp.nan
+    )
+    v_cos_lat = jnp.ones(coords.nodal_shape, dtype=jnp.float32)
+    zero_layer_boundaries = jnp.zeros(
+        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
+        dtype=jnp.float32,
+    )
+    aux_state = primitive_equations.DiagnosticStateSigma(
+        vorticity=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
+        divergence=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
+        temperature_variation=theta_anomaly,
+        cos_lat_u=(u_cos_lat, v_cos_lat),
+        sigma_dot_explicit=zero_layer_boundaries,
+        sigma_dot_full=zero_layer_boundaries,
+        cos_lat_grad_log_sp=(
+            jnp.zeros((1,) + coords.horizontal.nodal_shape, dtype=jnp.float32),
+            jnp.zeros((1,) + coords.horizontal.nodal_shape, dtype=jnp.float32),
+        ),
+        u_dot_grad_log_sp=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
+        tracers={},
+    )
+    incumbent_horizontal_tendency = jnp.full_like(theta_anomaly, 1.25)
+
+    tendency = equation.horizontal_semilagrangian_theta_transport(
+        theta_anomaly,
+        aux_state,
+        incumbent_horizontal_tendency,
+    )
+
+    np.testing.assert_array_equal(tendency, incumbent_horizontal_tendency)
+
+
+def test_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
+    """The selector only changes the thermodynamic theta transport hook."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+    }
+    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    candidate_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_horizontal_semilagrangian_theta_transport=True,
+        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    )
+
+    incumbent_tendency = incumbent_equation.explicit_terms(state)
+    candidate_tendency = candidate_equation.explicit_terms(state)
+
+    np.testing.assert_array_equal(candidate_tendency.vorticity, incumbent_tendency.vorticity)
+    np.testing.assert_array_equal(candidate_tendency.divergence, incumbent_tendency.divergence)
+    np.testing.assert_array_equal(
+        candidate_tendency.log_surface_pressure,
+        incumbent_tendency.log_surface_pressure,
+    )
+    assert candidate_tendency.tracers == incumbent_tendency.tracers == {}
+    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+
+
 def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
     """The opt-in flux changes only the lowest-layer temperature tendency."""
     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
@@ -4198,6 +4468,62 @@ def test_ocean_bulk_shf_composes_rollout_not_dfi(monkeypatch):
 
     assert forecast.variables == ("2m_temperature",)
     assert len(ocean_compose_calls) == 1
+
+
+def test_hsl_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
+    """The registered candidate runs a small non-JIT finite forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        del equation, ode_solver, filters, time_span, cutoff_period, dt
+        return lambda dinosaur_state: dinosaur_state
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        apply_spectral_filter=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert model.name == "dino_hsl_theta"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
 
 
 def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(

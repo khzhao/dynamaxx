@@ -213,6 +213,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+        "dino_hsl_theta",
     )
 
     model = create_dycore_model("dinosaur")
