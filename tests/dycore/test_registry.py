@@ -51,6 +51,7 @@ def test_registry_lists_default_dycore_models():
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
         "dino_hsl_theta",
+        "dino_hsl2_theta",
     )
 
 
@@ -558,6 +559,23 @@ def test_registry_creates_hsl_theta_candidate_model():
     assert not incumbent.use_horizontal_semilagrangian_theta_transport
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_horizontal_semilagrangian_theta_transport"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_hsl2_theta_candidate_model():
+    """The midpoint alias adds only the theta midpoint departure selector."""
+    model = create_dycore_model("dino_hsl2_theta")
+    incumbent = create_dycore_model("dino_hsl_theta")
+
+    assert model.name == "dino_hsl2_theta"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert incumbent.use_horizontal_semilagrangian_theta_transport
+    assert not incumbent.use_midpoint_semilagrangian_theta_departure
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_midpoint_semilagrangian_theta_departure"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

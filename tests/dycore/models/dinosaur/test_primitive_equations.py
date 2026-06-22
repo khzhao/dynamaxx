@@ -78,6 +78,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     land_sea_surface_temperature_dinosaur_dycore_model,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
+    midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     scale_separated_surface_residual_dinosaur_dycore_model,
@@ -173,6 +174,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.apply_exact_coriolis_rotation_split
     assert not model.apply_symmetric_exact_coriolis_rotation_split
     assert not model.apply_theta_layer_mean_recentering
+    assert not model.use_midpoint_semilagrangian_theta_departure
     assert model.semi_implicit_offcentering == 0.0
     assert (
         model.temperature_tendency_formulation
@@ -455,9 +457,7 @@ def test_semi_implicit_offcenter_factory_preserves_incumbent_except_epsilon():
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
     )
     assert (
-        model.semi_implicit_offcentering
-        == DEFAULT_SEMI_IMPLICIT_OFFCENTERING
-        == 0.05
+        model.semi_implicit_offcentering == DEFAULT_SEMI_IMPLICIT_OFFCENTERING == 0.05
     )
     assert incumbent.semi_implicit_offcentering == 0.0
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
@@ -559,6 +559,23 @@ def test_hsl_theta_factory_preserves_incumbent_except_selector():
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
 
+def test_hsl2_theta_factory_preserves_hsl_theta_except_midpoint_selector():
+    """The midpoint candidate changes only name and theta departure selector."""
+    model = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
+    incumbent = horizontal_semilagrangian_theta_transport_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_theta"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert incumbent.use_horizontal_semilagrangian_theta_transport
+    assert not incumbent.use_midpoint_semilagrangian_theta_departure
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_midpoint_semilagrangian_theta_departure"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
 def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
     equation = _linear_implicit_oscillator_equation(frequency=2.0)
@@ -593,9 +610,7 @@ def test_imex_rk_sil3_offcentering_damps_fast_implicit_mode():
         implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     )
     fast_centered_amplitude = jnp.linalg.norm(centered_fast_step(initial_state))
-    fast_offcentered_amplitude = jnp.linalg.norm(
-        offcentered_fast_step(initial_state)
-    )
+    fast_offcentered_amplitude = jnp.linalg.norm(offcentered_fast_step(initial_state))
 
     centered_slow_step = time_integration.imex_rk_sil3(
         slow_equation,
@@ -607,9 +622,7 @@ def test_imex_rk_sil3_offcentering_damps_fast_implicit_mode():
         implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     )
     slow_centered_amplitude = jnp.linalg.norm(centered_slow_step(initial_state))
-    slow_offcentered_amplitude = jnp.linalg.norm(
-        offcentered_slow_step(initial_state)
-    )
+    slow_offcentered_amplitude = jnp.linalg.norm(offcentered_slow_step(initial_state))
 
     assert fast_offcentered_amplitude < 0.95 * fast_centered_amplitude
     assert abs(float(slow_offcentered_amplitude) - 1.0) < 1e-3
@@ -1589,9 +1602,7 @@ def test_scale_separated_residual_mask_protects_low_modes_and_tapers():
     """The fixed low-mode mask protects n<=12 and tapers to zero by n=20."""
     horizontal_grid = _residual_split_test_grid()
 
-    low_mode_mask = np.asarray(
-        _scale_separated_residual_low_mode_mask(horizontal_grid)
-    )
+    low_mode_mask = np.asarray(_scale_separated_residual_low_mode_mask(horizontal_grid))
 
     _, total_wavenumber = horizontal_grid.modal_mesh
     valid_modes = np.asarray(horizontal_grid.mask)
@@ -1864,9 +1875,9 @@ def test_land_sea_surface_temperature_correction_preserves_non_t2m_channels():
 
     incumbent_decay = np.exp(-1.0)
     ocean_decay = incumbent_decay**_LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT
-    expected_decay = land_sea_fraction * incumbent_decay + (
-        1.0 - land_sea_fraction
-    ) * ocean_decay
+    expected_decay = (
+        land_sea_fraction * incumbent_decay + (1.0 - land_sea_fraction) * ocean_decay
+    )
     expected_temperature = raw_temperature.at[0].set(initial_temperature)
     expected_temperature = expected_temperature.at[1].set(
         raw_temperature[1] + (initial_temperature - raw_temperature[0]) * expected_decay
@@ -2160,9 +2171,7 @@ def test_stability_aware_residual_correction_preserves_uncorrected_channels():
 
     np.testing.assert_array_equal(
         corrected.select(("mean_sea_level_pressure", "geopotential_500")).values,
-        trajectory_state.select(
-            ("mean_sea_level_pressure", "geopotential_500")
-        ).values,
+        trajectory_state.select(("mean_sea_level_pressure", "geopotential_500")).values,
     )
     np.testing.assert_array_equal(
         corrected.select(("2m_temperature",)).values[0, 0],
@@ -3543,10 +3552,14 @@ def test_theta_layer_mean_recenter_matches_previous_theta_zero_mode_only():
         layer_count=coords.vertical.layers,
         temperature_kelvin=250.0,
     )
-    next_temperature_variation = spherical_harmonic.add_constant(
-        prev_state.temperature_variation,
-        jnp.asarray([2.0, -1.5], dtype=jnp.float32),
-    ).at[:, 1, 1].set(jnp.asarray([0.05, -0.03], dtype=jnp.float32))
+    next_temperature_variation = (
+        spherical_harmonic.add_constant(
+            prev_state.temperature_variation,
+            jnp.asarray([2.0, -1.5], dtype=jnp.float32),
+        )
+        .at[:, 1, 1]
+        .set(jnp.asarray([0.05, -0.03], dtype=jnp.float32))
+    )
     next_state = _primitive_equation_state(
         vorticity=prev_state.vorticity + jnp.float32(0.01),
         divergence=prev_state.divergence - jnp.float32(0.02),
@@ -3566,11 +3579,16 @@ def test_theta_layer_mean_recenter_matches_previous_theta_zero_mode_only():
 
     corrected = step_filter(prev_state, next_state)
 
-    assert float(
-        jnp.max(
-            jnp.abs(corrected.temperature_variation - next_state.temperature_variation)
+    assert (
+        float(
+            jnp.max(
+                jnp.abs(
+                    corrected.temperature_variation - next_state.temperature_variation
+                )
+            )
         )
-    ) > 0.0
+        > 0.0
+    )
     modal_delta = corrected.temperature_variation - next_state.temperature_variation
     np.testing.assert_allclose(
         modal_delta.at[:, 0, 0].set(0.0),
@@ -3815,9 +3833,7 @@ def test_analysis_offset_hs_eq_mask_uses_fixed_wavenumber_cutoffs():
     """The analysis-offset mask keeps the area mean and fixed low-order modes."""
     horizontal_grid = _residual_split_test_grid()
 
-    low_mode_mask = np.asarray(
-        _analysis_offset_weak_hs_low_mode_mask(horizontal_grid)
-    )
+    low_mode_mask = np.asarray(_analysis_offset_weak_hs_low_mode_mask(horizontal_grid))
 
     longitude_wavenumber, total_wavenumber = horizontal_grid.modal_mesh
     expected_mask = (
@@ -3835,9 +3851,8 @@ def test_analysis_offset_hs_eq_mask_uses_fixed_wavenumber_cutoffs():
 def test_analysis_offset_hs_eq_offset_clips_and_falls_back_to_zero():
     """Offset construction clips finite amplitudes and zeros nonfinite offsets."""
     coords, physics_specs, reference_temperature = _analysis_offset_test_setup()
-    offset_cap = (
-        _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN
-        * _unit_factor(physics_specs, "kelvin")
+    offset_cap = _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN * _unit_factor(
+        physics_specs, "kelvin"
     )
     raw_offset = jnp.full(coords.nodal_shape, 3.0 * offset_cap, dtype=jnp.float32)
     dinosaur_state = _dinosaur_state_with_hs_equilibrium_offset(
@@ -3880,9 +3895,7 @@ def test_analysis_offset_hs_eq_offset_applies_low_order_mask():
     valid_modes = np.asarray(coords.horizontal.mask)
     low_mode_index = tuple(
         np.argwhere(
-            valid_modes
-            & (np.abs(longitude_wavenumber) == 2)
-            & (total_wavenumber == 4)
+            valid_modes & (np.abs(longitude_wavenumber) == 2) & (total_wavenumber == 4)
         )[0]
     )
     high_mode_index = tuple(
@@ -4034,16 +4047,78 @@ def test_hsl_theta_zero_wind_reproduces_incumbent_theta_transport():
         coords,
     )
 
-    incumbent_tendency = incumbent_equation.temperature_tendency_potential_temperature_form(
-        zero_wind_state,
-        aux_state,
+    incumbent_tendency = (
+        incumbent_equation.temperature_tendency_potential_temperature_form(
+            zero_wind_state,
+            aux_state,
+        )
     )
-    candidate_tendency = candidate_equation.temperature_tendency_potential_temperature_form(
-        zero_wind_state,
-        aux_state,
+    candidate_tendency = (
+        candidate_equation.temperature_tendency_potential_temperature_form(
+            zero_wind_state,
+            aux_state,
+        )
     )
 
     np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
+
+
+def test_hsl2_theta_zero_and_uniform_wind_match_first_order_transport():
+    """Midpoint departure is identical to first order for zero or uniform winds."""
+    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    first_order_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    midpoint_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_midpoint_semilagrangian_theta_departure=True,
+    )
+    theta_anomaly = jnp.arange(
+        np.prod(coords.nodal_shape),
+        dtype=jnp.float32,
+    ).reshape(coords.nodal_shape)
+    incumbent_horizontal_tendency = jnp.full_like(theta_anomaly, 0.75)
+    zero_aux_state = _hsl_theta_aux_state(
+        coords,
+        u_cos_lat=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
+        v_cos_lat=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
+        temperature_variation=theta_anomaly,
+    )
+    uniform_aux_state = _hsl_theta_aux_state(
+        coords,
+        u_cos_lat=jnp.full(coords.nodal_shape, 1.0e-3, dtype=jnp.float32),
+        v_cos_lat=jnp.full(coords.nodal_shape, -5.0e-4, dtype=jnp.float32),
+        temperature_variation=theta_anomaly,
+    )
+
+    for aux_state in (zero_aux_state, uniform_aux_state):
+        expected_tendency = (
+            first_order_equation.horizontal_semilagrangian_theta_transport(
+                theta_anomaly,
+                aux_state,
+                incumbent_horizontal_tendency,
+            )
+        )
+        actual_tendency = midpoint_equation.horizontal_semilagrangian_theta_transport(
+            theta_anomaly,
+            aux_state,
+            incumbent_horizontal_tendency,
+        )
+
+        np.testing.assert_allclose(actual_tendency, expected_tendency, atol=1.0e-7)
 
 
 def test_hsl_theta_semilagrangian_transport_is_finite_and_bounded():
@@ -4143,21 +4218,139 @@ def test_hsl_theta_semilagrangian_transport_is_finite_and_bounded():
         incumbent_horizontal_tendency=jnp.zeros_like(theta_anomaly),
     )
     longitude_spacing = 2.0 * np.pi / coords.horizontal.nodal_shape[0]
-    latitude_spacing = float(jnp.min(jnp.diff(jnp.asarray(coords.horizontal.latitudes))))
-    inspected_rows = jnp.asarray([0, equator_index, coords.horizontal.nodal_shape[1] - 1])
+    latitude_spacing = float(
+        jnp.min(jnp.diff(jnp.asarray(coords.horizontal.latitudes)))
+    )
+    inspected_rows = jnp.asarray(
+        [0, equator_index, coords.horizontal.nodal_shape[1] - 1]
+    )
 
     assert bool(valid_displacement)
     assert bool(jnp.isfinite(longitude_displacement[:, :, inspected_rows]).all())
     assert bool(jnp.isfinite(latitude_displacement[:, :, inspected_rows]).all())
     cap_tolerance = 1.0e-6
     assert float(jnp.max(jnp.abs(longitude_displacement))) <= (
-        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL
-        * longitude_spacing
+        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL * longitude_spacing
         + cap_tolerance
     )
     assert float(jnp.max(jnp.abs(latitude_displacement))) <= (
-        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL
-        * latitude_spacing
+        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL * latitude_spacing
+        + cap_tolerance
+    )
+    assert bool(jnp.isfinite(tendency).all())
+    assert float(jnp.max(jnp.abs(tendency))) > 0.0
+
+
+def test_hsl2_theta_midpoint_displacement_is_finite_and_bounded():
+    """Midpoint departures keep the same finite CFL cap near all latitude rows."""
+    physics_specs = units.SimUnits.from_si()
+    horizontal_grid = spherical_harmonic.Grid(
+        longitude_wavenumbers=4,
+        total_wavenumbers=6,
+        longitude_nodes=16,
+        latitude_nodes=9,
+        latitude_spacing="equiangular_with_poles",
+        radius=physics_specs.radius,
+    )
+    coords = coordinate_systems.CoordinateSystem(
+        horizontal_grid,
+        sigma_coordinates.SigmaCoordinates.equidistant(2),
+    )
+    reference_temperature = _reference_temperature(
+        layer_count=2,
+        temperature_kelvin=250.0,
+    )
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=False,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_horizontal_semilagrangian_theta_transport=True,
+        use_midpoint_semilagrangian_theta_departure=True,
+        horizontal_semilagrangian_theta_transport_step=1.0e-3,
+    )
+    longitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[0],
+        dtype=jnp.float32,
+    )[:, jnp.newaxis]
+    latitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[1],
+        dtype=jnp.float32,
+    )[jnp.newaxis, :]
+    theta_anomaly = jnp.stack(
+        [
+            longitude_pattern + 0.25 * latitude_pattern,
+            0.5 * longitude_pattern - 0.1 * latitude_pattern,
+        ],
+        axis=0,
+    )
+    equator_index = coords.horizontal.nodal_shape[1] // 2
+    u_cos_lat = (
+        jnp.broadcast_to(
+            2.0e-2 + 1.0e-3 * longitude_pattern,
+            coords.horizontal.nodal_shape,
+        )[jnp.newaxis]
+        .repeat(coords.vertical.layers, axis=0)
+        .at[:, :, 0]
+        .set(2.0e-3)
+        .at[:, :, equator_index]
+        .set(1.0e-1)
+        .at[:, :, -1]
+        .set(-2.0e-3)
+    )
+    v_cos_lat = (
+        jnp.broadcast_to(
+            -1.0e-2 + 5.0e-4 * latitude_pattern,
+            coords.horizontal.nodal_shape,
+        )[jnp.newaxis]
+        .repeat(coords.vertical.layers, axis=0)
+        .at[:, :, 0]
+        .set(1.0e-3)
+        .at[:, :, equator_index]
+        .set(-5.0e-2)
+        .at[:, :, -1]
+        .set(-1.0e-3)
+    )
+    aux_state = _hsl_theta_aux_state(
+        coords,
+        u_cos_lat=u_cos_lat,
+        v_cos_lat=v_cos_lat,
+        temperature_variation=theta_anomaly,
+    )
+
+    longitude_displacement, latitude_displacement, valid_displacement = (
+        equation._horizontal_semilagrangian_theta_midpoint_departure_displacement(
+            aux_state,
+            theta_anomaly.dtype,
+        )
+    )
+    tendency = equation.horizontal_semilagrangian_theta_transport(
+        theta_anomaly,
+        aux_state,
+        incumbent_horizontal_tendency=jnp.zeros_like(theta_anomaly),
+    )
+    longitude_spacing = 2.0 * np.pi / coords.horizontal.nodal_shape[0]
+    latitude_spacing = float(
+        jnp.min(jnp.diff(jnp.asarray(coords.horizontal.latitudes)))
+    )
+    inspected_rows = jnp.asarray(
+        [0, equator_index, coords.horizontal.nodal_shape[1] - 1]
+    )
+
+    assert bool(valid_displacement)
+    assert bool(jnp.isfinite(longitude_displacement[:, :, inspected_rows]).all())
+    assert bool(jnp.isfinite(latitude_displacement[:, :, inspected_rows]).all())
+    cap_tolerance = 1.0e-6
+    assert float(jnp.max(jnp.abs(longitude_displacement))) <= (
+        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL * longitude_spacing
+        + cap_tolerance
+    )
+    assert float(jnp.max(jnp.abs(latitude_displacement))) <= (
+        primitive_equations.HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL * latitude_spacing
         + cap_tolerance
     )
     assert bool(jnp.isfinite(tendency).all())
@@ -4186,9 +4379,7 @@ def test_hsl_theta_nonfinite_remap_falls_back_to_incumbent_theta_transport():
         np.prod(coords.nodal_shape),
         dtype=jnp.float32,
     ).reshape(coords.nodal_shape)
-    u_cos_lat = jnp.ones(coords.nodal_shape, dtype=jnp.float32).at[0, 0, 0].set(
-        jnp.nan
-    )
+    u_cos_lat = jnp.ones(coords.nodal_shape, dtype=jnp.float32).at[0, 0, 0].set(jnp.nan)
     v_cos_lat = jnp.ones(coords.nodal_shape, dtype=jnp.float32)
     zero_layer_boundaries = jnp.zeros(
         (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
@@ -4219,6 +4410,72 @@ def test_hsl_theta_nonfinite_remap_falls_back_to_incumbent_theta_transport():
     np.testing.assert_array_equal(tendency, incumbent_horizontal_tendency)
 
 
+def test_hsl2_theta_nonfinite_midpoint_wind_falls_back_to_first_order(monkeypatch):
+    """Nonfinite midpoint wind diagnostics select accepted first-order HSL theta."""
+    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    first_order_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    midpoint_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_midpoint_semilagrangian_theta_departure=True,
+    )
+    theta_anomaly = jnp.arange(
+        np.prod(coords.nodal_shape),
+        dtype=jnp.float32,
+    ).reshape(coords.nodal_shape)
+    aux_state = _hsl_theta_aux_state(
+        coords,
+        u_cos_lat=jnp.full(coords.nodal_shape, 1.0e-3, dtype=jnp.float32),
+        v_cos_lat=jnp.full(coords.nodal_shape, 5.0e-4, dtype=jnp.float32),
+        temperature_variation=theta_anomaly,
+    )
+    incumbent_horizontal_tendency = jnp.full_like(theta_anomaly, -0.25)
+
+    def nonfinite_midpoint_wind_components(
+        aux_state,
+        longitude_displacement,
+        latitude_displacement,
+    ):
+        del longitude_displacement, latitude_displacement
+        return (
+            jnp.full_like(aux_state.cos_lat_u[0], jnp.nan),
+            jnp.full_like(aux_state.cos_lat_u[1], jnp.nan),
+        )
+
+    monkeypatch.setattr(
+        midpoint_equation,
+        "_horizontal_semilagrangian_remap_wind_components",
+        nonfinite_midpoint_wind_components,
+    )
+
+    expected_tendency = first_order_equation.horizontal_semilagrangian_theta_transport(
+        theta_anomaly,
+        aux_state,
+        incumbent_horizontal_tendency,
+    )
+    actual_tendency = midpoint_equation.horizontal_semilagrangian_theta_transport(
+        theta_anomaly,
+        aux_state,
+        incumbent_horizontal_tendency,
+    )
+
+    np.testing.assert_array_equal(actual_tendency, expected_tendency)
+
+
 def test_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
     """The selector only changes the thermodynamic theta transport hook."""
     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
@@ -4245,8 +4502,53 @@ def test_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
     incumbent_tendency = incumbent_equation.explicit_terms(state)
     candidate_tendency = candidate_equation.explicit_terms(state)
 
-    np.testing.assert_array_equal(candidate_tendency.vorticity, incumbent_tendency.vorticity)
-    np.testing.assert_array_equal(candidate_tendency.divergence, incumbent_tendency.divergence)
+    np.testing.assert_array_equal(
+        candidate_tendency.vorticity, incumbent_tendency.vorticity
+    )
+    np.testing.assert_array_equal(
+        candidate_tendency.divergence, incumbent_tendency.divergence
+    )
+    np.testing.assert_array_equal(
+        candidate_tendency.log_surface_pressure,
+        incumbent_tendency.log_surface_pressure,
+    )
+    assert candidate_tendency.tracers == incumbent_tendency.tracers == {}
+    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+
+
+def test_hsl2_theta_leaves_non_theta_explicit_tendencies_unchanged():
+    """Midpoint departure changes only the horizontal theta transport hook."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    candidate_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_midpoint_semilagrangian_theta_departure=True,
+    )
+
+    incumbent_tendency = incumbent_equation.explicit_terms(state)
+    candidate_tendency = candidate_equation.explicit_terms(state)
+
+    np.testing.assert_array_equal(
+        candidate_tendency.vorticity, incumbent_tendency.vorticity
+    )
+    np.testing.assert_array_equal(
+        candidate_tendency.divergence, incumbent_tendency.divergence
+    )
     np.testing.assert_array_equal(
         candidate_tendency.log_surface_pressure,
         incumbent_tendency.log_surface_pressure,
@@ -4521,6 +4823,63 @@ def test_hsl_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
 
     assert model.name == "dino_hsl_theta"
     assert model.use_horizontal_semilagrangian_theta_transport
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
+def test_hsl2_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
+    """The midpoint departure candidate runs a small non-JIT finite forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        del equation, ode_solver, filters, time_span, cutoff_period, dt
+        return lambda dinosaur_state: dinosaur_state
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        apply_spectral_filter=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert model.name == "dino_hsl2_theta"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
     assert forecast.variables == output_variables
     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
     assert bool(jnp.isfinite(forecast.values).all())
@@ -5204,9 +5563,9 @@ def test_trajectory_function_applies_theta_recenter_to_rollout_only(monkeypatch)
     assert rollout_filter_names[-1] == "theta_layer_mean_recenter_filter"
     assert len(rollout_filter_names) == 2
     assert len(dfi_calls) == 1
-    assert [
-        filter_fn.__name__ for filter_fn in dfi_calls[0]
-    ] == rollout_filter_names[:-1]
+    assert [filter_fn.__name__ for filter_fn in dfi_calls[0]] == rollout_filter_names[
+        :-1
+    ]
 
 
 def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
@@ -5559,12 +5918,44 @@ def _ocean_bulk_shf_test_setup() -> tuple[
         temperature_variation=coords.horizontal.to_modal(
             full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
         ),
-        log_surface_pressure=coords.horizontal.to_modal(
-            jnp.log(surface_pressure)
-        )[jnp.newaxis],
+        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
+            jnp.newaxis
+        ],
         tracers={},
     )
     return coords, physics_specs, reference_temperature, state
+
+
+def _hsl_theta_aux_state(
+    coords: coordinate_systems.CoordinateSystem,
+    *,
+    u_cos_lat: jax.Array,
+    v_cos_lat: jax.Array,
+    temperature_variation: jax.Array,
+) -> primitive_equations.DiagnosticStateSigma:
+    """Build a minimal diagnostic state for horizontal theta transport tests."""
+    zero_layer_boundaries = jnp.zeros(
+        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
+        dtype=temperature_variation.dtype,
+    )
+    zero_surface_vector = jnp.zeros(
+        (1,) + coords.horizontal.nodal_shape,
+        dtype=temperature_variation.dtype,
+    )
+    return primitive_equations.DiagnosticStateSigma(
+        vorticity=jnp.zeros(coords.nodal_shape, dtype=temperature_variation.dtype),
+        divergence=jnp.zeros(coords.nodal_shape, dtype=temperature_variation.dtype),
+        temperature_variation=temperature_variation,
+        cos_lat_u=(u_cos_lat, v_cos_lat),
+        sigma_dot_explicit=zero_layer_boundaries,
+        sigma_dot_full=zero_layer_boundaries,
+        cos_lat_grad_log_sp=(zero_surface_vector, zero_surface_vector),
+        u_dot_grad_log_sp=jnp.zeros(
+            coords.nodal_shape,
+            dtype=temperature_variation.dtype,
+        ),
+        tracers={},
+    )
 
 
 def _dinosaur_state_with_hs_equilibrium_offset(
@@ -5592,9 +5983,9 @@ def _dinosaur_state_with_hs_equilibrium_offset(
         temperature_variation=coords.horizontal.to_modal(
             temperature - reference_temperature[:, np.newaxis, np.newaxis]
         ),
-        log_surface_pressure=coords.horizontal.to_modal(
-            jnp.log(surface_pressure)
-        )[jnp.newaxis],
+        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
+            jnp.newaxis
+        ],
         tracers={},
     )
 
@@ -5614,19 +6005,16 @@ def _theta_layer_mean(
     reference_temperature: np.ndarray,
     state: Any,
 ) -> jax.Array:
-    pressure = (
-        jnp.asarray(coords.vertical.centers)[:, jnp.newaxis, jnp.newaxis]
-        * jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
-    )
+    pressure = jnp.asarray(coords.vertical.centers)[
+        :, jnp.newaxis, jnp.newaxis
+    ] * jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
     temperature = (
         coords.horizontal.to_nodal(state.temperature_variation)
         + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
     )
     unit_registry = cast(Any, scales.units)
     reference_pressure = float(
-        physics_specs.nondimensionalize(
-            unit_registry.Quantity(100000.0, "pascal")
-        )
+        physics_specs.nondimensionalize(unit_registry.Quantity(100000.0, "pascal"))
     )
     theta = primitive_equations.potential_temperature_from_temperature(
         temperature,

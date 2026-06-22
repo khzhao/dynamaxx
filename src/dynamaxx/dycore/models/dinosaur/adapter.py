@@ -134,6 +134,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     )
     apply_theta_layer_mean_recentering: bool = False
     use_horizontal_semilagrangian_theta_transport: bool = False
+    use_midpoint_semilagrangian_theta_departure: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -341,6 +342,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 temperature_tendency_formulation=self.temperature_tendency_formulation,
                 use_horizontal_semilagrangian_theta_transport=(
                     self.use_horizontal_semilagrangian_theta_transport
+                ),
+                use_midpoint_semilagrangian_theta_departure=(
+                    self.use_midpoint_semilagrangian_theta_departure
                 ),
                 horizontal_semilagrangian_theta_transport_step=step_seconds,
             )
@@ -667,9 +671,7 @@ def _theta_layer_mean_recenter_step_filter(
     ]
     unit_registry = cast(Any, scales.units)
     reference_pressure = float(
-        physics_specs.nondimensionalize(
-            unit_registry.Quantity(100000.0, "pascal")
-        )
+        physics_specs.nondimensionalize(unit_registry.Quantity(100000.0, "pascal"))
     )
     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
     weight_sum = jnp.sum(quadrature_weights)
@@ -678,11 +680,16 @@ def _theta_layer_mean_recenter_step_filter(
         return jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1)) / weight_sum
 
     def nodal_pressure(state: Any) -> jax.Array:
-        surface_pressure = jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
+        surface_pressure = jnp.exp(
+            coords.horizontal.to_nodal(state.log_surface_pressure)
+        )
         return sigma_centers * surface_pressure
 
     def full_temperature(state: Any) -> jax.Array:
-        return coords.horizontal.to_nodal(state.temperature_variation) + reference_temperature
+        return (
+            coords.horizontal.to_nodal(state.temperature_variation)
+            + reference_temperature
+        )
 
     def theta_layer_mean_recenter_filter(prev_state: Any, next_state: Any) -> Any:
         prev_pressure = nodal_pressure(prev_state)
@@ -924,7 +931,9 @@ def theta_tendency_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMo
     )
 
 
-def theta_mean_recenter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+def theta_mean_recenter_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
     """Return the theta incumbent with rollout-only theta mean recentering."""
     return DinosaurPrimitiveEquationsDycoreModel(
         name=(
@@ -1049,6 +1058,17 @@ def horizontal_semilagrangian_theta_transport_dinosaur_dycore_model() -> (
         ocean_bulk_sensible_heat_flux_dinosaur_dycore_model(),
         name="dino_hsl_theta",
         use_horizontal_semilagrangian_theta_transport=True,
+    )
+
+
+def midpoint_semilagrangian_theta_departure_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return HSL theta with midpoint departure estimates for theta only."""
+    return replace(
+        horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(),
+        name="dino_hsl2_theta",
+        use_midpoint_semilagrangian_theta_departure=True,
     )
 
 
@@ -1335,24 +1355,26 @@ def _surface_layer_richardson_10m_wind(
     upper_pressure_hpa = jnp.maximum(surface_pressure_hpa * upper_sigma, 1.0)
     lower_temperature = temperature[:, -1]
     upper_temperature = temperature[:, -2]
-    lower_theta = lower_temperature * (
-        1000.0 / lower_pressure_hpa
-    ) ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
-    upper_theta = upper_temperature * (
-        1000.0 / upper_pressure_hpa
-    ) ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    lower_theta = (
+        lower_temperature
+        * (1000.0 / lower_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    upper_theta = (
+        upper_temperature
+        * (1000.0 / upper_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
     mean_temperature = jnp.maximum(0.5 * (lower_temperature + upper_temperature), 1.0)
     mean_theta = jnp.maximum(0.5 * (lower_theta + upper_theta), 1.0)
 
     pressure_ratio = jnp.maximum(lower_pressure_hpa / upper_pressure_hpa, 1.0)
     layer_separation_meters = (
-        (_DRY_AIR_GAS_CONSTANT_SI * mean_temperature / _GRAVITY_ACCELERATION_SI)
-        * jnp.log(pressure_ratio)
-    )
+        _DRY_AIR_GAS_CONSTANT_SI * mean_temperature / _GRAVITY_ACCELERATION_SI
+    ) * jnp.log(pressure_ratio)
     lowest_layer_height_meters = (
-        (_DRY_AIR_GAS_CONSTANT_SI * lower_temperature / _GRAVITY_ACCELERATION_SI)
-        * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
-    )
+        _DRY_AIR_GAS_CONSTANT_SI * lower_temperature / _GRAVITY_ACCELERATION_SI
+    ) * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
     layer_separation_meters = jnp.maximum(layer_separation_meters, 1.0)
     lowest_layer_height_meters = jnp.maximum(lowest_layer_height_meters, 10.0)
 
@@ -1375,10 +1397,9 @@ def _surface_layer_richardson_10m_wind(
         lowest_layer_height_meters
     )
     stable_damping = 1.0 / (1.0 + 2.0 * jnp.maximum(richardson_number, 0.0))
-    unstable_mixing = (
-        1.0
-        - neutral_factor
-    ) * jnp.minimum(jnp.maximum(-richardson_number, 0.0), 1.0)
+    unstable_mixing = (1.0 - neutral_factor) * jnp.minimum(
+        jnp.maximum(-richardson_number, 0.0), 1.0
+    )
     wind_factor = neutral_factor * stable_damping + unstable_mixing
     wind_factor = jnp.clip(
         wind_factor,
@@ -1819,9 +1840,7 @@ def _scale_separated_residual_low_mode_mask(
 ) -> jax.Array:
     """Return the fixed spectral taper for low-mode residual memory."""
     _, total_wavenumber = horizontal_grid.modal_mesh
-    transition = (
-        total_wavenumber - _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF
-    ) / (
+    transition = (total_wavenumber - _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF) / (
         _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE
         - _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF
     )
@@ -1980,8 +1999,7 @@ def _near_surface_residual_stability_proxy(
         / _STABILITY_AWARE_TEMPERATURE_RESIDUAL_SCALE_KELVIN
     ) * weak_flow_factor
     wind_mixing_score = (
-        jnp.abs(wind_residual)
-        / _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND
+        jnp.abs(wind_residual) / _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND
     )
     stability_score = jnp.clip(decoupling_score - wind_mixing_score, -1.0, 1.0)
     return jnp.broadcast_to(
@@ -2014,9 +2032,11 @@ def _potential_temperature(
     temperature_kelvin: jax.Array,
     pressure_hpa: int,
 ) -> jax.Array:
-    return temperature_kelvin * (
-        1000.0 / float(pressure_hpa)
-    ) ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    return (
+        temperature_kelvin
+        * (1000.0 / float(pressure_hpa))
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
 
 
 def _selected_channel(
@@ -2216,6 +2236,7 @@ def _primitive_equation(
         primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
     ),
     use_horizontal_semilagrangian_theta_transport: bool = False,
+    use_midpoint_semilagrangian_theta_departure: bool = False,
     horizontal_semilagrangian_theta_transport_step: float = 0.0,
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
@@ -2229,6 +2250,9 @@ def _primitive_equation(
             temperature_tendency_formulation=temperature_tendency_formulation,
             use_horizontal_semilagrangian_theta_transport=(
                 use_horizontal_semilagrangian_theta_transport
+            ),
+            use_midpoint_semilagrangian_theta_departure=(
+                use_midpoint_semilagrangian_theta_departure
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -2244,6 +2268,9 @@ def _primitive_equation(
         temperature_tendency_formulation=temperature_tendency_formulation,
         use_horizontal_semilagrangian_theta_transport=(
             use_horizontal_semilagrangian_theta_transport
+        ),
+        use_midpoint_semilagrangian_theta_departure=(
+            use_midpoint_semilagrangian_theta_departure
         ),
         horizontal_semilagrangian_theta_transport_step=(
             horizontal_semilagrangian_theta_transport_step
@@ -2288,9 +2315,7 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
             state.log_surface_pressure
         )
         nodal_surface_pressure = jnp.exp(nodal_log_surface_pressure)
-        equilibrium_temperature = self._equilibrium_temperature(
-            nodal_surface_pressure
-        )
+        equilibrium_temperature = self._equilibrium_temperature(nodal_surface_pressure)
         nodal_temperature_tendency = -self.kt() * (
             nodal_temperature - equilibrium_temperature
         )
