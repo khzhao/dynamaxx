@@ -161,6 +161,15 @@ def dinosaur_land_sea_surface_temperature_model() -> DycoreModel:
     return land_sea_surface_temperature_dinosaur_dycore_model()
 
 
+def dinosaur_ocean_bulk_sensible_heat_flux_model() -> DycoreModel:
+    """Return the land-sea incumbent with weak ocean bulk SHF forcing."""
+    from dynamaxx.dycore.models.dinosaur import (
+        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+    )
+
+    return ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -228,6 +237,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface"
     ): dinosaur_land_sea_surface_temperature_model,
+    (
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+    ): dinosaur_ocean_bulk_sensible_heat_flux_model,
 }
 
 

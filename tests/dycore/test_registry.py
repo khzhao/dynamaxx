@@ -46,6 +46,10 @@ def test_registry_lists_default_dycore_models():
         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
         "scale_surface_residual_analysis_hs_eq_landsea_surface",
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
     )
 
 
@@ -504,6 +508,35 @@ def test_registry_creates_land_sea_surface_temperature_candidate_model():
     assert not incumbent.use_land_sea_surface_temperature_residual
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_land_sea_surface_temperature_residual"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_ocean_bulk_shf_candidate_model():
+    """The ocean bulk SHF candidate is registered side by side."""
+    model = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+    )
+    incumbent = create_dycore_model(
+        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface"
+    )
+
+    assert (
+        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
+        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+    )
+    assert model.apply_ocean_bulk_sensible_heat_flux
+    assert not incumbent.apply_ocean_bulk_sensible_heat_flux
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
