@@ -52,6 +52,7 @@ def test_registry_lists_default_dycore_models():
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
         "dino_hsl_theta",
         "dino_hsl2_theta",
+        "dino_hsl2_theta_dse_hsl",
     )
 
 
@@ -576,6 +577,25 @@ def test_registry_creates_hsl2_theta_candidate_model():
     assert not incumbent.use_midpoint_semilagrangian_theta_departure
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_midpoint_semilagrangian_theta_departure"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_dse_hsl_candidate_model():
+    """The DSE-HSL alias adds only the DSE transport selector."""
+    model = create_dycore_model("dino_hsl2_theta_dse_hsl")
+    incumbent = create_dycore_model("dino_hsl2_theta")
+
+    assert model.name == "dino_hsl2_theta_dse_hsl"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert incumbent.use_horizontal_semilagrangian_theta_transport
+    assert incumbent.use_midpoint_semilagrangian_theta_departure
+    assert not incumbent.use_dry_static_energy_hsl_transport
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_dry_static_energy_hsl_transport"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

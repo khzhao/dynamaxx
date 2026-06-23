@@ -72,6 +72,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     digital_filter_dinosaur_dycore_model,
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
+    dry_static_energy_hsl_transport_dinosaur_dycore_model,
     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
@@ -572,6 +573,23 @@ def test_hsl2_theta_factory_preserves_hsl_theta_except_midpoint_selector():
     assert not incumbent.use_midpoint_semilagrangian_theta_departure
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_midpoint_semilagrangian_theta_departure"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dse_hsl_factory_preserves_hsl2_theta_except_selector():
+    """The DSE-HSL candidate changes only name and the DSE transport selector."""
+    model = dry_static_energy_hsl_transport_dinosaur_dycore_model()
+    incumbent = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_theta_dse_hsl"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert not incumbent.use_dry_static_energy_hsl_transport
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_dry_static_energy_hsl_transport"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -4557,6 +4575,210 @@ def test_hsl2_theta_leaves_non_theta_explicit_tendencies_unchanged():
     assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
 
 
+def test_dse_hsl_default_hsl2_theta_behavior_is_unchanged():
+    """The HSL2 theta incumbent keeps DSE-HSL disabled by default."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "use_midpoint_semilagrangian_theta_departure": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    default_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    explicit_false_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_dry_static_energy_hsl_transport=False,
+    )
+
+    assert not midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().use_dry_static_energy_hsl_transport
+    default_tendency = default_equation.explicit_terms(state)
+    explicit_false_tendency = explicit_false_equation.explicit_terms(state)
+
+    _assert_pytree_allclose(default_tendency, explicit_false_tendency)
+
+
+def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatch):
+    """DSE-HSL changes only the scalar passed through the accepted HSL2 helper."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    longitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[0],
+        dtype=jnp.float32,
+    )[:, jnp.newaxis]
+    latitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[1],
+        dtype=jnp.float32,
+    )[jnp.newaxis, :]
+    full_temperature = jnp.stack(
+        [
+            260.0 + 0.4 * longitude_pattern + 0.1 * latitude_pattern,
+            280.0 - 0.2 * longitude_pattern + 0.3 * latitude_pattern,
+        ],
+        axis=0,
+    )
+    nonuniform_state = _primitive_equation_state(
+        vorticity=state.vorticity,
+        divergence=state.divergence,
+        temperature_variation=coords.horizontal.to_modal(
+            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=state.log_surface_pressure,
+        tracers={},
+    )
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=False,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_horizontal_semilagrangian_theta_transport=True,
+        use_midpoint_semilagrangian_theta_departure=True,
+        use_dry_static_energy_hsl_transport=True,
+        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(
+        nonuniform_state,
+        coords,
+    )
+    expected_dse_anomaly, _ = equation.nodal_dry_static_energy_anomaly(aux_state)
+    theta_anomaly, _ = equation.nodal_potential_temperature_anomaly(
+        nonuniform_state,
+        aux_state,
+    )
+    captured: dict[str, jax.Array] = {}
+
+    def capture_transport(scalar, aux_state, incumbent_horizontal_tendency):
+        del aux_state
+        captured["scalar"] = scalar
+        return incumbent_horizontal_tendency
+
+    monkeypatch.setattr(
+        equation,
+        "horizontal_semilagrangian_theta_transport",
+        capture_transport,
+    )
+
+    tendency = equation.temperature_tendency_potential_temperature_form(
+        nonuniform_state,
+        aux_state,
+    )
+
+    assert bool(jnp.isfinite(tendency).all())
+    np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+    assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    layer_mean = (
+        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+        / jnp.sum(quadrature_weights)
+    )
+    np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+
+
+def test_dse_hsl_invalid_geopotential_falls_back_to_theta_hsl(monkeypatch):
+    """Invalid DSE diagnostics reproduce the accepted theta-HSL tendency."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "use_midpoint_semilagrangian_theta_departure": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    theta_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    dse_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_dry_static_energy_hsl_transport=True,
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
+    expected_tendency = theta_equation.temperature_tendency_potential_temperature_form(
+        state,
+        aux_state,
+    )
+
+    def nonfinite_geopotential(temperature, *args, **kwargs):
+        del args, kwargs
+        return jnp.full_like(temperature, jnp.nan)
+
+    monkeypatch.setattr(
+        primitive_equations,
+        "get_geopotential_on_sigma",
+        nonfinite_geopotential,
+    )
+
+    actual_tendency = dse_equation.temperature_tendency_potential_temperature_form(
+        state,
+        aux_state,
+    )
+
+    np.testing.assert_array_equal(actual_tendency, expected_tendency)
+
+
+def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+    """DSE-HSL changes only the horizontal thermal transport hook."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "use_midpoint_semilagrangian_theta_departure": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    candidate_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_dry_static_energy_hsl_transport=True,
+    )
+
+    incumbent_tendency = incumbent_equation.explicit_terms(state)
+    candidate_tendency = candidate_equation.explicit_terms(state)
+
+    np.testing.assert_array_equal(
+        candidate_tendency.vorticity, incumbent_tendency.vorticity
+    )
+    np.testing.assert_array_equal(
+        candidate_tendency.divergence, incumbent_tendency.divergence
+    )
+    np.testing.assert_array_equal(
+        candidate_tendency.log_surface_pressure,
+        incumbent_tendency.log_surface_pressure,
+    )
+    assert candidate_tendency.tracers == incumbent_tendency.tracers == {}
+    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+
+
 def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
     """The opt-in flux changes only the lowest-layer temperature tendency."""
     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
@@ -4880,6 +5102,64 @@ def test_hsl2_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
     assert model.name == "dino_hsl2_theta"
     assert model.use_horizontal_semilagrangian_theta_transport
     assert model.use_midpoint_semilagrangian_theta_departure
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
+def test_dse_hsl_non_jit_forecast_smoke_is_finite(monkeypatch):
+    """The DSE-HSL candidate runs a small non-JIT finite forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        del equation, ode_solver, filters, time_span, cutoff_period, dt
+        return lambda dinosaur_state: dinosaur_state
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        dry_static_energy_hsl_transport_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        apply_spectral_filter=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert model.name == "dino_hsl2_theta_dse_hsl"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
     assert forecast.variables == output_variables
     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
     assert bool(jnp.isfinite(forecast.values).all())

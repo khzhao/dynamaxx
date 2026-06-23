@@ -188,6 +188,15 @@ def dino_hsl2_theta_model() -> DycoreModel:
     return midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
 
 
+def dino_hsl2_theta_dse_hsl_model() -> DycoreModel:
+    """Return HSL2 theta with DSE horizontal thermal transport."""
+    from dynamaxx.dycore.models.dinosaur import (
+        dry_static_energy_hsl_transport_dinosaur_dycore_model,
+    )
+
+    return dry_static_energy_hsl_transport_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -263,6 +272,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     ): dinosaur_ocean_bulk_sensible_heat_flux_model,
     "dino_hsl_theta": dino_hsl_theta_model,
     "dino_hsl2_theta": dino_hsl2_theta_model,
+    "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
 }
 
 
