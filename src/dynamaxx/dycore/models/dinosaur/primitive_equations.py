@@ -889,6 +889,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         default=False,
         kw_only=True,
     )
+    use_dry_static_energy_hsl_transport: bool = dataclasses.field(
+        default=False,
+        kw_only=True,
+    )
     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
         default=0.0,
         kw_only=True,
@@ -1209,6 +1213,36 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             self.physics_specs.kappa,
         )
         return theta_anomaly, pressure
+
+    @jax.named_call
+    def nodal_dry_static_energy_anomaly(
+        self,
+        aux_state: DiagnosticStateSigma,
+    ) -> tuple[Array, Array]:
+        """Return dry static energy anomaly and its dry hydrostatic geopotential."""
+        full_temperature = aux_state.temperature_variation + self.T_ref
+        nodal_orography = self.coords.horizontal.to_nodal(self.orography)
+        geopotential = get_geopotential_on_sigma(
+            full_temperature,
+            nodal_orography=nodal_orography,
+            sigma=self.coords.vertical,
+            gravity_acceleration=self.physics_specs.g,
+            ideal_gas_constant=self.physics_specs.R,
+            sharding=self.coords.dycore_sharding,
+        )
+        dry_static_energy = self.physics_specs.Cp * full_temperature + geopotential
+        quadrature_weights = jnp.asarray(
+            self.coords.horizontal.quadrature_weights,
+            dtype=dry_static_energy.dtype,
+        )
+        layer_mean = (
+            jnp.sum(dry_static_energy * quadrature_weights, axis=(-2, -1))
+            / jnp.sum(quadrature_weights)
+        )
+        dry_static_energy_anomaly = (
+            dry_static_energy - layer_mean[:, jnp.newaxis, jnp.newaxis]
+        )
+        return dry_static_energy_anomaly, geopotential
 
     @jax.named_call
     def temperature_tendency_temperature_form(
@@ -1558,24 +1592,72 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             self.physics_specs.kappa,
         )
         dT_dt_adiabatic = self.nodal_temperature_adiabatic_tendency(aux_state)
-        candidate_temperature_tendency = self.coords.horizontal.to_modal(
+        accepted_theta_temperature_tendency = self.coords.horizontal.to_modal(
             temperature_transport_nodal + dT_dt_adiabatic
         )
-        finite_diagnostics = jnp.all(
+        finite_theta_diagnostics = jnp.all(
             jnp.asarray(
                 [
                     jnp.all(jnp.isfinite(pressure)),
                     jnp.all(pressure > 0),
                     jnp.all(jnp.isfinite(theta_anomaly)),
                     jnp.all(jnp.isfinite(temperature_transport_nodal)),
-                    jnp.all(jnp.isfinite(candidate_temperature_tendency)),
+                    jnp.all(jnp.isfinite(accepted_theta_temperature_tendency)),
+                ]
+            )
+        )
+        theta_temperature_tendency = jnp.where(
+            finite_theta_diagnostics,
+            accepted_theta_temperature_tendency,
+            incumbent_temperature_tendency,
+        )
+        if not self.use_dry_static_energy_hsl_transport:
+            return theta_temperature_tendency
+
+        dry_static_energy_anomaly, geopotential = self.nodal_dry_static_energy_anomaly(
+            aux_state
+        )
+        dse_dt_horizontal_nodal, dse_dt_horizontal_modal = (
+            self.horizontal_scalar_advection(dry_static_energy_anomaly, aux_state)
+        )
+        incumbent_dse_dt_horizontal_nodal = (
+            dse_dt_horizontal_nodal
+            + self.coords.horizontal.to_nodal(dse_dt_horizontal_modal)
+        )
+        if self.use_horizontal_semilagrangian_theta_transport:
+            dse_dt_horizontal_nodal = self.horizontal_semilagrangian_theta_transport(
+                dry_static_energy_anomaly,
+                aux_state,
+                incumbent_dse_dt_horizontal_nodal,
+            )
+        else:
+            dse_dt_horizontal_nodal = incumbent_dse_dt_horizontal_nodal
+
+        dT_dt_horizontal_dse_nodal = dse_dt_horizontal_nodal / self.physics_specs.Cp
+        temperature_vertical_nodal = temperature_from_potential_temperature(
+            dtheta_dt_vertical,
+            pressure,
+            self._potential_temperature_reference_pressure,
+            self.physics_specs.kappa,
+        )
+        dse_temperature_tendency = self.coords.horizontal.to_modal(
+            dT_dt_horizontal_dse_nodal + temperature_vertical_nodal + dT_dt_adiabatic
+        )
+        finite_dse_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(jnp.isfinite(geopotential)),
+                    jnp.all(jnp.isfinite(dry_static_energy_anomaly)),
+                    jnp.all(jnp.isfinite(dT_dt_horizontal_dse_nodal)),
+                    jnp.all(jnp.isfinite(temperature_vertical_nodal)),
+                    jnp.all(jnp.isfinite(dse_temperature_tendency)),
                 ]
             )
         )
         return jnp.where(
-            finite_diagnostics,
-            candidate_temperature_tendency,
-            incumbent_temperature_tendency,
+            finite_theta_diagnostics & finite_dse_diagnostics,
+            dse_temperature_tendency,
+            theta_temperature_tendency,
         )
 
     @jax.named_call
@@ -3000,6 +3082,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
         ),
         use_horizontal_semilagrangian_theta_transport: bool = False,
         use_midpoint_semilagrangian_theta_departure: bool = False,
+        use_dry_static_energy_hsl_transport: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3019,6 +3102,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             ),
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
+            ),
+            use_dry_static_energy_hsl_transport=(
+                use_dry_static_energy_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -3050,6 +3136,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
         ),
         use_horizontal_semilagrangian_theta_transport: bool = False,
         use_midpoint_semilagrangian_theta_departure: bool = False,
+        use_dry_static_energy_hsl_transport: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3069,6 +3156,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             ),
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
+            ),
+            use_dry_static_energy_hsl_transport=(
+                use_dry_static_energy_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -3097,6 +3187,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
         ),
         use_horizontal_semilagrangian_theta_transport: bool = False,
         use_midpoint_semilagrangian_theta_departure: bool = False,
+        use_dry_static_energy_hsl_transport: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3119,6 +3210,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
             ),
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
+            ),
+            use_dry_static_energy_hsl_transport=(
+                use_dry_static_energy_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step

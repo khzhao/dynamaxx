@@ -124,6 +124,9 @@ assert dinosaur.horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(
 assert dinosaur.midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().name == (
     "dino_hsl2_theta"
 )
+assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name == (
+    "dino_hsl2_theta_dse_hsl"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -221,6 +224,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
         "dino_hsl_theta",
         "dino_hsl2_theta",
+        "dino_hsl2_theta_dse_hsl",
     )
 
     model = create_dycore_model("dinosaur")
@@ -661,6 +665,24 @@ def test_dinosaur_ocean_bulk_shf_is_registered():
     assert not incumbent.apply_ocean_bulk_sensible_heat_flux
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_dse_hsl_is_registered():
+    """The DSE-HSL candidate is side-by-side with the HSL2 theta incumbent."""
+    model = create_dycore_model("dino_hsl2_theta_dse_hsl")
+    incumbent = create_dycore_model("dino_hsl2_theta")
+
+    assert model.name == "dino_hsl2_theta_dse_hsl"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert incumbent.use_horizontal_semilagrangian_theta_transport
+    assert incumbent.use_midpoint_semilagrangian_theta_departure
+    assert not incumbent.use_dry_static_energy_hsl_transport
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_dry_static_energy_hsl_transport"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

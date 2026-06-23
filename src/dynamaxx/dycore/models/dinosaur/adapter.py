@@ -135,6 +135,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_theta_layer_mean_recentering: bool = False
     use_horizontal_semilagrangian_theta_transport: bool = False
     use_midpoint_semilagrangian_theta_departure: bool = False
+    use_dry_static_energy_hsl_transport: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -345,6 +346,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
                 use_midpoint_semilagrangian_theta_departure=(
                     self.use_midpoint_semilagrangian_theta_departure
+                ),
+                use_dry_static_energy_hsl_transport=(
+                    self.use_dry_static_energy_hsl_transport
                 ),
                 horizontal_semilagrangian_theta_transport_step=step_seconds,
             )
@@ -1069,6 +1073,17 @@ def midpoint_semilagrangian_theta_departure_dinosaur_dycore_model() -> (
         horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(),
         name="dino_hsl2_theta",
         use_midpoint_semilagrangian_theta_departure=True,
+    )
+
+
+def dry_static_energy_hsl_transport_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return HSL2 theta with dry-static-energy horizontal thermal transport."""
+    return replace(
+        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
+        name="dino_hsl2_theta_dse_hsl",
+        use_dry_static_energy_hsl_transport=True,
     )
 
 
@@ -2237,6 +2252,7 @@ def _primitive_equation(
     ),
     use_horizontal_semilagrangian_theta_transport: bool = False,
     use_midpoint_semilagrangian_theta_departure: bool = False,
+    use_dry_static_energy_hsl_transport: bool = False,
     horizontal_semilagrangian_theta_transport_step: float = 0.0,
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
@@ -2253,6 +2269,9 @@ def _primitive_equation(
             ),
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
+            ),
+            use_dry_static_energy_hsl_transport=(
+                use_dry_static_energy_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -2271,6 +2290,9 @@ def _primitive_equation(
         ),
         use_midpoint_semilagrangian_theta_departure=(
             use_midpoint_semilagrangian_theta_departure
+        ),
+        use_dry_static_energy_hsl_transport=(
+            use_dry_static_energy_hsl_transport
         ),
         horizontal_semilagrangian_theta_transport_step=(
             horizontal_semilagrangian_theta_transport_step
