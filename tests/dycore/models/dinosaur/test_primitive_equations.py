@@ -77,6 +77,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
     land_sea_surface_temperature_dinosaur_dycore_model,
+    layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
@@ -590,6 +591,24 @@ def test_dse_hsl_factory_preserves_hsl2_theta_except_selector():
     assert not incumbent.use_dry_static_energy_hsl_transport
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_dry_static_energy_hsl_transport"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
+    """The mass-DSE candidate changes only name and mass-DSE selector."""
+    model = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+    incumbent = dry_static_energy_hsl_transport_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_mass_dse"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert not incumbent.use_layer_mass_weighted_dse_hsl_transport
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_layer_mass_weighted_dse_hsl_transport"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -4732,6 +4751,162 @@ def test_dse_hsl_invalid_geopotential_falls_back_to_theta_hsl(monkeypatch):
     actual_tendency = dse_equation.temperature_tendency_potential_temperature_form(
         state,
         aux_state,
+    )
+
+    np.testing.assert_array_equal(actual_tendency, expected_tendency)
+
+
+def test_layer_mass_dse_uses_sigma_pressure_thickness_and_dse_anomaly(monkeypatch):
+    """Mass-DSE transports sigma-layer pressure thickness times DSE anomaly."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    longitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[0],
+        dtype=jnp.float32,
+    )[:, jnp.newaxis]
+    latitude_pattern = jnp.arange(
+        coords.horizontal.nodal_shape[1],
+        dtype=jnp.float32,
+    )[jnp.newaxis, :]
+    full_temperature = jnp.stack(
+        [
+            260.0 + 0.4 * longitude_pattern + 0.1 * latitude_pattern,
+            280.0 - 0.2 * longitude_pattern + 0.3 * latitude_pattern,
+        ],
+        axis=0,
+    )
+    surface_pressure = (
+        100_000.0
+        * _unit_factor(physics_specs, "pascal")
+        * (1.0 + 0.02 * longitude_pattern + 0.01 * latitude_pattern)
+    )
+    nonuniform_state = _primitive_equation_state(
+        vorticity=state.vorticity,
+        divergence=state.divergence,
+        temperature_variation=coords.horizontal.to_modal(
+            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
+            jnp.newaxis
+        ],
+        tracers={},
+    )
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=False,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_horizontal_semilagrangian_theta_transport=True,
+        use_midpoint_semilagrangian_theta_departure=True,
+        use_dry_static_energy_hsl_transport=True,
+        use_layer_mass_weighted_dse_hsl_transport=True,
+        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(
+        nonuniform_state,
+        coords,
+    )
+    dse_anomaly, _ = equation.nodal_dry_static_energy_anomaly(aux_state)
+    layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+        nonuniform_state
+    )
+    captured_scalars: list[jax.Array] = []
+
+    def capture_transport(scalar, aux_state, incumbent_horizontal_tendency):
+        del aux_state
+        captured_scalars.append(scalar)
+        return incumbent_horizontal_tendency
+
+    monkeypatch.setattr(
+        equation,
+        "horizontal_semilagrangian_theta_transport",
+        capture_transport,
+    )
+
+    tendency = equation.temperature_tendency_potential_temperature_form(
+        nonuniform_state,
+        aux_state,
+    )
+
+    diagnosed_surface_pressure = jnp.exp(
+        coords.horizontal.to_nodal(nonuniform_state.log_surface_pressure)
+    )
+    expected_layer_pressure_thickness = (
+        jnp.asarray(coords.vertical.layer_thickness, dtype=surface_pressure.dtype)[
+            :, jnp.newaxis, jnp.newaxis
+        ]
+        * diagnosed_surface_pressure
+    )
+    assert bool(jnp.isfinite(tendency).all())
+    assert bool(jnp.all(layer_pressure_thickness > 0.0))
+    np.testing.assert_allclose(
+        layer_pressure_thickness,
+        expected_layer_pressure_thickness,
+        rtol=1.0e-6,
+    )
+    np.testing.assert_allclose(
+        captured_scalars[-1],
+        expected_layer_pressure_thickness * dse_anomaly,
+        rtol=1.0e-6,
+    )
+
+
+def test_layer_mass_dse_invalid_pressure_thickness_falls_back_to_dse_hsl(
+    monkeypatch,
+):
+    """Unsafe layer mass diagnostics reproduce the incumbent DSE-HSL tendency."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": False,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "use_midpoint_semilagrangian_theta_departure": True,
+        "use_dry_static_energy_hsl_transport": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    candidate_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_layer_mass_weighted_dse_hsl_transport=True,
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
+    expected_tendency = (
+        incumbent_equation.temperature_tendency_potential_temperature_form(
+            state,
+            aux_state,
+        )
+    )
+
+    def nonfinite_layer_pressure_thickness(state):
+        del state
+        return jnp.full(coords.nodal_shape, jnp.nan, dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        candidate_equation,
+        "nodal_sigma_layer_pressure_thickness",
+        nonfinite_layer_pressure_thickness,
+    )
+
+    actual_tendency = (
+        candidate_equation.temperature_tendency_potential_temperature_form(
+            state,
+            aux_state,
+        )
     )
 
     np.testing.assert_array_equal(actual_tendency, expected_tendency)

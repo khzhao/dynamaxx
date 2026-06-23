@@ -136,6 +136,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_horizontal_semilagrangian_theta_transport: bool = False
     use_midpoint_semilagrangian_theta_departure: bool = False
     use_dry_static_energy_hsl_transport: bool = False
+    use_layer_mass_weighted_dse_hsl_transport: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -349,6 +350,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
                 use_dry_static_energy_hsl_transport=(
                     self.use_dry_static_energy_hsl_transport
+                ),
+                use_layer_mass_weighted_dse_hsl_transport=(
+                    self.use_layer_mass_weighted_dse_hsl_transport
                 ),
                 horizontal_semilagrangian_theta_transport_step=step_seconds,
             )
@@ -1084,6 +1088,17 @@ def dry_static_energy_hsl_transport_dinosaur_dycore_model() -> (
         midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
         name="dino_hsl2_theta_dse_hsl",
         use_dry_static_energy_hsl_transport=True,
+    )
+
+
+def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return DSE-HSL with layer-mass-weighted horizontal thermal transport."""
+    return replace(
+        dry_static_energy_hsl_transport_dinosaur_dycore_model(),
+        name="dino_hsl2_mass_dse",
+        use_layer_mass_weighted_dse_hsl_transport=True,
     )
 
 
@@ -2253,6 +2268,7 @@ def _primitive_equation(
     use_horizontal_semilagrangian_theta_transport: bool = False,
     use_midpoint_semilagrangian_theta_departure: bool = False,
     use_dry_static_energy_hsl_transport: bool = False,
+    use_layer_mass_weighted_dse_hsl_transport: bool = False,
     horizontal_semilagrangian_theta_transport_step: float = 0.0,
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
@@ -2272,6 +2288,9 @@ def _primitive_equation(
             ),
             use_dry_static_energy_hsl_transport=(
                 use_dry_static_energy_hsl_transport
+            ),
+            use_layer_mass_weighted_dse_hsl_transport=(
+                use_layer_mass_weighted_dse_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -2293,6 +2312,9 @@ def _primitive_equation(
         ),
         use_dry_static_energy_hsl_transport=(
             use_dry_static_energy_hsl_transport
+        ),
+        use_layer_mass_weighted_dse_hsl_transport=(
+            use_layer_mass_weighted_dse_hsl_transport
         ),
         horizontal_semilagrangian_theta_transport_step=(
             horizontal_semilagrangian_theta_transport_step
