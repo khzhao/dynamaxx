@@ -197,6 +197,15 @@ def dino_hsl2_theta_dse_hsl_model() -> DycoreModel:
     return dry_static_energy_hsl_transport_dinosaur_dycore_model()
 
 
+def dino_hsl2_mass_dse_model() -> DycoreModel:
+    """Return DSE-HSL with layer-mass-weighted DSE thermal transport."""
+    from dynamaxx.dycore.models.dinosaur import (
+        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+    )
+
+    return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -273,6 +282,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_hsl_theta": dino_hsl_theta_model,
     "dino_hsl2_theta": dino_hsl2_theta_model,
     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+    "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
 }
 
 

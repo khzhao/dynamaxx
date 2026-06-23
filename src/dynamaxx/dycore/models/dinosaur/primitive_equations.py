@@ -893,6 +893,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         default=False,
         kw_only=True,
     )
+    use_layer_mass_weighted_dse_hsl_transport: bool = dataclasses.field(
+        default=False,
+        kw_only=True,
+    )
     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
         default=0.0,
         kw_only=True,
@@ -1197,6 +1201,18 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         )
         sigma_centers = self.coords.vertical.centers[:, np.newaxis, np.newaxis]
         return sigma_centers * nodal_surface_pressure
+
+    @jax.named_call
+    def nodal_sigma_layer_pressure_thickness(self, state: State) -> Array:
+        """Diagnose positive sigma-layer pressure thickness from surface pressure."""
+        nodal_surface_pressure = jnp.exp(
+            self.coords.horizontal.to_nodal(state.log_surface_pressure)
+        )
+        sigma_layer_thickness = jnp.asarray(
+            self.coords.vertical.layer_thickness,
+            dtype=nodal_surface_pressure.dtype,
+        )[:, jnp.newaxis, jnp.newaxis]
+        return sigma_layer_thickness * nodal_surface_pressure
 
     @jax.named_call
     def nodal_potential_temperature_anomaly(
@@ -1654,10 +1670,80 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
                 ]
             )
         )
-        return jnp.where(
+        incumbent_dse_temperature_tendency = jnp.where(
             finite_theta_diagnostics & finite_dse_diagnostics,
             dse_temperature_tendency,
             theta_temperature_tendency,
+        )
+        if not self.use_layer_mass_weighted_dse_hsl_transport:
+            return incumbent_dse_temperature_tendency
+
+        layer_pressure_thickness = self.nodal_sigma_layer_pressure_thickness(state)
+        tiny_pressure_thickness = jnp.asarray(
+            jnp.finfo(layer_pressure_thickness.dtype).tiny,
+            dtype=layer_pressure_thickness.dtype,
+        )
+        valid_layer_pressure_thickness = (
+            jnp.isfinite(layer_pressure_thickness)
+            & (layer_pressure_thickness > tiny_pressure_thickness)
+        )
+        safe_layer_pressure_thickness = jnp.where(
+            valid_layer_pressure_thickness,
+            layer_pressure_thickness,
+            jnp.ones_like(layer_pressure_thickness),
+        )
+        weighted_dse_anomaly = layer_pressure_thickness * dry_static_energy_anomaly
+        weighted_dse_dt_horizontal_nodal, weighted_dse_dt_horizontal_modal = (
+            self.horizontal_scalar_advection(weighted_dse_anomaly, aux_state)
+        )
+        incumbent_weighted_dse_dt_horizontal_nodal = (
+            weighted_dse_dt_horizontal_nodal
+            + self.coords.horizontal.to_nodal(weighted_dse_dt_horizontal_modal)
+        )
+        if self.use_horizontal_semilagrangian_theta_transport:
+            weighted_dse_dt_horizontal_nodal = (
+                self.horizontal_semilagrangian_theta_transport(
+                    weighted_dse_anomaly,
+                    aux_state,
+                    incumbent_weighted_dse_dt_horizontal_nodal,
+                )
+            )
+        else:
+            weighted_dse_dt_horizontal_nodal = (
+                incumbent_weighted_dse_dt_horizontal_nodal
+            )
+
+        layer_mass_dse_dt_horizontal_nodal = (
+            weighted_dse_dt_horizontal_nodal / safe_layer_pressure_thickness
+        )
+        dT_dt_horizontal_mass_dse_nodal = (
+            layer_mass_dse_dt_horizontal_nodal / self.physics_specs.Cp
+        )
+        mass_dse_temperature_tendency = self.coords.horizontal.to_modal(
+            dT_dt_horizontal_mass_dse_nodal
+            + temperature_vertical_nodal
+            + dT_dt_adiabatic
+        )
+        finite_mass_dse_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(valid_layer_pressure_thickness),
+                    jnp.all(jnp.isfinite(weighted_dse_anomaly)),
+                    jnp.all(jnp.isfinite(weighted_dse_dt_horizontal_nodal)),
+                    jnp.all(jnp.isfinite(layer_mass_dse_dt_horizontal_nodal)),
+                    jnp.all(jnp.isfinite(dT_dt_horizontal_mass_dse_nodal)),
+                    jnp.all(jnp.isfinite(mass_dse_temperature_tendency)),
+                ]
+            )
+        )
+        return jnp.where(
+            (
+                finite_theta_diagnostics
+                & finite_dse_diagnostics
+                & finite_mass_dse_diagnostics
+            ),
+            mass_dse_temperature_tendency,
+            incumbent_dse_temperature_tendency,
         )
 
     @jax.named_call
@@ -3083,6 +3169,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
         use_horizontal_semilagrangian_theta_transport: bool = False,
         use_midpoint_semilagrangian_theta_departure: bool = False,
         use_dry_static_energy_hsl_transport: bool = False,
+        use_layer_mass_weighted_dse_hsl_transport: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3105,6 +3192,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             ),
             use_dry_static_energy_hsl_transport=(
                 use_dry_static_energy_hsl_transport
+            ),
+            use_layer_mass_weighted_dse_hsl_transport=(
+                use_layer_mass_weighted_dse_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -3137,6 +3227,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
         use_horizontal_semilagrangian_theta_transport: bool = False,
         use_midpoint_semilagrangian_theta_departure: bool = False,
         use_dry_static_energy_hsl_transport: bool = False,
+        use_layer_mass_weighted_dse_hsl_transport: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3159,6 +3250,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             ),
             use_dry_static_energy_hsl_transport=(
                 use_dry_static_energy_hsl_transport
+            ),
+            use_layer_mass_weighted_dse_hsl_transport=(
+                use_layer_mass_weighted_dse_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -3188,6 +3282,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
         use_horizontal_semilagrangian_theta_transport: bool = False,
         use_midpoint_semilagrangian_theta_departure: bool = False,
         use_dry_static_energy_hsl_transport: bool = False,
+        use_layer_mass_weighted_dse_hsl_transport: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3213,6 +3308,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
             ),
             use_dry_static_energy_hsl_transport=(
                 use_dry_static_energy_hsl_transport
+            ),
+            use_layer_mass_weighted_dse_hsl_transport=(
+                use_layer_mass_weighted_dse_hsl_transport
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
