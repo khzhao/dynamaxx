@@ -50,6 +50,11 @@ TEMPERATURE_TENDENCY_FORMULATIONS = (
 )
 HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL = 0.5
 HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT = 1.0e-6
+PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS = 24.0
+PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS = 72.0
+PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF = 8.0
+PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO = 16.0
 
 OrographyInitFn = Callable[..., Array]
 
@@ -181,6 +186,90 @@ def temperature_from_potential_temperature(
         reference_pressure,
     )
     return potential_temperature * (safe_pressure / reference_pressure) ** kappa
+
+
+def _pressure_ramped_vertical_dse_increment_weight(
+    sim_time: Array,
+    physics_specs: units.SimUnitsProtocol,
+) -> jax.Array:
+    """Return the fixed smooth vertical-DSE ramp from forecast model time."""
+    sim_time = jnp.asarray(sim_time)
+    hour = scales.units.Quantity(3600.0, "second")
+    nondimensional_hour = jnp.asarray(
+        physics_specs.nondimensionalize(hour),
+        dtype=sim_time.dtype,
+    )
+    ramp_start_time = (
+        PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS * nondimensional_hour
+    )
+    ramp_full_time = PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS * nondimensional_hour
+    ramp_fraction = jnp.clip(
+        (sim_time - ramp_start_time) / (ramp_full_time - ramp_start_time),
+        0.0,
+        1.0,
+    )
+    smooth_weight = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
+    return jnp.where(
+        sim_time <= ramp_start_time,
+        0.0,
+        jnp.where(sim_time >= ramp_full_time, 1.0, smooth_weight),
+    )
+
+
+def _pressure_ramped_vertical_dse_low_mode_mask(
+    horizontal_grid: spherical_harmonic.Grid,
+) -> jax.Array:
+    """Return the broad horizontal mask removed during vertical-DSE spinup."""
+    _, total_wavenumber = horizontal_grid.modal_mesh
+    total_wavenumber = jnp.asarray(total_wavenumber, dtype=jnp.float32)
+    taper_fraction = jnp.clip(
+        (total_wavenumber - PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF)
+        / (
+            PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO
+            - PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF
+        ),
+        0.0,
+        1.0,
+    )
+    taper = 0.5 * (1.0 + jnp.cos(jnp.pi * taper_fraction))
+    low_mode_mask = jnp.where(
+        total_wavenumber <= PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF,
+        1.0,
+        jnp.where(
+            total_wavenumber >= PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO,
+            0.0,
+            taper,
+        ),
+    )
+    return low_mode_mask * jnp.asarray(horizontal_grid.mask, dtype=jnp.float32)
+
+
+def _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+    nodal_field: Array,
+    coords: coordinate_systems.CoordinateSystem,
+) -> jax.Array:
+    """Return the layerwise broad component guarded during early spinup."""
+    quadrature_weights = jnp.asarray(
+        coords.horizontal.quadrature_weights,
+        dtype=nodal_field.dtype,
+    )
+    weight_sum = jnp.sum(quadrature_weights)
+    safe_weight_sum = jnp.where(
+        weight_sum > jnp.asarray(jnp.finfo(nodal_field.dtype).tiny),
+        weight_sum,
+        jnp.ones_like(weight_sum),
+    )
+    area_mean = (
+        jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1))
+        / safe_weight_sum
+    )
+    area_mean_component = area_mean[:, jnp.newaxis, jnp.newaxis]
+    anomaly = nodal_field - area_mean_component
+    low_mode_mask = _pressure_ramped_vertical_dse_low_mode_mask(coords.horizontal)
+    low_mode_anomaly = coords.horizontal.to_nodal(
+        coords.horizontal.to_modal(anomaly) * low_mode_mask
+    )
+    return area_mean_component + low_mode_anomaly
 
 
 @tree_math.struct
@@ -897,6 +986,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         default=False,
         kw_only=True,
     )
+    use_pressure_ramped_vertical_dse_increment: bool = dataclasses.field(
+        default=False,
+        kw_only=True,
+    )
     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
         default=0.0,
         kw_only=True,
@@ -1565,6 +1658,107 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         )
 
     @jax.named_call
+    def pressure_ramped_vertical_dse_increment_temperature_tendency(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+        incumbent_temperature_tendency: Array,
+        dry_static_energy_anomaly: Array,
+        geopotential: Array,
+        theta_vertical_temperature_tendency: Array,
+        valid_layer_pressure_thickness: Array,
+        finite_theta_diagnostics: Array,
+        finite_dse_diagnostics: Array,
+        finite_mass_dse_diagnostics: Array,
+    ) -> Array:
+        """Add a guarded vertical-DSE increment to the selected incumbent tendency."""
+        if state.sim_time is None or not self.include_vertical_advection:
+            return incumbent_temperature_tendency
+
+        sim_time = jnp.asarray(state.sim_time)
+        ramp_weight = _pressure_ramped_vertical_dse_increment_weight(
+            sim_time,
+            self.physics_specs,
+        )
+        dse_vertical_temperature_tendency = (
+            self._vertical_tendency(
+                aux_state.sigma_dot_full,
+                dry_static_energy_anomaly,
+            )
+            / self.physics_specs.Cp
+        )
+        vertical_temperature_increment = (
+            dse_vertical_temperature_tendency - theta_vertical_temperature_tendency
+        )
+        ramped_increment = vertical_temperature_increment * ramp_weight
+        low_mode_area_mean = (
+            _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+                ramped_increment,
+                self.coords,
+            )
+        )
+        early_ramp_weight = 1.0 - ramp_weight
+        pressure_guarded_increment = ramped_increment - (
+            early_ramp_weight * low_mode_area_mean
+        )
+        step = jnp.asarray(
+            self.horizontal_semilagrangian_theta_transport_step,
+            dtype=pressure_guarded_increment.dtype,
+        )
+        valid_step = jnp.isfinite(step) & (step > 0.0)
+        safe_step = jnp.where(valid_step, step, jnp.ones_like(step))
+        temperature_unit = jnp.asarray(
+            self.physics_specs.nondimensionalize(
+                scales.units.Quantity(1.0, "kelvin")
+            ),
+            dtype=pressure_guarded_increment.dtype,
+        )
+        max_temperature_tendency = (
+            PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+            * temperature_unit
+            / safe_step
+        )
+        capped_increment = jnp.clip(
+            pressure_guarded_increment,
+            -max_temperature_tendency,
+            max_temperature_tendency,
+        )
+        candidate_temperature_tendency = incumbent_temperature_tendency + (
+            self.coords.horizontal.to_modal(capped_increment)
+        )
+        finite_candidate_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(jnp.isfinite(sim_time)),
+                    jnp.all(jnp.isfinite(aux_state.sigma_dot_full)),
+                    jnp.all(valid_layer_pressure_thickness),
+                    jnp.all(jnp.isfinite(dry_static_energy_anomaly)),
+                    jnp.all(jnp.isfinite(geopotential)),
+                    jnp.all(jnp.isfinite(ramp_weight)),
+                    jnp.all(ramp_weight >= 0.0),
+                    jnp.all(ramp_weight <= 1.0),
+                    valid_step,
+                    jnp.all(jnp.isfinite(theta_vertical_temperature_tendency)),
+                    jnp.all(jnp.isfinite(dse_vertical_temperature_tendency)),
+                    jnp.all(jnp.isfinite(vertical_temperature_increment)),
+                    jnp.all(jnp.isfinite(low_mode_area_mean)),
+                    jnp.all(jnp.isfinite(capped_increment)),
+                    jnp.all(jnp.isfinite(candidate_temperature_tendency)),
+                ]
+            )
+        )
+        return jnp.where(
+            (
+                finite_theta_diagnostics
+                & finite_dse_diagnostics
+                & finite_mass_dse_diagnostics
+                & finite_candidate_diagnostics
+            ),
+            candidate_temperature_tendency,
+            incumbent_temperature_tendency,
+        )
+
+    @jax.named_call
     def temperature_tendency_potential_temperature_form(
         self,
         state: State,
@@ -1736,7 +1930,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
                 ]
             )
         )
-        return jnp.where(
+        accepted_mass_dse_temperature_tendency = jnp.where(
             (
                 finite_theta_diagnostics
                 & finite_dse_diagnostics
@@ -1744,6 +1938,21 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             ),
             mass_dse_temperature_tendency,
             incumbent_dse_temperature_tendency,
+        )
+        if not self.use_pressure_ramped_vertical_dse_increment:
+            return accepted_mass_dse_temperature_tendency
+
+        return self.pressure_ramped_vertical_dse_increment_temperature_tendency(
+            state=state,
+            aux_state=aux_state,
+            incumbent_temperature_tendency=accepted_mass_dse_temperature_tendency,
+            dry_static_energy_anomaly=dry_static_energy_anomaly,
+            geopotential=geopotential,
+            theta_vertical_temperature_tendency=temperature_vertical_nodal,
+            valid_layer_pressure_thickness=valid_layer_pressure_thickness,
+            finite_theta_diagnostics=finite_theta_diagnostics,
+            finite_dse_diagnostics=finite_dse_diagnostics,
+            finite_mass_dse_diagnostics=finite_mass_dse_diagnostics,
         )
 
     @jax.named_call
@@ -3170,6 +3379,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
         use_midpoint_semilagrangian_theta_departure: bool = False,
         use_dry_static_energy_hsl_transport: bool = False,
         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+        use_pressure_ramped_vertical_dse_increment: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3195,6 +3405,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             ),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
+            ),
+            use_pressure_ramped_vertical_dse_increment=(
+                use_pressure_ramped_vertical_dse_increment
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -3228,6 +3441,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
         use_midpoint_semilagrangian_theta_departure: bool = False,
         use_dry_static_energy_hsl_transport: bool = False,
         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+        use_pressure_ramped_vertical_dse_increment: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3253,6 +3467,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             ),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
+            ),
+            use_pressure_ramped_vertical_dse_increment=(
+                use_pressure_ramped_vertical_dse_increment
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -3283,6 +3500,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
         use_midpoint_semilagrangian_theta_departure: bool = False,
         use_dry_static_energy_hsl_transport: bool = False,
         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+        use_pressure_ramped_vertical_dse_increment: bool = False,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3311,6 +3529,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
             ),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
+            ),
+            use_pressure_ramped_vertical_dse_increment=(
+                use_pressure_ramped_vertical_dse_increment
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step

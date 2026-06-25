@@ -84,6 +84,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     log_pressure_initialization_dinosaur_dycore_model,
     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+    pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     scale_separated_surface_residual_dinosaur_dycore_model,
     semi_implicit_offcenter_dinosaur_dycore_model,
@@ -631,6 +632,25 @@ def test_tropical_wtg_factory_preserves_mass_dse_except_selector():
     assert not incumbent.apply_tropical_wtg_mass_dse_relaxation
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "apply_tropical_wtg_mass_dse_relaxation"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+    """The candidate changes only name and the vertical-DSE ramp selector."""
+    model = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+    incumbent = tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert not incumbent.use_pressure_ramped_vertical_dse_increment
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_pressure_ramped_vertical_dse_increment"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -2818,6 +2838,48 @@ def test_weather_state_to_dinosaur_state_matches_direct_dinosaur_initialization(
     expected = grid.coords.horizontal.clip_wavenumbers(direct)
 
     _assert_pytree_allclose(actual, expected)
+
+
+def test_weather_state_to_dinosaur_state_initializes_sim_time_on_request():
+    """The vertical-DSE ramp candidate can opt into forecast-time tracking."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    weather_state = WeatherState(
+        values=forecast_input.initial_state.values[0],
+        variables=forecast_input.initial_state.variables,
+    )
+    common_kwargs = {
+        "state": weather_state,
+        "coords": grid.coords,
+        "pressure_levels_hpa": pressure_levels_hpa,
+        "latitude_reversed": grid.latitude_reversed,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "include_humidity": False,
+    }
+
+    untimed_state = weather_state_to_dinosaur_state(**common_kwargs)
+    timed_state = weather_state_to_dinosaur_state(
+        **common_kwargs,
+        initialize_sim_time=True,
+    )
+
+    assert untimed_state.sim_time is None
+    np.testing.assert_array_equal(timed_state.sim_time, jnp.asarray(0.0))
 
 
 def test_sigma_to_pressure_interpolation_vectorizes_over_trajectory_time():
@@ -5015,6 +5077,201 @@ def test_layer_mass_dse_invalid_pressure_thickness_falls_back_to_dse_hsl(
     np.testing.assert_array_equal(actual_tendency, expected_tendency)
 
 
+def test_pressure_ramped_vertical_dse_weight_endpoints():
+    """The fixed vertical-DSE ramp is zero through 24h and full by 72h."""
+    physics_specs = units.SimUnits.from_si()
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    sim_time = jnp.asarray([0.0, 24.0, 48.0, 72.0], dtype=jnp.float32) * hour
+
+    weights = primitive_equations._pressure_ramped_vertical_dse_increment_weight(
+        sim_time,
+        physics_specs,
+    )
+
+    weights_np = np.asarray(weights)
+    np.testing.assert_allclose(weights_np[[0, 1, 3]], [0.0, 0.0, 1.0])
+    assert 0.0 < weights_np[2] < 1.0
+
+
+def test_pressure_ramped_vertical_dse_noop_before_ramp():
+    """At 24h and earlier, the selected tendency matches the WTG incumbent path."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    timed_state = _primitive_equation_state(
+        vorticity=state.vorticity,
+        divergence=state.divergence,
+        temperature_variation=state.temperature_variation,
+        log_surface_pressure=state.log_surface_pressure,
+        tracers=state.tracers,
+        sim_time=jnp.asarray(24.0 * hour, dtype=jnp.float32),
+    )
+    common_kwargs = {
+        "reference_temperature": reference_temperature,
+        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        "coords": coords,
+        "physics_specs": cast(Any, physics_specs),
+        "include_vertical_advection": True,
+        "temperature_tendency_formulation": (
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        "use_horizontal_semilagrangian_theta_transport": True,
+        "use_midpoint_semilagrangian_theta_departure": True,
+        "use_dry_static_energy_hsl_transport": True,
+        "use_layer_mass_weighted_dse_hsl_transport": True,
+        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    }
+    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
+    candidate_equation = primitive_equations.PrimitiveEquations(
+        **common_kwargs,
+        use_pressure_ramped_vertical_dse_increment=True,
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(
+        timed_state,
+        coords,
+    )
+
+    incumbent_tendency = (
+        incumbent_equation.temperature_tendency_potential_temperature_form(
+            timed_state,
+            aux_state,
+        )
+    )
+    candidate_tendency = (
+        candidate_equation.temperature_tendency_potential_temperature_form(
+            timed_state,
+            aux_state,
+        )
+    )
+
+    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
+
+
+def test_pressure_ramped_vertical_dse_missing_time_falls_back(monkeypatch):
+    """Unavailable model time returns the incumbent tendency without candidate math."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_dry_static_energy_hsl_transport=True,
+        use_layer_mass_weighted_dse_hsl_transport=True,
+        use_pressure_ramped_vertical_dse_increment=True,
+        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+            physics_specs,
+            900.0,
+        ),
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
+    incumbent_tendency = jnp.ones(coords.modal_shape, dtype=jnp.float32)
+
+    def fail_vertical_tendency(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("candidate vertical tendency should not run")
+
+    monkeypatch.setattr(equation, "_vertical_tendency", fail_vertical_tendency)
+
+    actual_tendency = (
+        equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
+            state=state,
+            aux_state=aux_state,
+            incumbent_temperature_tendency=incumbent_tendency,
+            dry_static_energy_anomaly=jnp.full(coords.nodal_shape, jnp.nan),
+            geopotential=jnp.full(coords.nodal_shape, jnp.nan),
+            theta_vertical_temperature_tendency=jnp.zeros(
+                coords.nodal_shape,
+                dtype=jnp.float32,
+            ),
+            valid_layer_pressure_thickness=jnp.zeros(
+                coords.nodal_shape,
+                dtype=bool,
+            ),
+            finite_theta_diagnostics=jnp.asarray(False),
+            finite_dse_diagnostics=jnp.asarray(False),
+            finite_mass_dse_diagnostics=jnp.asarray(False),
+        )
+    )
+
+    np.testing.assert_array_equal(actual_tendency, incumbent_tendency)
+
+
+def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+    """A finite vertical-DSE candidate is capped by the per-inner-step limit."""
+    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    timed_state = _primitive_equation_state(
+        vorticity=state.vorticity,
+        divergence=state.divergence,
+        temperature_variation=state.temperature_variation,
+        log_surface_pressure=state.log_surface_pressure,
+        tracers=state.tracers,
+        sim_time=jnp.asarray(72.0 * hour, dtype=jnp.float32),
+    )
+    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
+        coords,
+        cast(Any, physics_specs),
+        include_vertical_advection=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        use_dry_static_energy_hsl_transport=True,
+        use_layer_mass_weighted_dse_hsl_transport=True,
+        use_pressure_ramped_vertical_dse_increment=True,
+        horizontal_semilagrangian_theta_transport_step=step_seconds,
+    )
+    aux_state = primitive_equations.compute_diagnostic_state_sigma(
+        timed_state,
+        coords,
+    )
+    incumbent_tendency = jnp.zeros(coords.modal_shape, dtype=jnp.float32)
+
+    def large_vertical_tendency(unused_sigma_dot, scalar):
+        del unused_sigma_dot
+        return jnp.ones_like(scalar) * physics_specs.Cp * 10_000.0
+
+    monkeypatch.setattr(equation, "_vertical_tendency", large_vertical_tendency)
+
+    capped_tendency = (
+        equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
+            state=timed_state,
+            aux_state=aux_state,
+            incumbent_temperature_tendency=incumbent_tendency,
+            dry_static_energy_anomaly=jnp.ones(coords.nodal_shape, dtype=jnp.float32),
+            geopotential=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
+            theta_vertical_temperature_tendency=jnp.zeros(
+                coords.nodal_shape,
+                dtype=jnp.float32,
+            ),
+            valid_layer_pressure_thickness=jnp.ones(
+                coords.nodal_shape,
+                dtype=bool,
+            ),
+            finite_theta_diagnostics=jnp.asarray(True),
+            finite_dse_diagnostics=jnp.asarray(True),
+            finite_mass_dse_diagnostics=jnp.asarray(True),
+        )
+    )
+    nodal_tendency = coords.horizontal.to_nodal(capped_tendency)
+    max_tendency = (
+        primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+        * _unit_factor(physics_specs, "kelvin")
+        / step_seconds
+    )
+
+    assert bool(jnp.isfinite(nodal_tendency).all())
+    assert float(jnp.max(jnp.abs(nodal_tendency))) <= max_tendency * 1.0001
+
+
 def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
     """DSE-HSL changes only the horizontal thermal transport hook."""
     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
@@ -5496,6 +5753,65 @@ def test_tropical_wtg_mass_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
     assert model.use_dry_static_energy_hsl_transport
     assert model.use_layer_mass_weighted_dse_hsl_transport
     assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
+def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
+    """The pressure-ramped vertical-DSE candidate runs a small finite forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        del equation, ode_solver, filters, time_span, cutoff_period, dt
+        return lambda dinosaur_state: dinosaur_state
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        apply_spectral_filter=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
     assert forecast.variables == output_variables
     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
     assert bool(jnp.isfinite(forecast.values).all())

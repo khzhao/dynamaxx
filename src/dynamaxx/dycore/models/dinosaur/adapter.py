@@ -147,6 +147,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_midpoint_semilagrangian_theta_departure: bool = False
     use_dry_static_energy_hsl_transport: bool = False
     use_layer_mass_weighted_dse_hsl_transport: bool = False
+    use_pressure_ramped_vertical_dse_increment: bool = False
     apply_tropical_wtg_mass_dse_relaxation: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
@@ -239,6 +240,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 use_layer_mean_hydrostatic_temperature_initialization=(
                     self.use_layer_mean_hydrostatic_temperature_initialization
                 ),
+                initialize_sim_time=self.use_pressure_ramped_vertical_dse_increment,
             )
             if (
                 self.apply_ocean_bulk_sensible_heat_flux
@@ -364,6 +366,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
                 use_layer_mass_weighted_dse_hsl_transport=(
                     self.use_layer_mass_weighted_dse_hsl_transport
+                ),
+                use_pressure_ramped_vertical_dse_increment=(
+                    self.use_pressure_ramped_vertical_dse_increment
                 ),
                 horizontal_semilagrangian_theta_transport_step=step_seconds,
             )
@@ -1352,6 +1357,17 @@ def tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model() -> (
     )
 
 
+def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return WTG mass-DSE with guarded pressure-ramped vertical-DSE transport."""
+    return replace(
+        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
+        name="dino_hsl2_mass_dse_wtg_vdse_ramp",
+        use_pressure_ramped_vertical_dse_increment=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -1364,6 +1380,7 @@ def weather_state_to_dinosaur_state(
     use_log_pressure_initialization: bool = False,
     use_hydrostatic_temperature_initialization: bool = False,
     use_layer_mean_hydrostatic_temperature_initialization: bool = False,
+    initialize_sim_time: bool = False,
 ) -> Any:
     """Convert one packed WeatherState initialization into Dinosaur state."""
     temperature = _stack_pressure_level_channels(
@@ -1477,6 +1494,11 @@ def weather_state_to_dinosaur_state(
         temperature_variation=temperature_variation,
         log_surface_pressure=log_surface_pressure,
         tracers=tracers,
+        sim_time=(
+            jnp.asarray(0.0, dtype=temperature_variation.dtype)
+            if initialize_sim_time
+            else None
+        ),
     )
     return coords.horizontal.clip_wavenumbers(dinosaur_state)
 
@@ -2519,6 +2541,7 @@ def _primitive_equation(
     use_midpoint_semilagrangian_theta_departure: bool = False,
     use_dry_static_energy_hsl_transport: bool = False,
     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+    use_pressure_ramped_vertical_dse_increment: bool = False,
     horizontal_semilagrangian_theta_transport_step: float = 0.0,
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
@@ -2541,6 +2564,9 @@ def _primitive_equation(
             ),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
+            ),
+            use_pressure_ramped_vertical_dse_increment=(
+                use_pressure_ramped_vertical_dse_increment
             ),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
@@ -2565,6 +2591,9 @@ def _primitive_equation(
         ),
         use_layer_mass_weighted_dse_hsl_transport=(
             use_layer_mass_weighted_dse_hsl_transport
+        ),
+        use_pressure_ramped_vertical_dse_increment=(
+            use_pressure_ramped_vertical_dse_increment
         ),
         horizontal_semilagrangian_theta_transport_step=(
             horizontal_semilagrangian_theta_transport_step

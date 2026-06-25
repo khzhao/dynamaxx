@@ -55,6 +55,7 @@ def test_registry_lists_default_dycore_models():
         "dino_hsl2_theta_dse_hsl",
         "dino_hsl2_mass_dse",
         "dino_hsl2_mass_dse_wtg",
+        "dino_hsl2_mass_dse_wtg_vdse_ramp",
     )
 
 
@@ -636,6 +637,25 @@ def test_registry_creates_tropical_wtg_mass_dse_candidate_model():
     assert not incumbent.apply_tropical_wtg_mass_dse_relaxation
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_tropical_wtg_mass_dse_relaxation"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+    """The vertical-DSE ramp alias adds only the guarded increment selector."""
+    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
+    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg")
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert not incumbent.use_pressure_ramped_vertical_dse_increment
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_pressure_ramped_vertical_dse_increment"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
