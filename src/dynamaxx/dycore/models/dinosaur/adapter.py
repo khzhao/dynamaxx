@@ -78,6 +78,16 @@ _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
 _SURFACE_LAYER_REFERENCE_HEIGHT_METERS = 10.0
+_TROPICAL_WTG_FULL_LATITUDE_DEGREES = 12.0
+_TROPICAL_WTG_ZERO_LATITUDE_DEGREES = 27.0
+_TROPICAL_WTG_SIGMA_ZERO_TOP = 0.20
+_TROPICAL_WTG_SIGMA_FULL_TOP = 0.40
+_TROPICAL_WTG_SIGMA_FULL_BOTTOM = 0.60
+_TROPICAL_WTG_SIGMA_ZERO_BOTTOM = 0.82
+_TROPICAL_WTG_LOW_MODE_CUTOFF = 8.0
+_TROPICAL_WTG_LOW_MODE_TAPER_ZERO = 16.0
+_TROPICAL_WTG_RELAXATION_TIMESCALE_DAYS = 5.0
+_TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.25
 _DRY_AIR_GAS_CONSTANT_SI = float(
     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
 )
@@ -137,6 +147,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_midpoint_semilagrangian_theta_departure: bool = False
     use_dry_static_energy_hsl_transport: bool = False
     use_layer_mass_weighted_dse_hsl_transport: bool = False
+    apply_tropical_wtg_mass_dse_relaxation: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -435,6 +446,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 dfi_equation = build_equation(
                     rollout_physics_specs,
                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                )
+            if self.apply_tropical_wtg_mass_dse_relaxation:
+                filters.append(
+                    _tropical_wtg_mass_dse_relaxation_step_filter(
+                        coords=coords,
+                        physics_specs=physics_specs,
+                        reference_temperature=reference_temperature,
+                        step_seconds=step_seconds,
+                    )
                 )
             if self.apply_theta_layer_mean_recentering:
                 filters.append(
@@ -756,6 +776,225 @@ def _theta_layer_mean_recenter_step_filter(
         )
 
     return theta_layer_mean_recenter_filter
+
+
+def _tropical_wtg_mass_dse_relaxation_step_filter(
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    step_seconds: float,
+) -> Any:
+    """Return a rollout-only weak tropical free-tropospheric mass-DSE filter."""
+    orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+    equation = primitive_equations.PrimitiveEquations(
+        reference_temperature,
+        orography,
+        coords,
+        physics_specs,
+        include_vertical_advection=True,
+    )
+    latitude_envelope = _tropical_wtg_latitude_envelope(coords.horizontal)
+    sigma_envelope = _tropical_wtg_sigma_envelope(coords.vertical)
+    mask = sigma_envelope[:, jnp.newaxis, jnp.newaxis] * latitude_envelope
+    low_mode_mask = _tropical_wtg_low_mode_mask(coords.horizontal)
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    tropical_weights = latitude_envelope * quadrature_weights
+    tropical_weight_sum = jnp.sum(tropical_weights)
+    mask_weights = mask * quadrature_weights[jnp.newaxis, ...]
+    mask_weight_sum = jnp.sum(mask_weights, axis=(-2, -1))
+    tiny_weight = jnp.asarray(jnp.finfo(mask.dtype).tiny, dtype=mask.dtype)
+    safe_tropical_weight_sum = jnp.where(
+        tropical_weight_sum > tiny_weight,
+        tropical_weight_sum,
+        jnp.ones_like(tropical_weight_sum),
+    )
+    safe_mask_weight_sum = jnp.where(
+        mask_weight_sum > tiny_weight,
+        mask_weight_sum,
+        jnp.ones_like(mask_weight_sum),
+    )
+    relaxation_timescale = _nondimensionalize_seconds(
+        physics_specs,
+        _TROPICAL_WTG_RELAXATION_TIMESCALE_DAYS * 24.0 * 3600.0,
+    )
+    relaxation_fraction = jnp.asarray(step_seconds / relaxation_timescale)
+    temperature_increment_cap = _unit_factor(physics_specs, "kelvin") * (
+        _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+    )
+
+    def tropical_wtg_mass_dse_relaxation_filter(
+        prev_state: Any,
+        next_state: Any,
+    ) -> Any:
+        del prev_state
+        aux_state = primitive_equations.compute_diagnostic_state_sigma(
+            next_state,
+            coords,
+        )
+        dry_static_energy_anomaly, geopotential = (
+            equation.nodal_dry_static_energy_anomaly(aux_state)
+        )
+        layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+            next_state
+        )
+        valid_layer_pressure_thickness = (
+            jnp.isfinite(layer_pressure_thickness)
+            & (layer_pressure_thickness > 0.0)
+        )
+        safe_layer_pressure_thickness = jnp.where(
+            valid_layer_pressure_thickness,
+            layer_pressure_thickness,
+            jnp.ones_like(layer_pressure_thickness),
+        )
+        mass_dse_anomaly = layer_pressure_thickness * dry_static_energy_anomaly
+        low_mode_mass_dse_anomaly = coords.horizontal.to_nodal(
+            coords.horizontal.to_modal(mass_dse_anomaly) * low_mode_mask
+        )
+        tropical_layer_mean = (
+            jnp.sum(
+                low_mode_mass_dse_anomaly * tropical_weights,
+                axis=(-2, -1),
+            )
+            / safe_tropical_weight_sum
+        )
+        masked_mass_dse_anomaly = mask * (
+            low_mode_mass_dse_anomaly
+            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+        )
+        mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+        raw_temperature_increment = (
+            mass_dse_increment / safe_layer_pressure_thickness / physics_specs.Cp
+        )
+        clipped_temperature_increment = jnp.clip(
+            raw_temperature_increment,
+            -temperature_increment_cap,
+            temperature_increment_cap,
+        )
+        layer_heat_offset = (
+            jnp.sum(
+                clipped_temperature_increment * quadrature_weights,
+                axis=(-2, -1),
+            )
+            / safe_mask_weight_sum
+        )
+        temperature_increment = clipped_temperature_increment - (
+            mask * layer_heat_offset[:, jnp.newaxis, jnp.newaxis]
+        )
+        temperature_increment = jnp.where(
+            mask_weight_sum[:, jnp.newaxis, jnp.newaxis] > tiny_weight,
+            temperature_increment,
+            jnp.zeros_like(temperature_increment),
+        )
+        corrected_temperature_variation = next_state.temperature_variation + (
+            coords.horizontal.to_modal(temperature_increment)
+        )
+        finite_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(jnp.isfinite(latitude_envelope)),
+                    jnp.all(jnp.isfinite(sigma_envelope)),
+                    jnp.all(jnp.isfinite(mask)),
+                    jnp.all(jnp.isfinite(low_mode_mask)),
+                    jnp.all(valid_layer_pressure_thickness),
+                    jnp.all(jnp.isfinite(dry_static_energy_anomaly)),
+                    jnp.all(jnp.isfinite(geopotential)),
+                    jnp.all(jnp.isfinite(mass_dse_anomaly)),
+                    jnp.all(jnp.isfinite(low_mode_mass_dse_anomaly)),
+                    jnp.all(jnp.isfinite(masked_mass_dse_anomaly)),
+                    jnp.all(jnp.isfinite(mass_dse_increment)),
+                    jnp.all(jnp.isfinite(raw_temperature_increment)),
+                    jnp.all(jnp.isfinite(clipped_temperature_increment)),
+                    jnp.all(jnp.isfinite(temperature_increment)),
+                    jnp.all(jnp.isfinite(corrected_temperature_variation)),
+                ]
+            )
+        )
+        temperature_variation = jnp.where(
+            finite_diagnostics,
+            corrected_temperature_variation,
+            next_state.temperature_variation,
+        )
+        return _primitive_equation_state(
+            vorticity=next_state.vorticity,
+            divergence=next_state.divergence,
+            temperature_variation=temperature_variation,
+            log_surface_pressure=next_state.log_surface_pressure,
+            tracers=next_state.tracers,
+            sim_time=next_state.sim_time,
+        )
+
+    return tropical_wtg_mass_dse_relaxation_filter
+
+
+def _tropical_wtg_latitude_envelope(
+    horizontal_grid: spherical_harmonic.Grid,
+) -> jax.Array:
+    """Return the fixed tropical WTG envelope: full inside 12 deg, zero by 27 deg."""
+    _, sin_latitude = horizontal_grid.nodal_mesh
+    absolute_sin_latitude = jnp.abs(sin_latitude)
+    full_sin_latitude = jnp.sin(jnp.deg2rad(_TROPICAL_WTG_FULL_LATITUDE_DEGREES))
+    zero_sin_latitude = jnp.sin(jnp.deg2rad(_TROPICAL_WTG_ZERO_LATITUDE_DEGREES))
+    taper_fraction = jnp.clip(
+        (absolute_sin_latitude - full_sin_latitude)
+        / (zero_sin_latitude - full_sin_latitude),
+        0.0,
+        1.0,
+    )
+    taper = 0.5 * (1.0 + jnp.cos(jnp.pi * taper_fraction))
+    return jnp.where(
+        absolute_sin_latitude <= full_sin_latitude,
+        1.0,
+        jnp.where(absolute_sin_latitude >= zero_sin_latitude, 0.0, taper),
+    )
+
+
+def _tropical_wtg_sigma_envelope(
+    vertical_coords: sigma_coordinates.SigmaCoordinates,
+) -> jax.Array:
+    """Return the fixed free-tropospheric WTG sigma envelope."""
+    sigma = jnp.asarray(vertical_coords.centers)
+    upper_fraction = jnp.clip(
+        (sigma - _TROPICAL_WTG_SIGMA_ZERO_TOP)
+        / (_TROPICAL_WTG_SIGMA_FULL_TOP - _TROPICAL_WTG_SIGMA_ZERO_TOP),
+        0.0,
+        1.0,
+    )
+    lower_fraction = jnp.clip(
+        (_TROPICAL_WTG_SIGMA_ZERO_BOTTOM - sigma)
+        / (_TROPICAL_WTG_SIGMA_ZERO_BOTTOM - _TROPICAL_WTG_SIGMA_FULL_BOTTOM),
+        0.0,
+        1.0,
+    )
+    upper_taper = 0.5 * (1.0 - jnp.cos(jnp.pi * upper_fraction))
+    lower_taper = 0.5 * (1.0 - jnp.cos(jnp.pi * lower_fraction))
+    return jnp.where(
+        (sigma >= _TROPICAL_WTG_SIGMA_FULL_TOP)
+        & (sigma <= _TROPICAL_WTG_SIGMA_FULL_BOTTOM),
+        1.0,
+        upper_taper * lower_taper,
+    )
+
+
+def _tropical_wtg_low_mode_mask(
+    horizontal_grid: spherical_harmonic.Grid,
+) -> jax.Array:
+    """Return the fixed smooth low-mode mask for WTG mass-DSE anomalies."""
+    _, total_wavenumber = horizontal_grid.modal_mesh
+    total_wavenumber = jnp.asarray(total_wavenumber, dtype=jnp.float32)
+    taper_fraction = jnp.clip(
+        (total_wavenumber - _TROPICAL_WTG_LOW_MODE_CUTOFF)
+        / (_TROPICAL_WTG_LOW_MODE_TAPER_ZERO - _TROPICAL_WTG_LOW_MODE_CUTOFF),
+        0.0,
+        1.0,
+    )
+    taper = 0.5 * (1.0 + jnp.cos(jnp.pi * taper_fraction))
+    low_mode_mask = jnp.where(
+        total_wavenumber <= _TROPICAL_WTG_LOW_MODE_CUTOFF,
+        1.0,
+        jnp.where(total_wavenumber >= _TROPICAL_WTG_LOW_MODE_TAPER_ZERO, 0.0, taper),
+    )
+    return low_mode_mask * jnp.asarray(horizontal_grid.mask, dtype=jnp.float32)
 
 
 def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
@@ -1099,6 +1338,17 @@ def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
         dry_static_energy_hsl_transport_dinosaur_dycore_model(),
         name="dino_hsl2_mass_dse",
         use_layer_mass_weighted_dse_hsl_transport=True,
+    )
+
+
+def tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return mass-DSE HSL with rollout-only tropical WTG thermal relaxation."""
+    return replace(
+        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
+        name="dino_hsl2_mass_dse_wtg",
+        apply_tropical_wtg_mass_dse_relaxation=True,
     )
 
 

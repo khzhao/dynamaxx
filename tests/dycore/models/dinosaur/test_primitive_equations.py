@@ -29,6 +29,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+    _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     DEFAULT_SPECTRAL_WAVENUMBERS,
@@ -64,6 +65,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _theta_layer_mean_recenter_step_filter,
     _to_dinosaur_latitude_order,
     _TracerSafeHeldSuarezForcingSigma,
+    _tropical_wtg_mass_dse_relaxation_step_filter,
     _unit_factor,
     _valid_land_sea_fraction_or_none,
     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
@@ -90,6 +92,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     supported_output_variables,
     theta_mean_recenter_dinosaur_dycore_model,
     theta_tendency_dinosaur_dycore_model,
+    tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
     weather_state_to_dinosaur_state,
 )
@@ -609,6 +612,25 @@ def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
     assert not incumbent.use_layer_mass_weighted_dse_hsl_transport
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_layer_mass_weighted_dse_hsl_transport"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_tropical_wtg_factory_preserves_mass_dse_except_selector():
+    """The WTG candidate changes only name and rollout WTG selector."""
+    model = tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
+    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_mass_dse_wtg"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert not incumbent.apply_tropical_wtg_mass_dse_relaxation
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "apply_tropical_wtg_mass_dse_relaxation"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -3693,7 +3715,88 @@ def test_theta_layer_mean_recenter_falls_back_for_nonfinite_pressure():
             tracer_value,
             bad_next_state.tracers[tracer_name],
         )
-    np.testing.assert_array_equal(corrected.sim_time, bad_next_state.sim_time)
+
+
+def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+    """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    step_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    modal_delta = corrected.temperature_variation - next_state.temperature_variation
+    nodal_delta = coords.horizontal.to_nodal(modal_delta)
+    assert float(jnp.max(jnp.abs(nodal_delta))) > 0.0
+    np.testing.assert_allclose(nodal_delta[0], 0.0, rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(nodal_delta[2], 0.0, rtol=1e-6, atol=1e-6)
+    temperature_increment_cap = _unit_factor(physics_specs, "kelvin") * (
+        _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+    )
+    polar_leakage = jnp.maximum(
+        jnp.max(jnp.abs(nodal_delta[:, :, 0])),
+        jnp.max(jnp.abs(nodal_delta[:, :, -1])),
+    )
+    assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    layer_mean_delta = (
+        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+        / jnp.sum(quadrature_weights)
+    )
+    np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+    assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+    np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+    np.testing.assert_array_equal(corrected.divergence, next_state.divergence)
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert corrected.tracers.keys() == next_state.tracers.keys()
+    for tracer_name, tracer_value in corrected.tracers.items():
+        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
+    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+
+
+def test_tropical_wtg_mass_dse_filter_falls_back_for_nonfinite_dse():
+    """Invalid DSE diagnostics preserve the incumbent next state exactly."""
+    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    reference_temperature = reference_temperature.copy()
+    reference_temperature[1] = np.nan
+    step_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    np.testing.assert_array_equal(
+        corrected.temperature_variation,
+        next_state.temperature_variation,
+    )
+    np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+    np.testing.assert_array_equal(corrected.divergence, next_state.divergence)
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert corrected.tracers.keys() == next_state.tracers.keys()
+    for tracer_name, tracer_value in corrected.tracers.items():
+        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
+    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
 
 
 def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
@@ -5340,6 +5443,64 @@ def test_dse_hsl_non_jit_forecast_smoke_is_finite(monkeypatch):
     assert bool(jnp.isfinite(forecast.values).all())
 
 
+def test_tropical_wtg_mass_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
+    """The WTG mass-DSE candidate runs a small non-JIT finite forecast."""
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        del equation, ode_solver, filters, time_span, cutoff_period, dt
+        return lambda dinosaur_state: dinosaur_state
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
+
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    model = replace(
+        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        apply_spectral_filter=False,
+        jit_forecast=False,
+    )
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0, 1),
+    )
+
+    forecast = model.forecast(forecast_input)
+
+    assert model.name == "dino_hsl2_mass_dse_wtg"
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert forecast.variables == output_variables
+    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(forecast.values).all())
+
+
 def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
     monkeypatch,
 ):
@@ -6023,6 +6184,73 @@ def test_trajectory_function_applies_theta_recenter_to_rollout_only(monkeypatch)
     ]
 
 
+def test_trajectory_function_applies_tropical_wtg_to_rollout_only(monkeypatch):
+    """The WTG relaxation wrapper is excluded from time-reversed DFI filters."""
+    rollout_filter_calls = []
+    dfi_calls = []
+    real_step_with_filters = time_integration.step_with_filters
+
+    def capture_step_with_filters(step_fn, filters):
+        rollout_filter_calls.append(tuple(filters))
+        return real_step_with_filters(step_fn, filters)
+
+    def fake_digital_filter_initialization(
+        equation,
+        ode_solver,
+        filters,
+        time_span,
+        cutoff_period,
+        dt,
+    ):
+        dfi_calls.append(tuple(filters))
+        return lambda dinosaur_state: dinosaur_state
+
+    monkeypatch.setattr(
+        time_integration,
+        "step_with_filters",
+        capture_step_with_filters,
+    )
+    monkeypatch.setattr(
+        time_integration,
+        "digital_filter_initialization",
+        fake_digital_filter_initialization,
+    )
+    coords, physics_specs, _, dinosaur_state = _synthetic_wtg_mass_dse_state()
+    model = replace(
+        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
+        inner_step_seconds=3600.0,
+        include_vertical_advection=False,
+        jit_forecast=False,
+    )
+
+    trajectory_fn = model._trajectory_function(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=3,
+            temperature_kelvin=model.reference_temperature_kelvin,
+        ),
+        inner_steps=1,
+        output_count=1,
+        use_humidity_in_dynamics=False,
+    )
+    trajectory_fn(dinosaur_state)
+
+    assert len(rollout_filter_calls) == 1
+    rollout_filter_names = [filter_fn.__name__ for filter_fn in rollout_filter_calls[0]]
+    assert rollout_filter_names[-2:] == [
+        "tropical_wtg_mass_dse_relaxation_filter",
+        "theta_layer_mean_recenter_filter",
+    ]
+    assert len(dfi_calls) == 1
+    assert "tropical_wtg_mass_dse_relaxation_filter" not in [
+        filter_fn.__name__ for filter_fn in dfi_calls[0]
+    ]
+    assert "theta_layer_mean_recenter_filter" not in [
+        filter_fn.__name__ for filter_fn in dfi_calls[0]
+    ]
+
+
 def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
     monkeypatch,
 ):
@@ -6160,6 +6388,63 @@ def _synthetic_coriolis_split_state():
             sim_time=jnp.asarray(3.5, dtype=jnp.float32),
         ),
     )
+
+
+def _synthetic_wtg_mass_dse_state():
+    physics_specs = units.SimUnits.from_si()
+    horizontal_grid = spherical_harmonic.Grid(
+        longitude_wavenumbers=6,
+        total_wavenumbers=8,
+        longitude_nodes=16,
+        latitude_nodes=9,
+        latitude_spacing="equiangular",
+        radius=physics_specs.radius,
+    )
+    coords = coordinate_systems.CoordinateSystem(
+        horizontal_grid,
+        sigma_coordinates.SigmaCoordinates.equidistant(3),
+    )
+    state_shape = (coords.vertical.layers, *coords.horizontal.modal_shape)
+    longitude, sin_latitude = coords.horizontal.nodal_mesh
+    tropical_wave = jnp.cos(longitude) * (1.0 - sin_latitude**2)
+    temperature_variation_nodal = (
+        jnp.zeros(coords.nodal_shape, dtype=jnp.float32)
+        .at[1]
+        .set(jnp.float32(4.0) * tropical_wave)
+    )
+    next_state = _primitive_equation_state(
+        vorticity=(
+            jnp.zeros(state_shape, dtype=jnp.float32)
+            .at[1, 1, 1]
+            .set(jnp.float32(0.05))
+        ),
+        divergence=(
+            jnp.zeros(state_shape, dtype=jnp.float32)
+            .at[1, 2, 1]
+            .set(jnp.float32(-0.03))
+        ),
+        temperature_variation=coords.horizontal.to_modal(temperature_variation_nodal),
+        log_surface_pressure=coords.horizontal.to_modal(
+            jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32)
+        )[jnp.newaxis],
+        tracers={
+            "specific_humidity": (
+                jnp.zeros(state_shape, dtype=jnp.float32)
+                .at[1, 0, 0]
+                .set(jnp.float32(0.001))
+            )
+        },
+        sim_time=jnp.asarray(6.0, dtype=jnp.float32),
+    )
+    prev_state = _primitive_equation_state(
+        vorticity=next_state.vorticity,
+        divergence=next_state.divergence,
+        temperature_variation=jnp.zeros_like(next_state.temperature_variation),
+        log_surface_pressure=next_state.log_surface_pressure,
+        tracers=next_state.tracers,
+        sim_time=jnp.asarray(5.0, dtype=jnp.float32),
+    )
+    return coords, physics_specs, prev_state, next_state
 
 
 def _linear_implicit_oscillator_equation(
