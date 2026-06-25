@@ -215,6 +215,15 @@ def dino_hsl2_mass_dse_wtg_model() -> DycoreModel:
     return tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
 
 
+def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+    """Return WTG mass-DSE with pressure-ramped vertical-DSE increments."""
+    from dynamaxx.dycore.models.dinosaur import (
+        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+    )
+
+    return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -293,6 +302,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+        dino_hsl2_mass_dse_wtg_vdse_ramp_model
+    ),
 }
 
 

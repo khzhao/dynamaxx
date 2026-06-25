@@ -133,6 +133,9 @@ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().na
 assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name == (
     "dino_hsl2_mass_dse_wtg"
 )
+assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+    "dino_hsl2_mass_dse_wtg_vdse_ramp"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -233,6 +236,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_hsl2_theta_dse_hsl",
         "dino_hsl2_mass_dse",
         "dino_hsl2_mass_dse_wtg",
+        "dino_hsl2_mass_dse_wtg_vdse_ramp",
     )
 
     model = create_dycore_model("dinosaur")
@@ -727,6 +731,25 @@ def test_dinosaur_tropical_wtg_mass_dse_is_registered():
     assert not incumbent.apply_tropical_wtg_mass_dse_relaxation
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_tropical_wtg_mass_dse_relaxation"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+    """The vertical-DSE ramp candidate is side-by-side with the WTG incumbent."""
+    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
+    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg")
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert not incumbent.use_pressure_ramped_vertical_dse_increment
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_pressure_ramped_vertical_dse_increment"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
