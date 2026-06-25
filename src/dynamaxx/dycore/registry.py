@@ -206,6 +206,15 @@ def dino_hsl2_mass_dse_model() -> DycoreModel:
     return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
 
 
+def dino_hsl2_mass_dse_wtg_model() -> DycoreModel:
+    """Return mass-DSE HSL with rollout-only tropical WTG relaxation."""
+    from dynamaxx.dycore.models.dinosaur import (
+        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
+    )
+
+    return tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -283,6 +292,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_hsl2_theta": dino_hsl2_theta_model,
     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+    "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
 }
 
 

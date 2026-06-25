@@ -65,6 +65,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     stability_aware_surface_residual_dinosaur_dycore_model,
     theta_mean_recenter_dinosaur_dycore_model,
     theta_tendency_dinosaur_dycore_model,
+    tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
 )
 
@@ -119,6 +120,7 @@ __all__ = [
     "theta_mean_recenter_dinosaur_dycore_model",
     "theta_tendency_dinosaur_dycore_model",
     "time_integration",
+    "tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model",
     "typing",
     "units",
     "vertical_interpolation",

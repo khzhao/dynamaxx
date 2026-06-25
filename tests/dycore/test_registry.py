@@ -54,6 +54,7 @@ def test_registry_lists_default_dycore_models():
         "dino_hsl2_theta",
         "dino_hsl2_theta_dse_hsl",
         "dino_hsl2_mass_dse",
+        "dino_hsl2_mass_dse_wtg",
     )
 
 
@@ -616,6 +617,25 @@ def test_registry_creates_layer_mass_dse_candidate_model():
     assert not incumbent.use_layer_mass_weighted_dse_hsl_transport
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_layer_mass_weighted_dse_hsl_transport"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_tropical_wtg_mass_dse_candidate_model():
+    """The WTG alias adds only the rollout tropical WTG selector."""
+    model = create_dycore_model("dino_hsl2_mass_dse_wtg")
+    incumbent = create_dycore_model("dino_hsl2_mass_dse")
+
+    assert model.name == "dino_hsl2_mass_dse_wtg"
+    assert len(model.name) < 32
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert not incumbent.apply_tropical_wtg_mass_dse_relaxation
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_tropical_wtg_mass_dse_relaxation"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
