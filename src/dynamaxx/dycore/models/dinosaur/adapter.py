@@ -70,6 +70,10 @@ _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
 _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
 _LAND_SEA_MASK_CHANNEL = "land_sea_mask"
 _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT = 0.5
+_LAND_OCEAN_LOW_MODE_T2M_MEMORY_DECAY_HOURS = 360.0
+_LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_START_HOURS = 120.0
+_LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_FULL_HOURS = 240.0
+_LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN = 1.5
 _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT = 1.0e-3
 _OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS = 10_000.0
 _OCEAN_BULK_SHF_MIN_EFOLDING_DAYS = 6.0
@@ -135,6 +139,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_stability_aware_near_surface_residual_decay: bool = False
     use_scale_separated_near_surface_residual: bool = False
     use_land_sea_surface_temperature_residual: bool = False
+    use_land_ocean_low_mode_t2m_memory: bool = False
     apply_ocean_bulk_sensible_heat_flux: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
@@ -190,6 +195,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         land_sea_fraction = None
         if (
             self.use_land_sea_surface_temperature_residual
+            or self.use_land_ocean_low_mode_t2m_memory
             or self.apply_ocean_bulk_sensible_heat_flux
         ):
             land_sea_fraction = _load_land_sea_fraction_for_grid(
@@ -288,6 +294,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     }
                     if self.use_land_sea_surface_temperature_residual:
                         residual_kwargs["land_sea_fraction"] = land_sea_fraction
+                    if self.use_land_ocean_low_mode_t2m_memory:
+                        residual_kwargs["land_sea_fraction"] = land_sea_fraction
+                        residual_kwargs["use_land_ocean_low_mode_t2m_memory"] = True
                 trajectory_state = residual_correction(
                     trajectory_state,
                     initial_state=single_state,
@@ -843,9 +852,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
             next_state
         )
-        valid_layer_pressure_thickness = (
-            jnp.isfinite(layer_pressure_thickness)
-            & (layer_pressure_thickness > 0.0)
+        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
+            layer_pressure_thickness > 0.0
         )
         safe_layer_pressure_thickness = jnp.where(
             valid_layer_pressure_thickness,
@@ -864,8 +872,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
             / safe_tropical_weight_sum
         )
         masked_mass_dse_anomaly = mask * (
-            low_mode_mass_dse_anomaly
-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
         )
         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
         raw_temperature_increment = (
@@ -1368,6 +1375,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
     )
 
 
+def land_ocean_low_mode_t2m_memory_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return vertical-DSE incumbent with late broad land/ocean T2m memory."""
+    return replace(
+        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
+        name="dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+        use_land_ocean_low_mode_t2m_memory=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -1800,6 +1818,7 @@ def _apply_scale_separated_near_surface_residual_correction(
     horizontal_grid: spherical_harmonic.Grid | None = None,
     latitude_reversed: bool = False,
     land_sea_fraction: jax.Array | None = None,
+    use_land_ocean_low_mode_t2m_memory: bool = False,
 ) -> WeatherState:
     """Apply low- and high-wavenumber residual memory to near-surface outputs."""
     incumbent_state = _apply_near_surface_residual_correction(
@@ -1873,6 +1892,26 @@ def _apply_scale_separated_near_surface_residual_correction(
             low_mode_residual[jnp.newaxis, ...] * channel_low_mode_decay
             + high_mode_residual[jnp.newaxis, ...] * channel_high_mode_decay
         )
+        if (
+            channel == TWO_METER_TEMPERATURE_VARIABLE
+            and use_land_ocean_low_mode_t2m_memory
+            and valid_land_sea_fraction is not None
+        ):
+            memory_correction, memory_is_valid = (
+                _land_ocean_low_mode_t2m_memory_correction(
+                    low_mode_residual,
+                    land_sea_fraction=valid_land_sea_fraction,
+                    horizontal_grid=horizontal_grid,
+                    latitude_reversed=latitude_reversed,
+                    lead_hours_array=lead_hours_array,
+                    incumbent_low_mode_decay=channel_low_mode_decay,
+                )
+            )
+            candidate_channel_values = jnp.where(
+                memory_is_valid,
+                candidate_channel_values + memory_correction,
+                candidate_channel_values,
+            )
         candidate_channel_values = jnp.where(
             lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
             initial_channel[jnp.newaxis, ...],
@@ -1889,6 +1928,118 @@ def _apply_scale_separated_near_surface_residual_correction(
         values=corrected_values,
         variables=trajectory_state.variables,
     )
+
+
+def _land_ocean_low_mode_t2m_memory_correction(
+    low_mode_residual: jax.Array,
+    *,
+    land_sea_fraction: jax.Array,
+    horizontal_grid: spherical_harmonic.Grid,
+    latitude_reversed: bool,
+    lead_hours_array: jax.Array,
+    incumbent_low_mode_decay: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Return a capped late-lead broad land/ocean T2m memory correction."""
+    broad_residual, residual_is_valid = _land_ocean_low_mode_t2m_residual(
+        low_mode_residual,
+        land_sea_fraction=land_sea_fraction,
+        horizontal_grid=horizontal_grid,
+        latitude_reversed=latitude_reversed,
+    )
+    lead_hours = lead_hours_array[:, jnp.newaxis, jnp.newaxis]
+    ramp_fraction = jnp.clip(
+        (lead_hours - _LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_START_HOURS)
+        / (
+            _LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_FULL_HOURS
+            - _LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_START_HOURS
+        ),
+        0.0,
+        1.0,
+    )
+    ramp = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
+    memory_decay = jnp.exp(
+        -lead_hours
+        / jnp.asarray(
+            _LAND_OCEAN_LOW_MODE_T2M_MEMORY_DECAY_HOURS,
+            dtype=lead_hours.dtype,
+        )
+    )
+    extra_decay = jnp.maximum(memory_decay - incumbent_low_mode_decay, 0.0) * ramp
+    uncapped_correction = broad_residual[jnp.newaxis, ...] * extra_decay
+    correction = jnp.clip(
+        uncapped_correction,
+        -_LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+        _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+    )
+    correction_is_valid = (
+        residual_is_valid
+        & jnp.all(jnp.isfinite(extra_decay))
+        & jnp.all(jnp.isfinite(correction))
+        & jnp.all(extra_decay >= 0.0)
+        & jnp.all(extra_decay <= 1.0)
+    )
+    return correction, correction_is_valid
+
+
+def _land_ocean_low_mode_t2m_residual(
+    low_mode_residual: jax.Array,
+    *,
+    land_sea_fraction: jax.Array,
+    horizontal_grid: spherical_harmonic.Grid,
+    latitude_reversed: bool,
+) -> tuple[jax.Array, jax.Array]:
+    """Return land/ocean broad means of the low-mode T2m residual."""
+    residual = jnp.asarray(low_mode_residual)
+    land_fraction = jnp.asarray(land_sea_fraction, dtype=residual.dtype)
+    ocean_fraction = 1.0 - land_fraction
+    quadrature_weights = jnp.asarray(
+        horizontal_grid.quadrature_weights,
+        dtype=residual.dtype,
+    )
+    quadrature_weights = _from_dinosaur_latitude_order(
+        quadrature_weights,
+        latitude_reversed,
+    )
+    land_weights = quadrature_weights * land_fraction
+    ocean_weights = quadrature_weights * ocean_fraction
+    tiny_weight = jnp.asarray(jnp.finfo(residual.dtype).tiny, dtype=residual.dtype)
+    land_weight_sum = jnp.sum(land_weights)
+    ocean_weight_sum = jnp.sum(ocean_weights)
+    safe_land_weight_sum = jnp.where(
+        land_weight_sum > tiny_weight,
+        land_weight_sum,
+        jnp.ones_like(land_weight_sum),
+    )
+    safe_ocean_weight_sum = jnp.where(
+        ocean_weight_sum > tiny_weight,
+        ocean_weight_sum,
+        jnp.ones_like(ocean_weight_sum),
+    )
+    land_mean = jnp.where(
+        land_weight_sum > tiny_weight,
+        jnp.sum(residual * land_weights) / safe_land_weight_sum,
+        jnp.zeros_like(land_weight_sum),
+    )
+    ocean_mean = jnp.where(
+        ocean_weight_sum > tiny_weight,
+        jnp.sum(residual * ocean_weights) / safe_ocean_weight_sum,
+        jnp.zeros_like(ocean_weight_sum),
+    )
+    broad_residual = land_fraction * land_mean + ocean_fraction * ocean_mean
+    residual_is_valid = jnp.all(
+        jnp.asarray(
+            [
+                jnp.all(jnp.isfinite(residual)),
+                jnp.all(jnp.isfinite(land_fraction)),
+                jnp.all(jnp.isfinite(quadrature_weights)),
+                jnp.all(land_fraction >= 0.0),
+                jnp.all(land_fraction <= 1.0),
+                jnp.all(quadrature_weights >= 0.0),
+                jnp.all(jnp.isfinite(broad_residual)),
+            ]
+        )
+    )
+    return broad_residual, residual_is_valid
 
 
 def _land_sea_surface_temperature_residual_decays(
@@ -2559,9 +2710,7 @@ def _primitive_equation(
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
             ),
-            use_dry_static_energy_hsl_transport=(
-                use_dry_static_energy_hsl_transport
-            ),
+            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
             ),
@@ -2586,9 +2735,7 @@ def _primitive_equation(
         use_midpoint_semilagrangian_theta_departure=(
             use_midpoint_semilagrangian_theta_departure
         ),
-        use_dry_static_energy_hsl_transport=(
-            use_dry_static_energy_hsl_transport
-        ),
+        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
         use_layer_mass_weighted_dse_hsl_transport=(
             use_layer_mass_weighted_dse_hsl_transport
         ),
