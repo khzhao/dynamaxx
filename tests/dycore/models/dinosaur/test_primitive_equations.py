@@ -30,6 +30,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+    _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
     _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
@@ -42,6 +43,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _analysis_offset_weak_hs_low_mode_mask,
     _apply_near_surface_residual_correction,
     _apply_scale_separated_near_surface_residual_correction,
+    _bulk_richardson_2m_temperature,
     _compose_ocean_bulk_sensible_heat_flux_equation,
     _compose_weak_held_suarez_equation,
     _exact_coriolis_rotation_step_filter,
@@ -71,6 +73,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _unit_factor,
     _valid_land_sea_fraction_or_none,
     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
+    bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model,
     coriolis_split_dinosaur_dycore_model,
     coriolis_strang_split_dinosaur_dycore_model,
     digital_filter_dinosaur_dycore_model,
@@ -179,6 +182,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_land_sea_surface_temperature_residual
     assert not model.use_land_ocean_low_mode_t2m_memory
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
+    assert not model.use_bulk_richardson_2m_temperature_diagnostic
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
@@ -675,6 +679,27 @@ def test_land_ocean_low_mode_t2m_memory_factory_preserves_ramp_except_selector()
     assert not incumbent.use_land_ocean_low_mode_t2m_memory
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_bulk_richardson_2m_temperature_factory_preserves_incumbent_except_selector():
+    """The RI2m candidate changes only name and raw T2m diagnostic selector."""
+    model = bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model()
+    incumbent = land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert not incumbent.use_bulk_richardson_2m_temperature_diagnostic
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_bulk_richardson_2m_temperature_diagnostic"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -2506,6 +2531,127 @@ def test_surface_layer_richardson_10m_wind_falls_back_for_invalid_columns():
     np.testing.assert_array_equal(diagnosed_v_wind[0, 0, 1], v_wind[0, -1, 0, 1])
 
 
+def test_bulk_richardson_2m_temperature_scales_stability_regimes():
+    """Stable columns cool the raw screen diagnostic relative to unstable columns."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.99, 1.0], dtype=np.float32)
+    )
+    lower_temperature = 290.0
+    neutral_upper_temperature = lower_temperature * (
+        sigma_coords.centers[-2] / sigma_coords.centers[-1]
+    ) ** (2.0 / 7.0)
+    upper_temperature = jnp.asarray(
+        [
+            neutral_upper_temperature + 90.0,
+            neutral_upper_temperature,
+            neutral_upper_temperature - 90.0,
+        ],
+        dtype=jnp.float32,
+    )
+    temperature = jnp.stack(
+        [
+            upper_temperature,
+            jnp.full_like(upper_temperature, lower_temperature),
+        ],
+        axis=0,
+    )[jnp.newaxis, :, jnp.newaxis, :]
+    u_wind = jnp.stack(
+        [
+            jnp.full_like(upper_temperature, 8.0),
+            jnp.full_like(upper_temperature, 6.0),
+        ],
+        axis=0,
+    )[jnp.newaxis, :, jnp.newaxis, :]
+    v_wind = jnp.stack(
+        [
+            jnp.full_like(upper_temperature, -2.0),
+            jnp.full_like(upper_temperature, -1.0),
+        ],
+        axis=0,
+    )[jnp.newaxis, :, jnp.newaxis, :]
+    surface_pressure_hpa = jnp.full((1, 1, 3), 1000.0, dtype=jnp.float32)
+
+    diagnosed_temperature = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+
+    departure = diagnosed_temperature[0, 0] - lower_temperature
+    assert bool(jnp.isfinite(diagnosed_temperature).all())
+    assert float(departure[0]) < float(departure[1]) < float(departure[2])
+    assert float(jnp.max(jnp.abs(departure))) <= (
+        _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN
+    )
+
+
+def test_bulk_richardson_2m_temperature_enforces_departure_cap():
+    """The raw screen diagnostic cannot depart more than the fixed cap."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.2, 1.0], dtype=np.float32)
+    )
+    temperature = jnp.asarray([[[[280.0]], [[290.0]]]], dtype=jnp.float32)
+    u_wind = jnp.asarray([[[[2.0]], [[2.5]]]], dtype=jnp.float32)
+    v_wind = jnp.asarray([[[[0.0]], [[0.5]]]], dtype=jnp.float32)
+    surface_pressure_hpa = jnp.full((1, 1, 1), 1000.0, dtype=jnp.float32)
+
+    diagnosed_temperature = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+
+    departure = diagnosed_temperature - temperature[:, -1]
+    np.testing.assert_allclose(
+        departure,
+        _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+        rtol=1e-6,
+        atol=1e-6,
+    )
+
+
+def test_bulk_richardson_2m_temperature_falls_back_for_invalid_columns():
+    """Invalid pressure, temperature, or wind diagnostics preserve lowest-layer T."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.99, 1.0], dtype=np.float32)
+    )
+    temperature = jnp.asarray(
+        [[[[280.0, jnp.nan, 280.0, 280.0]], [[290.0, 290.0, 290.0, 290.0]]]],
+        dtype=jnp.float32,
+    )
+    u_wind = jnp.asarray(
+        [[[[5.0, 5.0, jnp.nan, 5.0]], [[4.0, 4.0, 4.0, 4.0]]]],
+        dtype=jnp.float32,
+    )
+    v_wind = jnp.asarray(
+        [[[[1.0, 1.0, 1.0, 1.0]], [[0.5, 0.5, 0.5, 0.5]]]],
+        dtype=jnp.float32,
+    )
+    surface_pressure_hpa = jnp.asarray(
+        [[[1000.0, 1000.0, 1000.0, -10.0]]],
+        dtype=jnp.float32,
+    )
+
+    diagnosed_temperature = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+
+    lowest_temperature = temperature[:, -1]
+    assert float(diagnosed_temperature[0, 0, 0]) != float(lowest_temperature[0, 0, 0])
+    np.testing.assert_array_equal(
+        diagnosed_temperature[0, 0, 1:],
+        lowest_temperature[0, 0, 1:],
+    )
+
+
 def test_dinosaur_forecast_handles_multiple_initial_times():
     """Dinosaur forecasts preserve the initialization-time axis."""
     model = DinosaurPrimitiveEquationsDycoreModel(
@@ -3336,6 +3482,155 @@ def test_richardson_10m_wind_diagnostic_only_changes_raw_surface_wind():
             candidate.select(("10m_v_component_of_wind",)).values
             != incumbent.select(("10m_v_component_of_wind",)).values
         )
+    )
+
+
+def test_bulk_richardson_2m_temperature_only_changes_raw_t2m():
+    """The opt-in raw T2m diagnostic preserves winds and mass diagnostics."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    state = weather_state_to_dinosaur_state(
+        WeatherState(
+            values=forecast_input.initial_state.values[0],
+            variables=forecast_input.initial_state.variables,
+        ),
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value, value]), state)
+    output_variables = (
+        "temperature_500",
+        "u_component_of_wind_500",
+        "v_component_of_wind_500",
+        "geopotential_500",
+        "specific_humidity_500",
+        "surface_pressure",
+        "mean_sea_level_pressure",
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+    )
+    common_kwargs = {
+        "trajectory": trajectory,
+        "coords": grid.coords,
+        "pressure_levels_hpa": pressure_levels_hpa,
+        "latitude_reversed": grid.latitude_reversed,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "output_variables": output_variables,
+        "use_surface_layer_richardson_10m_wind_diagnostic": True,
+    }
+
+    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
+    candidate = dinosaur_state_to_weather_state(
+        **common_kwargs,
+        use_bulk_richardson_2m_temperature_diagnostic=True,
+    )
+
+    unchanged_variables = tuple(
+        variable for variable in output_variables if variable != "2m_temperature"
+    )
+    np.testing.assert_array_equal(
+        candidate.select(unchanged_variables).values,
+        incumbent.select(unchanged_variables).values,
+    )
+    assert bool(jnp.isfinite(candidate.values).all())
+    assert bool(
+        jnp.any(
+            candidate.select(("2m_temperature",)).values
+            != incumbent.select(("2m_temperature",)).values
+        )
+    )
+
+
+def test_bulk_richardson_2m_temperature_keeps_residual_lead_zero_exact():
+    """Residual correction still replaces lead-zero raw T2m with analysis."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (100, 500, 900)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=len(pressure_levels_hpa),
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=len(pressure_levels_hpa),
+        temperature_kelvin=250.0,
+    )
+    initial_state = WeatherState(
+        values=forecast_input.initial_state.values[0],
+        variables=forecast_input.initial_state.variables,
+    )
+    state = weather_state_to_dinosaur_state(
+        initial_state,
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        include_humidity=True,
+    )
+    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value, value]), state)
+    output_variables = (
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+    )
+    raw_candidate = dinosaur_state_to_weather_state(
+        trajectory,
+        coords=grid.coords,
+        pressure_levels_hpa=pressure_levels_hpa,
+        latitude_reversed=grid.latitude_reversed,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        output_variables=output_variables,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+        use_bulk_richardson_2m_temperature_diagnostic=True,
+    )
+
+    corrected = _apply_scale_separated_near_surface_residual_correction(
+        raw_candidate,
+        initial_state=initial_state,
+        lead_steps=(0, 1),
+        lead_hours=(0, 1),
+        decay_hours=48.0,
+        use_stability_aware_decay=True,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+        land_sea_fraction=jnp.zeros((4, 3), dtype=jnp.float32),
+        use_land_ocean_low_mode_t2m_memory=True,
+    )
+
+    np.testing.assert_array_equal(
+        corrected.select(("2m_temperature",)).values[0, 0],
+        initial_state.select(("2m_temperature",)).values[0],
+    )
+    np.testing.assert_array_equal(
+        corrected.select(("10m_u_component_of_wind",)).values[0, 0],
+        initial_state.select(("10m_u_component_of_wind",)).values[0],
     )
 
 
