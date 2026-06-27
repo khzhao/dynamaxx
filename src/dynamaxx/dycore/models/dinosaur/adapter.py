@@ -82,6 +82,8 @@ _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
 _SURFACE_LAYER_REFERENCE_HEIGHT_METERS = 10.0
+_SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS = 2.0
+_SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN = 1.5
 _TROPICAL_WTG_FULL_LATITUDE_DEGREES = 12.0
 _TROPICAL_WTG_ZERO_LATITUDE_DEGREES = 27.0
 _TROPICAL_WTG_SIGMA_ZERO_TOP = 0.20
@@ -142,6 +144,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_land_ocean_low_mode_t2m_memory: bool = False
     apply_ocean_bulk_sensible_heat_flux: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+    use_bulk_richardson_2m_temperature_diagnostic: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
     temperature_tendency_formulation: str = (
@@ -278,6 +281,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 output_variables=output_variables,
                 use_surface_layer_richardson_10m_wind_diagnostic=(
                     self.use_surface_layer_richardson_10m_wind_diagnostic
+                ),
+                use_bulk_richardson_2m_temperature_diagnostic=(
+                    self.use_bulk_richardson_2m_temperature_diagnostic
                 ),
             )
             if self.apply_near_surface_residual_correction:
@@ -1386,6 +1392,17 @@ def land_ocean_low_mode_t2m_memory_dinosaur_dycore_model() -> (
     )
 
 
+def bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the low-mode T2m incumbent with bounded raw 2 m temperature output."""
+    return replace(
+        land_ocean_low_mode_t2m_memory_dinosaur_dycore_model(),
+        name="dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+        use_bulk_richardson_2m_temperature_diagnostic=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -1531,6 +1548,7 @@ def dinosaur_state_to_weather_state(
     reference_temperature: np.ndarray,
     output_variables: tuple[str, ...],
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
+    use_bulk_richardson_2m_temperature_diagnostic: bool = False,
 ) -> WeatherState:
     """Convert a Dinosaur trajectory into packed WeatherState channels."""
     temperature = (
@@ -1611,6 +1629,15 @@ def dinosaur_state_to_weather_state(
             surface_pressure_hpa=surface_pressure_hpa,
             sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
         )
+    two_meter_temperature = temperature[:, -1]
+    if use_bulk_richardson_2m_temperature_diagnostic:
+        two_meter_temperature = _bulk_richardson_2m_temperature(
+            temperature=temperature,
+            u_wind=u_wind,
+            v_wind=v_wind,
+            surface_pressure_hpa=surface_pressure_hpa,
+            sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
+        )
 
     level_to_index = {
         pressure_level: level_index
@@ -1638,7 +1665,7 @@ def dinosaur_state_to_weather_state(
                 :, level_to_index[pressure_level]
             ]
         elif channel == TWO_METER_TEMPERATURE_VARIABLE:
-            field = temperature[:, -1]
+            field = two_meter_temperature
         elif channel == TEN_METER_U_WIND_VARIABLE:
             field = ten_meter_u_wind
         elif channel == TEN_METER_V_WIND_VARIABLE:
@@ -1653,6 +1680,107 @@ def dinosaur_state_to_weather_state(
         values=jnp.stack(fields, axis=1),
         variables=output_variables,
     )
+
+
+def _bulk_richardson_2m_temperature(
+    *,
+    temperature: jax.Array,
+    u_wind: jax.Array,
+    v_wind: jax.Array,
+    surface_pressure_hpa: jax.Array,
+    sigma_coords: sigma_coordinates.SigmaCoordinates,
+) -> jax.Array:
+    """Diagnose 2 m temperature with bounded lower-column theta extrapolation."""
+    lowest_temperature = temperature[:, -1]
+    if sigma_coords.layers < 2:
+        return lowest_temperature
+
+    lower_sigma = float(sigma_coords.centers[-1])
+    upper_sigma = float(sigma_coords.centers[-2])
+    lower_pressure_hpa = jnp.maximum(surface_pressure_hpa * lower_sigma, 1.0)
+    upper_pressure_hpa = jnp.maximum(surface_pressure_hpa * upper_sigma, 1.0)
+    screen_pressure_hpa = jnp.maximum(surface_pressure_hpa, 1.0)
+    upper_temperature = temperature[:, -2]
+    lower_theta = (
+        lowest_temperature
+        * (1000.0 / lower_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    upper_theta = (
+        upper_temperature
+        * (1000.0 / upper_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    mean_temperature = jnp.maximum(0.5 * (lowest_temperature + upper_temperature), 1.0)
+    mean_theta = jnp.maximum(0.5 * (lower_theta + upper_theta), 1.0)
+
+    pressure_ratio = jnp.maximum(lower_pressure_hpa / upper_pressure_hpa, 1.0)
+    layer_separation_meters = (
+        _DRY_AIR_GAS_CONSTANT_SI * mean_temperature / _GRAVITY_ACCELERATION_SI
+    ) * jnp.log(pressure_ratio)
+    lowest_layer_height_meters = (
+        _DRY_AIR_GAS_CONSTANT_SI * lowest_temperature / _GRAVITY_ACCELERATION_SI
+    ) * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
+    layer_separation_meters = jnp.maximum(layer_separation_meters, 1.0)
+    lowest_layer_height_meters = jnp.maximum(
+        lowest_layer_height_meters,
+        _SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS,
+    )
+
+    lowest_u_wind = u_wind[:, -1]
+    lowest_v_wind = v_wind[:, -1]
+    squared_shear = (u_wind[:, -2] - lowest_u_wind) ** 2 + (
+        v_wind[:, -2] - lowest_v_wind
+    ) ** 2
+    squared_shear = jnp.maximum(
+        squared_shear,
+        _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND**2,
+    )
+    richardson_number = (
+        (_GRAVITY_ACCELERATION_SI / mean_theta)
+        * (upper_theta - lower_theta)
+        * layer_separation_meters
+        / squared_shear
+    )
+    richardson_number = jnp.clip(richardson_number, -1.0, 1.0)
+
+    screen_fraction = (
+        lowest_layer_height_meters - _SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS
+    ) / layer_separation_meters
+    screen_fraction = jnp.clip(screen_fraction, 0.0, 1.0)
+    stability_limiter = 1.0 / (1.0 + 2.0 * jnp.abs(richardson_number))
+    screen_theta = lower_theta + (
+        (lower_theta - upper_theta) * screen_fraction * stability_limiter
+    )
+    screen_temperature = screen_theta / (
+        (1000.0 / screen_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    temperature_departure = jnp.clip(
+        screen_temperature - lowest_temperature,
+        -_SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+        _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+    )
+    diagnosed_temperature = lowest_temperature + temperature_departure
+
+    required_values = jnp.stack(
+        [
+            lowest_temperature,
+            upper_temperature,
+            lowest_u_wind,
+            u_wind[:, -2],
+            lowest_v_wind,
+            v_wind[:, -2],
+            surface_pressure_hpa,
+            layer_separation_meters,
+            lowest_layer_height_meters,
+            diagnosed_temperature,
+        ]
+    )
+    finite_mask = jnp.all(jnp.isfinite(required_values), axis=0) & (
+        surface_pressure_hpa > 0.0
+    )
+    return jnp.where(finite_mask, diagnosed_temperature, lowest_temperature)
 
 
 def _surface_layer_richardson_10m_wind(

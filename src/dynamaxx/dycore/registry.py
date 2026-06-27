@@ -233,6 +233,15 @@ def dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_model() -> DycoreModel:
     return land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
 
 
+def dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model() -> DycoreModel:
+    """Return low-mode T2m incumbent with bounded raw 2 m temperature output."""
+    from dynamaxx.dycore.models.dinosaur import (
+        bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model,
+    )
+
+    return bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -314,6 +323,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
     "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem": (
         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_model
+    ),
+    "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m": (
+        dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
     ),
 }
 
