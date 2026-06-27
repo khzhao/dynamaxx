@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
 
 
+def dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_model() -> DycoreModel:
+    """Return vertical-DSE incumbent with broad land/ocean T2m memory."""
+    from dynamaxx.dycore.models.dinosaur import (
+        land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
+    )
+
+    return land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -302,8 +311,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
+    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
+    "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem": (
+        dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_model
     ),
 }
 

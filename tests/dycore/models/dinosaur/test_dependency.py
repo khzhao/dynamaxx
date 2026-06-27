@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
 assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
     "dino_hsl2_mass_dse_wtg_vdse_ramp"
 )
+assert dinosaur.land_ocean_low_mode_t2m_memory_dinosaur_dycore_model().name == (
+    "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_hsl2_mass_dse",
         "dino_hsl2_mass_dse_wtg",
         "dino_hsl2_mass_dse_wtg_vdse_ramp",
+        "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
     )
 
     model = create_dycore_model("dinosaur")
@@ -750,6 +754,26 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
     assert not incumbent.use_pressure_ramped_vertical_dse_increment
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_pressure_ramped_vertical_dse_increment"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_land_ocean_low_mode_t2m_memory_is_registered():
+    """The broad T2m memory candidate is side-by-side with the ramp incumbent."""
+    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_t2m_lomem")
+    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert not incumbent.use_land_ocean_low_mode_t2m_memory
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

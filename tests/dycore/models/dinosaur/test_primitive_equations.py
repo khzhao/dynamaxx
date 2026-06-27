@@ -25,6 +25,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER,
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
     _DRY_AIR_GAS_CONSTANT_SI,
+    _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
@@ -48,6 +49,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _hydrostatic_temperature_from_geopotential_thickness,
     _inner_steps_per_forecast_step,
     _interp_sigma_to_pressure_by_time,
+    _land_ocean_low_mode_t2m_memory_correction,
     _land_sea_surface_temperature_residual_decays,
     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
     _nondimensionalize_seconds,
@@ -78,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
+    land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
     land_sea_surface_temperature_dinosaur_dycore_model,
     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
@@ -174,6 +177,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_stability_aware_near_surface_residual_decay
     assert not model.use_scale_separated_near_surface_residual
     assert not model.use_land_sea_surface_temperature_residual
+    assert not model.use_land_ocean_low_mode_t2m_memory
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
@@ -651,6 +655,26 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
     assert not incumbent.use_pressure_ramped_vertical_dse_increment
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_pressure_ramped_vertical_dse_increment"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_land_ocean_low_mode_t2m_memory_factory_preserves_ramp_except_selector():
+    """The candidate changes only name and the broad T2m memory selector."""
+    model = land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
+    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+
+    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert not incumbent.use_land_ocean_low_mode_t2m_memory
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -1855,6 +1879,57 @@ def test_land_sea_surface_temperature_decay_blends_land_ocean_and_coast():
     )
 
 
+def test_land_ocean_low_mode_t2m_memory_is_capped_and_late():
+    """Broad land/ocean memory is zero through day 5 and capped afterward."""
+    grid = grid_metadata(
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    low_mode_residual = jnp.asarray(
+        [
+            [4.0, 4.0, 4.0],
+            [4.0, 4.0, 4.0],
+            [-2.0, -2.0, -2.0],
+            [-2.0, -2.0, -2.0],
+        ],
+        dtype=jnp.float32,
+    )
+    land_sea_fraction = jnp.asarray(
+        [
+            [1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ],
+        dtype=jnp.float32,
+    )
+    lead_hours = jnp.asarray([0.0, 120.0, 240.0], dtype=jnp.float32)
+    incumbent_decay = jnp.zeros((3, 4, 3), dtype=jnp.float32)
+
+    correction, correction_is_valid = _land_ocean_low_mode_t2m_memory_correction(
+        low_mode_residual,
+        land_sea_fraction=land_sea_fraction,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+        lead_hours_array=lead_hours,
+        incumbent_low_mode_decay=incumbent_decay,
+    )
+
+    assert bool(correction_is_valid)
+    np.testing.assert_array_equal(correction[0], 0.0)
+    np.testing.assert_array_equal(correction[1], 0.0)
+    np.testing.assert_allclose(
+        correction[2, :2],
+        _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+    )
+    assert float(jnp.max(jnp.abs(correction))) <= (
+        _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN
+    )
+    assert float(jnp.min(correction[2, 2:])) < 0.0
+
+
 def test_land_sea_fraction_validation_rejects_unsafe_masks():
     """Invalid masks are rejected before they can alter residual memory."""
     assert _valid_land_sea_fraction_or_none(None, (2, 2)) is None
@@ -1979,6 +2054,91 @@ def test_land_sea_surface_temperature_correction_preserves_non_t2m_channels():
     )
 
 
+def test_land_ocean_low_mode_t2m_memory_adds_only_late_temperature():
+    """The low-mode memory candidate preserves early leads and non-T2m outputs."""
+    raw_temperature = jnp.stack(
+        [
+            jnp.full((4, 3), 280.0, dtype=jnp.float32),
+            jnp.full((4, 3), 281.0, dtype=jnp.float32),
+            jnp.full((4, 3), 282.0, dtype=jnp.float32),
+        ]
+    )
+    raw_u_wind = jnp.stack(
+        [
+            jnp.full((4, 3), 1.0, dtype=jnp.float32),
+            jnp.full((4, 3), 1.5, dtype=jnp.float32),
+            jnp.full((4, 3), 2.0, dtype=jnp.float32),
+        ]
+    )
+    raw_pressure = jnp.stack(
+        [
+            jnp.full((4, 3), 100000.0, dtype=jnp.float32),
+            jnp.full((4, 3), 99900.0, dtype=jnp.float32),
+            jnp.full((4, 3), 99800.0, dtype=jnp.float32),
+        ]
+    )
+    trajectory_state = WeatherState(
+        values=jnp.stack([raw_temperature, raw_u_wind, raw_pressure], axis=1),
+        variables=(
+            "2m_temperature",
+            "10m_u_component_of_wind",
+            "mean_sea_level_pressure",
+        ),
+    )
+    initial_temperature = jnp.full((4, 3), 284.0, dtype=jnp.float32)
+    initial_u_wind = jnp.full((4, 3), 4.0, dtype=jnp.float32)
+    initial_state = WeatherState(
+        values=jnp.stack([initial_temperature, initial_u_wind]),
+        variables=("2m_temperature", "10m_u_component_of_wind"),
+    )
+    grid = grid_metadata(
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        layer_count=2,
+        spectral_wavenumbers=None,
+    )
+    land_sea_fraction = jnp.ones((4, 3), dtype=jnp.float32)
+
+    incumbent = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1, 2),
+        lead_hours=(0, 120, 240),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+        land_sea_fraction=land_sea_fraction,
+    )
+    corrected = _apply_scale_separated_near_surface_residual_correction(
+        trajectory_state,
+        initial_state=initial_state,
+        lead_steps=(0, 1, 2),
+        lead_hours=(0, 120, 240),
+        decay_hours=48.0,
+        horizontal_grid=grid.coords.horizontal,
+        latitude_reversed=grid.latitude_reversed,
+        land_sea_fraction=land_sea_fraction,
+        use_land_ocean_low_mode_t2m_memory=True,
+    )
+
+    corrected_temperature = corrected.select(("2m_temperature",)).values[:, 0]
+    incumbent_temperature = incumbent.select(("2m_temperature",)).values[:, 0]
+    np.testing.assert_array_equal(corrected_temperature[0], initial_temperature)
+    np.testing.assert_allclose(corrected_temperature[1], incumbent_temperature[1])
+    assert float(jnp.min(corrected_temperature[2] - incumbent_temperature[2])) > 0.0
+    assert float(
+        jnp.max(jnp.abs(corrected_temperature[2] - incumbent_temperature[2]))
+    ) <= (_LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN + 1.0e-6)
+    np.testing.assert_array_equal(
+        corrected.select(("10m_u_component_of_wind",)).values,
+        incumbent.select(("10m_u_component_of_wind",)).values,
+    )
+    np.testing.assert_array_equal(
+        corrected.select(("mean_sea_level_pressure",)).values,
+        trajectory_state.select(("mean_sea_level_pressure",)).values,
+    )
+
+
 def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
     """Missing or unsafe masks leave the scale-separated incumbent unchanged."""
     raw_temperature = jnp.stack(
@@ -2031,6 +2191,7 @@ def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
             horizontal_grid=grid.coords.horizontal,
             latitude_reversed=grid.latitude_reversed,
             land_sea_fraction=invalid_mask,
+            use_land_ocean_low_mode_t2m_memory=True,
         )
 
         np.testing.assert_array_equal(fallback.values, incumbent.values)
@@ -3809,10 +3970,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
     )
     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
-    layer_mean_delta = (
-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
-        / jnp.sum(quadrature_weights)
-    )
+    layer_mean_delta = jnp.sum(
+        nodal_delta * quadrature_weights, axis=(-2, -1)
+    ) / jnp.sum(quadrature_weights)
     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
@@ -4866,10 +5026,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
-    layer_mean = (
-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
-        / jnp.sum(quadrature_weights)
-    )
+    layer_mean = jnp.sum(
+        captured["scalar"] * quadrature_weights, axis=(-2, -1)
+    ) / jnp.sum(quadrature_weights)
     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
 
 
@@ -6730,9 +6889,7 @@ def _synthetic_wtg_mass_dse_state():
     )
     next_state = _primitive_equation_state(
         vorticity=(
-            jnp.zeros(state_shape, dtype=jnp.float32)
-            .at[1, 1, 1]
-            .set(jnp.float32(0.05))
+            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
         ),
         divergence=(
             jnp.zeros(state_shape, dtype=jnp.float32)
