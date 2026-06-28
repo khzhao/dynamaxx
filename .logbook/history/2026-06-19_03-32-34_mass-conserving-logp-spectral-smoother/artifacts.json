@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "mass-conserving-logp-spectral-smoother",
+  "history_path": ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "status": "reverted_after_rejection"
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_logp_spectral_smoother.json",
+      "protocol": "fast",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_logp_spectral_smoother.csv",
+      "protocol": "fast",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_logp_spectral_smoother.json",
+      "protocol": "iteration",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_logp_spectral_smoother.csv",
+      "protocol": "iteration",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+      "protocol": "iteration",
+      "model_role": "incumbent",
+      "source": "reused_from_leaderboard_cache"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv",
+      "protocol": "iteration",
+      "model_role": "incumbent",
+      "source": "reused_from_leaderboard_cache"
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother/proposal.md",
+    ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother/implementation.md",
+    ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother/scores.json",
+    ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother/scoring_notes.md",
+    ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother/decision.md",
+    ".logbook/history/2026-06-19_03-32-34_mass-conserving-logp-spectral-smoother/artifacts.json"
+  ],
+  "notes": "Rejected because iteration delta +0.0000014025155478103457 did not meet the +0.002 promotion threshold. Validation and golden were not run."
+}

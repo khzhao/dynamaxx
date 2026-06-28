@@ -1,0 +1,1407 @@
+{
+  "artifacts": {
+    "fast_candidate": {
+      "csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg.csv",
+      "json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg.json"
+    },
+    "iteration_candidate": {
+      "csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.csv",
+      "json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.json"
+    },
+    "iteration_incumbent_reused": {
+      "csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "json": "outputs/eval/iteration_dino_hsl2_mass_dse.json"
+    },
+    "validation_candidate": {
+      "csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.csv",
+      "json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.json"
+    },
+    "validation_incumbent_reused": {
+      "csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "json": "outputs/eval/validation_dino_hsl2_mass_dse.json"
+    }
+  },
+  "cache_reuse": {
+    "iteration": {
+      "artifact_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "artifact_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "reason": "Requested incumbent equals leaderboard incumbent; fingerprint includes iteration with matching data path, target variables, lead_days, and eval_code_commit; artifact exists, is readable, finite, and contains incumbent rows needed for guardrails. Current uncommitted changes are candidate dycore/registry/tests only and do not invalidate the accepted incumbent cache.",
+      "reused": true,
+      "validation_checks": {
+        "csv_exists": true,
+        "current_head_equals_eval_code_commit": true,
+        "dirty_paths_do_not_include_eval_code": true,
+        "finite_primary_score": true,
+        "incumbent_model_records": 60,
+        "json_exists": true,
+        "requested_incumbent_equals_leaderboard": true,
+        "total_records": 120
+      }
+    },
+    "validation": {
+      "artifact_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "artifact_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "reason": "Same valid leaderboard cache, with validation included in the fingerprint and readable validation artifacts containing finite incumbent metrics and guardrail rows.",
+      "reused": true,
+      "validation_checks": {
+        "csv_exists": true,
+        "current_head_equals_eval_code_commit": true,
+        "dirty_paths_do_not_include_eval_code": true,
+        "finite_primary_score": true,
+        "incumbent_model_records": 60,
+        "json_exists": true,
+        "requested_incumbent_equals_leaderboard": true,
+        "total_records": 120
+      }
+    }
+  },
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg",
+  "commands": [
+    {
+      "candidate_failure": false,
+      "command": "python registry import using list_models",
+      "exit_status": 1,
+      "purpose": "Initial registration probe; failed because list_models is not an exported registry helper."
+    },
+    {
+      "candidate_failure": false,
+      "command": "python registry import using AVAILABLE_MODELS",
+      "exit_status": 1,
+      "purpose": "Second registration probe; failed because AVAILABLE_MODELS is not an exported registry helper."
+    },
+    {
+      "command": "python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\n...\nPY",
+      "exit_status": 0,
+      "purpose": "Confirmed candidate and incumbent models are registered and constructible."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg",
+      "exit_status": 0,
+      "purpose": "Candidate fast sanity gate, run by Implementer and verified/reused by Scorer.",
+      "rerun_by_scorer": false
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg --workers 4",
+      "exit_status": 0,
+      "purpose": "Candidate iteration promotion evaluation.",
+      "result_summary": "failed=False issues=0 records=120 primary_score=-0.258512 metrics=outputs/eval/iteration_dino_hsl2_mass_dse_wtg.json"
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg --workers 4",
+      "exit_status": 0,
+      "purpose": "Candidate validation evaluation after iteration gate passed.",
+      "result_summary": "failed=False issues=0 records=120 primary_score=-0.25704 metrics=outputs/eval/validation_dino_hsl2_mass_dse_wtg.json"
+    }
+  ],
+  "fast": {
+    "candidate": {
+      "csv_exists": true,
+      "csv_path": "outputs/eval/fast_dino_hsl2_mass_dse_wtg.csv",
+      "diagnostics": {
+        "failed": false,
+        "issue_count": 0,
+        "issues": []
+      },
+      "json_exists": true,
+      "json_path": "outputs/eval/fast_dino_hsl2_mass_dse_wtg.json",
+      "model_name": "dino_hsl2_mass_dse_wtg",
+      "model_record_count": 60,
+      "persistence_record_count": 60,
+      "primary_score": -0.2597810515184155,
+      "protocol": "fast",
+      "records": 120,
+      "requested_model_name": "dino_hsl2_mass_dse_wtg"
+    },
+    "gate": {
+      "diagnostics_not_failed": true,
+      "issue_count": 0,
+      "passed": true
+    }
+  },
+  "generated_at": "2026-06-25T05:30:17Z",
+  "golden_run": false,
+  "history_directory": ".logbook/history/2026-06-25_01-45-51_tropical-wtg-mass-dse-relaxation",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "iteration": {
+    "candidate": {
+      "csv_exists": true,
+      "csv_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.csv",
+      "diagnostics": {
+        "failed": false,
+        "issue_count": 0,
+        "issues": []
+      },
+      "json_exists": true,
+      "json_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.json",
+      "model_name": "dino_hsl2_mass_dse_wtg",
+      "model_record_count": 60,
+      "persistence_record_count": 60,
+      "primary_score": -0.25851235493825614,
+      "protocol": "iteration",
+      "records": 120,
+      "requested_model_name": "dino_hsl2_mass_dse_wtg"
+    },
+    "gate": {
+      "diagnostics_not_failed": true,
+      "early_lead_mean_rmse_guardrail": "<= 0.02",
+      "early_lead_mean_rmse_passed": true,
+      "passed": true,
+      "primary_delta_passed": true,
+      "primary_score_delta": 0.0031360425301365513,
+      "required_primary_score_delta": 0.002,
+      "single_lead_rmse_guardrail": "<= 0.10",
+      "single_lead_rmse_passed": true,
+      "worst_early_lead_mean_relative_rmse_change": -0.000144745027387535,
+      "worst_single_lead_relative_rmse_change": 0.00023162913525074877
+    },
+    "incumbent": {
+      "csv_exists": true,
+      "csv_path": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "diagnostics": {
+        "failed": false,
+        "issue_count": 0,
+        "issues": []
+      },
+      "json_exists": true,
+      "json_path": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "model_name": "dino_hsl2_mass_dse",
+      "model_record_count": 60,
+      "persistence_record_count": 60,
+      "primary_score": -0.2616483974683927,
+      "protocol": "iteration",
+      "records": 120,
+      "requested_model_name": "dino_hsl2_mass_dse"
+    },
+    "regression_summary": {
+      "best_single_lead_rmse_improvement": {
+        "absolute_rmse_change": -0.10758092095847971,
+        "candidate_rmse": 5.704069308192773,
+        "channel_name": "10m_u_component_of_wind",
+        "incumbent_rmse": 5.811650229151253,
+        "lead_hours": 336,
+        "relative_rmse_change": -0.01851125183323207
+      },
+      "candidate_primary_score": -0.25851235493825614,
+      "common_model_records": 60,
+      "early_lead_mean_rmse_by_variable": [
+        {
+          "absolute_rmse_change": -0.01999597245880036,
+          "candidate_mean_rmse": 4.351020859776397,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_mean_rmse": 4.371016832235197,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.004574672948256542
+        },
+        {
+          "absolute_rmse_change": -0.0009103287975875674,
+          "candidate_mean_rmse": 4.719257068336675,
+          "channel_name": "2m_temperature",
+          "incumbent_mean_rmse": 4.720167397134262,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.00019285943082023995
+        },
+        {
+          "absolute_rmse_change": -0.08730514776925702,
+          "candidate_mean_rmse": 603.0777869110373,
+          "channel_name": "geopotential_500",
+          "incumbent_mean_rmse": 603.1650920588065,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.000144745027387535
+        },
+        {
+          "absolute_rmse_change": -1.749086554478822,
+          "candidate_mean_rmse": 780.7695160995247,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_mean_rmse": 782.5186026540035,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.002235201244477243
+        }
+      ],
+      "incumbent_primary_score": -0.2616483974683927,
+      "per_variable_per_lead_rmse_change": [
+        {
+          "absolute_rmse_change": -0.004785897669929984,
+          "candidate_rmse": 3.033700284740726,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 3.038486182410656,
+          "lead_hours": 24,
+          "relative_rmse_change": -0.0015750927872026643
+        },
+        {
+          "absolute_rmse_change": -0.011771091521713295,
+          "candidate_rmse": 3.8343649548050034,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 3.8461360463267167,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.0030604979594924552
+        },
+        {
+          "absolute_rmse_change": -0.01857161667102858,
+          "candidate_rmse": 4.508495414152292,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 4.5270670308233205,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.00410235071506132
+        },
+        {
+          "absolute_rmse_change": -0.02755139163302811,
+          "candidate_rmse": 5.015454214946785,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.043005606579813,
+          "lead_hours": 96,
+          "relative_rmse_change": -0.0054632879243839624
+        },
+        {
+          "absolute_rmse_change": -0.03729986479829872,
+          "candidate_rmse": 5.363089430237179,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.4003892950354775,
+          "lead_hours": 120,
+          "relative_rmse_change": -0.006906884441199101
+        },
+        {
+          "absolute_rmse_change": -0.0480071809405489,
+          "candidate_rmse": 5.561686209495784,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.609693390436333,
+          "lead_hours": 144,
+          "relative_rmse_change": -0.008557897481953966
+        },
+        {
+          "absolute_rmse_change": -0.061317705909841536,
+          "candidate_rmse": 5.721349160542275,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.782666866452116,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.010603707134777809
+        },
+        {
+          "absolute_rmse_change": -0.051319515261718074,
+          "candidate_rmse": 5.780079935162644,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.831399450424362,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.008800548770155585
+        },
+        {
+          "absolute_rmse_change": -0.043947846113002065,
+          "candidate_rmse": 5.82201160943318,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.865959455546182,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.0074920132752451934
+        },
+        {
+          "absolute_rmse_change": -0.028883602361519323,
+          "candidate_rmse": 5.772588506433367,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.801472108794886,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0049786677967015485
+        },
+        {
+          "absolute_rmse_change": -0.03301631687753659,
+          "candidate_rmse": 5.745661804586982,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.778678121464519,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.005713472213463432
+        },
+        {
+          "absolute_rmse_change": -0.04428667626502847,
+          "candidate_rmse": 5.725450873700563,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.769737549965591,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.007675682971973756
+        },
+        {
+          "absolute_rmse_change": -0.07950647313221548,
+          "candidate_rmse": 5.732576500518807,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.812082973651022,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.01367951446884993
+        },
+        {
+          "absolute_rmse_change": -0.10758092095847971,
+          "candidate_rmse": 5.704069308192773,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.811650229151253,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.01851125183323207
+        },
+        {
+          "absolute_rmse_change": -0.10395915429169644,
+          "candidate_rmse": 5.640587428382814,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.74454658267451,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.018097016500002998
+        },
+        {
+          "absolute_rmse_change": -0.00025188519980678947,
+          "candidate_rmse": 2.5944129810251457,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 2.5946648662249525,
+          "lead_hours": 24,
+          "relative_rmse_change": -9.707812484209724e-05
+        },
+        {
+          "absolute_rmse_change": -0.000662580176236105,
+          "candidate_rmse": 3.9783952082941627,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 3.979057788470399,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.0001665168518426593
+        },
+        {
+          "absolute_rmse_change": -0.0008818252530575776,
+          "candidate_rmse": 5.004178126752848,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 5.005059952005905,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.00017618675131037415
+        },
+        {
+          "absolute_rmse_change": -0.001278281964738781,
+          "candidate_rmse": 5.748811895979443,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 5.750090177944182,
+          "lead_hours": 96,
+          "relative_rmse_change": -0.00022230642045266194
+        },
+        {
+          "absolute_rmse_change": -0.0014770713940999158,
+          "candidate_rmse": 6.270487129631775,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 6.271964201025875,
+          "lead_hours": 120,
+          "relative_rmse_change": -0.00023550379861197524
+        },
+        {
+          "absolute_rmse_change": -0.0011510139363206662,
+          "candidate_rmse": 6.650349812533997,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 6.6515008264703175,
+          "lead_hours": 144,
+          "relative_rmse_change": -0.00017304574807238847
+        },
+        {
+          "absolute_rmse_change": -0.001210032758494961,
+          "candidate_rmse": 6.940938806676411,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 6.942148839434906,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.00017430233584468324
+        },
+        {
+          "absolute_rmse_change": -0.001227096261756877,
+          "candidate_rmse": 7.152592763690354,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.153819859952111,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.00017153021543445622
+        },
+        {
+          "absolute_rmse_change": -0.002168491864911637,
+          "candidate_rmse": 7.322267455250069,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.3244359471149805,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.0002960626429897013
+        },
+        {
+          "absolute_rmse_change": -0.0013312686802136042,
+          "candidate_rmse": 7.4445544783836475,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.445885747063861,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0001787925205189408
+        },
+        {
+          "absolute_rmse_change": -0.0008289457072736539,
+          "candidate_rmse": 7.543369915288272,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.544198860995546,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.00010987856000978542
+        },
+        {
+          "absolute_rmse_change": 0.0003433292203931515,
+          "candidate_rmse": 7.631949545904594,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.631606216684201,
+          "lead_hours": 288,
+          "relative_rmse_change": 4.498780605877776e-05
+        },
+        {
+          "absolute_rmse_change": -0.00018029718658052474,
+          "candidate_rmse": 7.710374729621273,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.710555026807853,
+          "lead_hours": 312,
+          "relative_rmse_change": -2.338316579723149e-05
+        },
+        {
+          "absolute_rmse_change": -0.0007369152341052398,
+          "candidate_rmse": 7.773710973216828,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.774447888450934,
+          "lead_hours": 336,
+          "relative_rmse_change": -9.47868253384191e-05
+        },
+        {
+          "absolute_rmse_change": -0.0006995504490499016,
+          "candidate_rmse": 7.826913417106554,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.827612967555604,
+          "lead_hours": 360,
+          "relative_rmse_change": -8.93695756227912e-05
+        },
+        {
+          "absolute_rmse_change": 0.056958645939971575,
+          "candidate_rmse": 245.96145541104391,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 245.90449676510394,
+          "lead_hours": 24,
+          "relative_rmse_change": 0.00023162913525074877
+        },
+        {
+          "absolute_rmse_change": -0.16063131636514072,
+          "candidate_rmse": 445.73674730157603,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 445.8973786179412,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.00036024279143110786
+        },
+        {
+          "absolute_rmse_change": -0.23289101044474592,
+          "candidate_rmse": 626.7702208748159,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 627.0031118852606,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.0003714351747704948
+        },
+        {
+          "absolute_rmse_change": -0.024575749061568786,
+          "candidate_rmse": 785.9487200879496,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 785.9732958370112,
+          "lead_hours": 96,
+          "relative_rmse_change": -3.126791863252452e-05
+        },
+        {
+          "absolute_rmse_change": -0.07538630891485809,
+          "candidate_rmse": 910.9717908798007,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 911.0471771887155,
+          "lead_hours": 120,
+          "relative_rmse_change": -8.274687722262979e-05
+        },
+        {
+          "absolute_rmse_change": -0.20220699585195234,
+          "candidate_rmse": 1007.9017694507702,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1008.1039764466221,
+          "lead_hours": 144,
+          "relative_rmse_change": -0.00020058148819598366
+        },
+        {
+          "absolute_rmse_change": -0.3643501391875361,
+          "candidate_rmse": 1078.3761931049023,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1078.7405432440898,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.0003377551177337121
+        },
+        {
+          "absolute_rmse_change": -0.5637985618218408,
+          "candidate_rmse": 1122.540874926926,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1123.104673488748,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.000502000014006254
+        },
+        {
+          "absolute_rmse_change": -0.8697019207979793,
+          "candidate_rmse": 1146.6168868995044,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1147.4865888203024,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.0007579190286590578
+        },
+        {
+          "absolute_rmse_change": -1.0913324187147282,
+          "candidate_rmse": 1157.8626191144642,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1158.953951533179,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0009416529597841275
+        },
+        {
+          "absolute_rmse_change": -0.9289875754793684,
+          "candidate_rmse": 1164.1420220876666,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1165.071009663146,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.0007973656264504978
+        },
+        {
+          "absolute_rmse_change": -0.6315825073606902,
+          "candidate_rmse": 1168.6440137089037,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1169.2755962162644,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.0005401485410321309
+        },
+        {
+          "absolute_rmse_change": -0.6058375779318794,
+          "candidate_rmse": 1165.7695275309889,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1166.3753651089207,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.0005194190447217684
+        },
+        {
+          "absolute_rmse_change": -0.8072234072276387,
+          "candidate_rmse": 1156.4954802615007,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1157.3027036687283,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.0006975041228787297
+        },
+        {
+          "absolute_rmse_change": -0.6905662710153138,
+          "candidate_rmse": 1149.9397247168774,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1150.6302909878927,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.0006001634725107198
+        },
+        {
+          "absolute_rmse_change": 0.03525656452137582,
+          "candidate_rmse": 380.11257474921206,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 380.0773181846907,
+          "lead_hours": 24,
+          "relative_rmse_change": 9.276155885798906e-05
+        },
+        {
+          "absolute_rmse_change": -1.0912043772187872,
+          "candidate_rmse": 626.2000213161373,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 627.2912256933561,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.0017395498813372683
+        },
+        {
+          "absolute_rmse_change": -2.3231224982728236,
+          "candidate_rmse": 819.7747336791015,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 822.0978561773743,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.002825846680923093
+        },
+        {
+          "absolute_rmse_change": -2.5649610671479195,
+          "candidate_rmse": 975.1967312124053,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 977.7616922795532,
+          "lead_hours": 96,
+          "relative_rmse_change": -0.0026232987929481776
+        },
+        {
+          "absolute_rmse_change": -2.8014013942758993,
+          "candidate_rmse": 1102.5635195407676,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1105.3649209350435,
+          "lead_hours": 120,
+          "relative_rmse_change": -0.0025343679188825304
+        },
+        {
+          "absolute_rmse_change": -2.5122748856535964,
+          "candidate_rmse": 1196.5479675336803,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1199.060242419334,
+          "lead_hours": 144,
+          "relative_rmse_change": -0.0020952032239719668
+        },
+        {
+          "absolute_rmse_change": -1.765004554319603,
+          "candidate_rmse": 1257.1289527029385,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1258.893957257258,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.001402027981900083
+        },
+        {
+          "absolute_rmse_change": -2.148655229143742,
+          "candidate_rmse": 1295.6147339710226,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1297.7633892001663,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.0016556602282238788
+        },
+        {
+          "absolute_rmse_change": -2.664334050505886,
+          "candidate_rmse": 1314.9973546423278,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1317.6616886928336,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.0020220167842543847
+        },
+        {
+          "absolute_rmse_change": -4.1137653676369155,
+          "candidate_rmse": 1324.2347470855868,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1328.3485124532237,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0030969021526131885
+        },
+        {
+          "absolute_rmse_change": -5.25365082814119,
+          "candidate_rmse": 1325.6060491678368,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1330.859699995978,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.003947561736340102
+        },
+        {
+          "absolute_rmse_change": -5.687501232622026,
+          "candidate_rmse": 1323.447381367552,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1329.134882600174,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.004279100117736449
+        },
+        {
+          "absolute_rmse_change": -4.930425293632197,
+          "candidate_rmse": 1309.6807070773739,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1314.611132371006,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.0037504819274881552
+        },
+        {
+          "absolute_rmse_change": -3.4296398246920035,
+          "candidate_rmse": 1289.0040529499347,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1292.4336927746267,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.0026536292297743903
+        },
+        {
+          "absolute_rmse_change": -2.8922016313808854,
+          "candidate_rmse": 1271.2437338634888,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1274.1359354948697,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.002269931763801611
+        }
+      ],
+      "primary_score_delta": 0.0031360425301365513,
+      "protocol": "iteration",
+      "worst_single_lead_rmse_regression": {
+        "absolute_rmse_change": 0.056958645939971575,
+        "candidate_rmse": 245.96145541104391,
+        "channel_name": "geopotential_500",
+        "incumbent_rmse": 245.90449676510394,
+        "lead_hours": 24,
+        "relative_rmse_change": 0.00023162913525074877
+      }
+    }
+  },
+  "leaderboard_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "lead_days": "1..15",
+    "protocols": [
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ]
+  },
+  "measurement_lessons": [
+    "The WTG relaxation produced small but consistent primary-score gains on both iteration and validation while keeping diagnostics clean.",
+    "Most RMSE movement came from small improvements in mean sea level pressure and 10 m zonal wind; 2 m temperature and Z500 were effectively neutral.",
+    "Incumbent cache reuse avoided overwriting the accepted baseline and remained valid because only candidate dycore/registry/test paths were dirty."
+  ],
+  "proposal_slug": "tropical-wtg-mass-dse-relaxation",
+  "provided_completed_gates": {
+    "fast_from_implementer_verified_by_scorer": true,
+    "focused_ruff_pytest_fast_from_implementer": true,
+    "full_repo_pytest_from_orchestrator": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "rerun_by_scorer": false,
+      "summary": "243 passed, 2 skipped in 246.47s"
+    }
+  },
+  "registration": {
+    "candidate_registered": true,
+    "exit_status": 0,
+    "incumbent_registered": true,
+    "verification_command": "python - <<'PY' ... create_dycore_model(...), dycore_model_names() ... PY"
+  },
+  "role": "Scorer",
+  "schema_version": 1,
+  "validation": {
+    "candidate": {
+      "csv_exists": true,
+      "csv_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.csv",
+      "diagnostics": {
+        "failed": false,
+        "issue_count": 0,
+        "issues": []
+      },
+      "json_exists": true,
+      "json_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.json",
+      "model_name": "dino_hsl2_mass_dse_wtg",
+      "model_record_count": 60,
+      "persistence_record_count": 60,
+      "primary_score": -0.25704033104116597,
+      "protocol": "validation",
+      "records": 120,
+      "requested_model_name": "dino_hsl2_mass_dse_wtg"
+    },
+    "gate": {
+      "diagnostics_not_failed": true,
+      "early_lead_mean_rmse_guardrail": "<= 0.02",
+      "early_lead_mean_rmse_passed": true,
+      "passed": true,
+      "primary_delta_passed": true,
+      "primary_score_delta": 0.002977708591079542,
+      "required_primary_score_delta": 0.001,
+      "single_lead_rmse_guardrail": "<= 0.10",
+      "single_lead_rmse_passed": true,
+      "worst_early_lead_mean_relative_rmse_change": -7.539582990592104e-05,
+      "worst_single_lead_relative_rmse_change": 0.00020034588246908876
+    },
+    "incumbent": {
+      "csv_exists": true,
+      "csv_path": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "diagnostics": {
+        "failed": false,
+        "issue_count": 0,
+        "issues": []
+      },
+      "json_exists": true,
+      "json_path": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "model_name": "dino_hsl2_mass_dse",
+      "model_record_count": 60,
+      "persistence_record_count": 60,
+      "primary_score": -0.2600180396322455,
+      "protocol": "validation",
+      "records": 120,
+      "requested_model_name": "dino_hsl2_mass_dse"
+    },
+    "regression_summary": {
+      "best_single_lead_rmse_improvement": {
+        "absolute_rmse_change": -0.09763381596062803,
+        "candidate_rmse": 5.604505985795734,
+        "channel_name": "10m_u_component_of_wind",
+        "incumbent_rmse": 5.702139801756362,
+        "lead_hours": 336,
+        "relative_rmse_change": -0.017122311860988584
+      },
+      "candidate_primary_score": -0.25704033104116597,
+      "common_model_records": 60,
+      "early_lead_mean_rmse_by_variable": [
+        {
+          "absolute_rmse_change": -0.019576201091776824,
+          "candidate_mean_rmse": 4.309704194524731,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_mean_rmse": 4.329280395616508,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.004521814089842311
+        },
+        {
+          "absolute_rmse_change": -0.0006538729664233855,
+          "candidate_mean_rmse": 4.727535349668871,
+          "channel_name": "2m_temperature",
+          "incumbent_mean_rmse": 4.728189222635295,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.000138292470041828
+        },
+        {
+          "absolute_rmse_change": -0.04476559651709522,
+          "candidate_mean_rmse": 593.6962486340279,
+          "channel_name": "geopotential_500",
+          "incumbent_mean_rmse": 593.741014230545,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -7.539582990592104e-05
+        },
+        {
+          "absolute_rmse_change": -1.6403623061416965,
+          "candidate_mean_rmse": 761.431064484003,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_mean_rmse": 763.0714267901446,
+          "lead_hours_included": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "relative_rmse_change": -0.0021496838284744465
+        }
+      ],
+      "incumbent_primary_score": -0.2600180396322455,
+      "per_variable_per_lead_rmse_change": [
+        {
+          "absolute_rmse_change": -0.004388221915054835,
+          "candidate_rmse": 3.015876877659005,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 3.02026509957406,
+          "lead_hours": 24,
+          "relative_rmse_change": -0.0014529260744938232
+        },
+        {
+          "absolute_rmse_change": -0.011342936279696403,
+          "candidate_rmse": 3.8098165845126837,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 3.82115952079238,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.0029684540040726326
+        },
+        {
+          "absolute_rmse_change": -0.01716619496982741,
+          "candidate_rmse": 4.477409241017046,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 4.4945754359868735,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.0038193140184904313
+        },
+        {
+          "absolute_rmse_change": -0.026629485590852653,
+          "candidate_rmse": 4.9521363770968545,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 4.978765862687707,
+          "lead_hours": 96,
+          "relative_rmse_change": -0.005348611749434056
+        },
+        {
+          "absolute_rmse_change": -0.03835416670345548,
+          "candidate_rmse": 5.293281892338067,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.331636059041522,
+          "lead_hours": 120,
+          "relative_rmse_change": -0.007193695570877071
+        },
+        {
+          "absolute_rmse_change": -0.046362835135068,
+          "candidate_rmse": 5.481263203659453,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.527626038794521,
+          "lead_hours": 144,
+          "relative_rmse_change": -0.008387476795586362
+        },
+        {
+          "absolute_rmse_change": -0.05904040201275773,
+          "candidate_rmse": 5.633299993866927,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.692340395879684,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.010371902926868752
+        },
+        {
+          "absolute_rmse_change": -0.04946774093379336,
+          "candidate_rmse": 5.68225917579919,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.731726916732983,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.008630512523089532
+        },
+        {
+          "absolute_rmse_change": -0.040640921223237036,
+          "candidate_rmse": 5.711156434077659,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.751797355300896,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.007065777653967952
+        },
+        {
+          "absolute_rmse_change": -0.025336899457302664,
+          "candidate_rmse": 5.641244588262583,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.666581487719886,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.004471284761758135
+        },
+        {
+          "absolute_rmse_change": -0.03130123069407009,
+          "candidate_rmse": 5.624143097752559,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.655444328446629,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.00553470759788516
+        },
+        {
+          "absolute_rmse_change": -0.04121247195372124,
+          "candidate_rmse": 5.612706601421007,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.653919073374729,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.007289186742661001
+        },
+        {
+          "absolute_rmse_change": -0.07287526612664585,
+          "candidate_rmse": 5.626328098273469,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.699203364400115,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.012786921516410308
+        },
+        {
+          "absolute_rmse_change": -0.09763381596062803,
+          "candidate_rmse": 5.604505985795734,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.702139801756362,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.017122311860988584
+        },
+        {
+          "absolute_rmse_change": -0.08564370832385482,
+          "candidate_rmse": 5.550678280365727,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_rmse": 5.6363219886895815,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.01519496375397222
+        },
+        {
+          "absolute_rmse_change": -0.00019019103434958495,
+          "candidate_rmse": 2.6071469700138157,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 2.6073371610481653,
+          "lead_hours": 24,
+          "relative_rmse_change": -7.294454940117028e-05
+        },
+        {
+          "absolute_rmse_change": -0.0006375135535474641,
+          "candidate_rmse": 3.9951940275013946,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 3.995831541054942,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.0001595446522200367
+        },
+        {
+          "absolute_rmse_change": -0.0008348861901747995,
+          "candidate_rmse": 5.0101949394558485,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 5.011029825646023,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.00016660970284030702
+        },
+        {
+          "absolute_rmse_change": -0.0009351138688842298,
+          "candidate_rmse": 5.7479899743694425,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 5.748925088238327,
+          "lead_hours": 96,
+          "relative_rmse_change": -0.00016265890658366216
+        },
+        {
+          "absolute_rmse_change": -0.0006716601851630699,
+          "candidate_rmse": 6.277150837003854,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 6.277822497189017,
+          "lead_hours": 120,
+          "relative_rmse_change": -0.00010698935585767441
+        },
+        {
+          "absolute_rmse_change": -0.0003045548821791755,
+          "candidate_rmse": 6.653590655041335,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 6.6538952099235145,
+          "lead_hours": 144,
+          "relative_rmse_change": -4.577091651893873e-05
+        },
+        {
+          "absolute_rmse_change": -0.0005462228202040009,
+          "candidate_rmse": 6.933601362020711,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 6.934147584840915,
+          "lead_hours": 168,
+          "relative_rmse_change": -7.87728864320866e-05
+        },
+        {
+          "absolute_rmse_change": -0.0011790545770598015,
+          "candidate_rmse": 7.1286777061555,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.12985676073256,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.00016536862052452499
+        },
+        {
+          "absolute_rmse_change": -0.002800864895453614,
+          "candidate_rmse": 7.293615719843989,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.296416584739442,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.00038386855560189125
+        },
+        {
+          "absolute_rmse_change": -0.0027811366707677365,
+          "candidate_rmse": 7.423702995639063,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.426484132309831,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0003744890073444121
+        },
+        {
+          "absolute_rmse_change": -0.0024852121081151424,
+          "candidate_rmse": 7.528582162439705,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.5310673745478205,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.0003299946720054884
+        },
+        {
+          "absolute_rmse_change": -0.0025655594400557646,
+          "candidate_rmse": 7.619058477850614,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.62162403729067,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.0003366158482107139
+        },
+        {
+          "absolute_rmse_change": -0.004247892836037437,
+          "candidate_rmse": 7.699836172991861,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.704084065827899,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.0005513819423232045
+        },
+        {
+          "absolute_rmse_change": -0.004068619929443962,
+          "candidate_rmse": 7.7630293663714385,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.767097986300882,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.0005238275526612304
+        },
+        {
+          "absolute_rmse_change": -0.0032575657735325336,
+          "candidate_rmse": 7.814658391914532,
+          "channel_name": "2m_temperature",
+          "incumbent_rmse": 7.817915957688064,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.0004166795589979545
+        },
+        {
+          "absolute_rmse_change": 0.048216801857194014,
+          "candidate_rmse": 240.71601223126092,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 240.66779542940372,
+          "lead_hours": 24,
+          "relative_rmse_change": 0.00020034588246908876
+        },
+        {
+          "absolute_rmse_change": -0.161672060836338,
+          "candidate_rmse": 438.70960025529916,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 438.8712723161355,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.00036838150736801824
+        },
+        {
+          "absolute_rmse_change": -0.18476626761844273,
+          "candidate_rmse": 618.3194368830704,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 618.5042031506888,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.00029873081973773964
+        },
+        {
+          "absolute_rmse_change": 0.039025976945254115,
+          "candidate_rmse": 774.5914013472496,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 774.5523753703044,
+          "lead_hours": 96,
+          "relative_rmse_change": 5.03852007768955e-05
+        },
+        {
+          "absolute_rmse_change": 0.03536756706705546,
+          "candidate_rmse": 896.1447924532597,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 896.1094248861926,
+          "lead_hours": 120,
+          "relative_rmse_change": 3.946791104395225e-05
+        },
+        {
+          "absolute_rmse_change": -0.09337861675464865,
+          "candidate_rmse": 990.4781099556768,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 990.5714885724315,
+          "lead_hours": 144,
+          "relative_rmse_change": -9.42674181842462e-05
+        },
+        {
+          "absolute_rmse_change": -0.3778372590904837,
+          "candidate_rmse": 1061.5768227900096,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1061.9546600491,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.00035579415327676437
+        },
+        {
+          "absolute_rmse_change": -0.7768481356210941,
+          "candidate_rmse": 1107.2053929564202,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1107.9822410920412,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.000701137713954172
+        },
+        {
+          "absolute_rmse_change": -1.3022729235913175,
+          "candidate_rmse": 1132.269011188874,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1133.5712841124653,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.0011488231413791837
+        },
+        {
+          "absolute_rmse_change": -1.4489309113980653,
+          "candidate_rmse": 1143.2881250963387,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1144.7370560077368,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0012657325136754135
+        },
+        {
+          "absolute_rmse_change": -1.3318368961352007,
+          "candidate_rmse": 1153.890488856708,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1155.2223257528433,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.00115288361940829
+        },
+        {
+          "absolute_rmse_change": -1.1938996518181284,
+          "candidate_rmse": 1164.6698644468677,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1165.8637640986858,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.0010240473103142688
+        },
+        {
+          "absolute_rmse_change": -1.3123196078720412,
+          "candidate_rmse": 1169.325387996728,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1170.6377076046,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.0011210296741229664
+        },
+        {
+          "absolute_rmse_change": -1.2640149508813465,
+          "candidate_rmse": 1165.6760499489803,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1166.9400648998617,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.001083187550844623
+        },
+        {
+          "absolute_rmse_change": -0.835728080500985,
+          "candidate_rmse": 1162.4972570302004,
+          "channel_name": "geopotential_500",
+          "incumbent_rmse": 1163.3329851107014,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.0007183911151814011
+        },
+        {
+          "absolute_rmse_change": -0.0363471807357314,
+          "candidate_rmse": 371.5318131532366,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 371.56816033397234,
+          "lead_hours": 24,
+          "relative_rmse_change": -9.782103155195504e-05
+        },
+        {
+          "absolute_rmse_change": -1.1336156856793878,
+          "candidate_rmse": 612.4089538146293,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 613.5425695003087,
+          "lead_hours": 48,
+          "relative_rmse_change": -0.0018476561236861616
+        },
+        {
+          "absolute_rmse_change": -2.240302394203354,
+          "candidate_rmse": 801.0347387846085,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 803.2750411788119,
+          "lead_hours": 72,
+          "relative_rmse_change": -0.002788960541977869
+        },
+        {
+          "absolute_rmse_change": -2.3920152780999615,
+          "candidate_rmse": 951.0130568223422,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 953.4050721004421,
+          "lead_hours": 96,
+          "relative_rmse_change": -0.0025089181378384366
+        },
+        {
+          "absolute_rmse_change": -2.3995309919898773,
+          "candidate_rmse": 1071.1667598451982,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1073.566290837188,
+          "lead_hours": 120,
+          "relative_rmse_change": -0.0022351027714540813
+        },
+        {
+          "absolute_rmse_change": -2.250995156150566,
+          "candidate_rmse": 1163.0171461297468,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1165.2681412858974,
+          "lead_hours": 144,
+          "relative_rmse_change": -0.0019317400659959229
+        },
+        {
+          "absolute_rmse_change": -1.799604712147584,
+          "candidate_rmse": 1225.7097491009426,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1227.5093538130902,
+          "lead_hours": 168,
+          "relative_rmse_change": -0.001466061913546612
+        },
+        {
+          "absolute_rmse_change": -2.272982623401276,
+          "candidate_rmse": 1262.8276338743592,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1265.1006164977605,
+          "lead_hours": 192,
+          "relative_rmse_change": -0.0017966813024672176
+        },
+        {
+          "absolute_rmse_change": -2.8705935275406773,
+          "candidate_rmse": 1278.08864678515,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1280.9592403126908,
+          "lead_hours": 216,
+          "relative_rmse_change": -0.0022409717945747797
+        },
+        {
+          "absolute_rmse_change": -4.2035904424683395,
+          "candidate_rmse": 1284.067129000981,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1288.2707194434493,
+          "lead_hours": 240,
+          "relative_rmse_change": -0.0032629713452498156
+        },
+        {
+          "absolute_rmse_change": -4.9101391279696145,
+          "candidate_rmse": 1287.9533621267885,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1292.8635012547581,
+          "lead_hours": 264,
+          "relative_rmse_change": -0.00379787898970324
+        },
+        {
+          "absolute_rmse_change": -4.77273382040039,
+          "candidate_rmse": 1289.9865763345322,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1294.7593101549326,
+          "lead_hours": 288,
+          "relative_rmse_change": -0.0036861938608723182
+        },
+        {
+          "absolute_rmse_change": -3.439813146277629,
+          "candidate_rmse": 1281.9966843288391,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1285.4364974751168,
+          "lead_hours": 312,
+          "relative_rmse_change": -0.002675988392296459
+        },
+        {
+          "absolute_rmse_change": -1.6793666711951118,
+          "candidate_rmse": 1267.1913414675823,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1268.8707081387774,
+          "lead_hours": 336,
+          "relative_rmse_change": -0.0013235128373784149
+        },
+        {
+          "absolute_rmse_change": -1.0690349494002476,
+          "candidate_rmse": 1252.376325340739,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_rmse": 1253.4453602901392,
+          "lead_hours": 360,
+          "relative_rmse_change": -0.000852877184174023
+        }
+      ],
+      "primary_score_delta": 0.002977708591079542,
+      "protocol": "validation",
+      "worst_single_lead_rmse_regression": {
+        "absolute_rmse_change": 0.048216801857194014,
+        "candidate_rmse": 240.71601223126092,
+        "channel_name": "geopotential_500",
+        "incumbent_rmse": 240.66779542940372,
+        "lead_hours": 24,
+        "relative_rmse_change": 0.00020034588246908876
+      }
+    }
+  },
+  "worker_count": 4,
+  "worktree_context": {
+    "dirty_paths_observed": [
+      "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "src/dynamaxx/dycore/registry.py",
+      "tests/dycore/models/dinosaur/test_dependency.py",
+      "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "tests/dycore/test_registry.py",
+      "gifs/"
+    ],
+    "evaluation_code_modified": false,
+    "head_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "source_or_leaderboard_modified_by_scorer": false
+  }
+}

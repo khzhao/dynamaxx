@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "virtual-theta-richardson-10m-wind",
+  "history_path": ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind",
+  "source_artifacts": [
+    ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind/proposal.md",
+    ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind/implementation.md",
+    ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_virtual_ri_wind.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_virtual_ri_wind.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_virtual_ri_wind.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_virtual_ri_wind.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind/scores.json",
+    ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind/scoring_notes.md",
+    ".logbook/history/2026-06-21_12-29-32_virtual-theta-richardson-10m-wind/decision.md"
+  ],
+  "notes": "Rejected because iteration primary delta was -0.0008099249004543951 versus the cached incumbent, below the +0.002 promotion threshold. Validation was skipped. Incumbent iteration metrics were reused from the valid leaderboard cache; no incumbent rerun was performed."
+}

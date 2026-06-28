@@ -1,0 +1,1100 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "helmholtz-wind-initialization",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init",
+  "created_at": "2026-06-17T04:11:47.147121Z",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "bc39a2b7fbbe5fbab0aa568afcf90c32b7a4b41c",
+    "worktree_dirty_before_scoring_artifacts": true,
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "validation_allowed": true,
+    "validation_run": false,
+    "validation_not_run_reason": "candidate failed the iteration promotion gate",
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "worker_count": 4
+  },
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names; ...\"",
+      "exit_status": 0,
+      "result": "candidate_registered=True; incumbent_registered=True; registered_count=7"
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "result": "115 passed, 2 skipped in 60.36s"
+    },
+    {
+      "command": "uv run python - <<'PY'  # verify existing candidate fast artifact compatibility",
+      "exit_status": 0,
+      "result": "fast artifact matched candidate model and fast case; diagnostics failed=False; issue_count=0; records=120"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind --workers 4",
+      "exit_status": 0,
+      "result": "failed=False; issues=0; records=120; primary_score=-1.5597543505393903; metrics=outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.json"
+    },
+    {
+      "command": "uv run python - <<'PY'  # compute iteration gate against incumbent artifacts",
+      "exit_status": 0,
+      "result": "iteration_delta=-0.34423230670441374; early RMSE guardrail failures=2; variable+lead RMSE guardrail failures=30"
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind --workers 4",
+      "exit_status": null,
+      "result": "not run because iteration promotion gate failed"
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.5147626128130018,
+    "candidate_iteration": -1.5597543505393903,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2155220438349765,
+    "incumbent_validation": -1.2028991078287248,
+    "iteration_delta": -0.34423230670441374,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_gate_passed": false,
+    "iteration_clean_diagnostics_gate_passed": true,
+    "iteration_early_mean_rmse_gate_passed": false,
+    "iteration_variable_lead_rmse_gate_passed": false,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "early_mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 9.407589801842693,
+        "incumbent_mean_rmse": 9.252510608236614,
+        "absolute_delta": 0.15507919360607936,
+        "relative_delta": 0.01676076906823834,
+        "regression_fraction": 0.01676076906823834,
+        "fails_2_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 7.388437273485671,
+        "incumbent_mean_rmse": 7.391778771571825,
+        "absolute_delta": -0.0033414980861534715,
+        "relative_delta": -0.00045205601918236506,
+        "regression_fraction": 0.0,
+        "fails_2_percent_guardrail": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 936.6870543271307,
+        "incumbent_mean_rmse": 770.2533729367296,
+        "absolute_delta": 166.43368139040103,
+        "relative_delta": 0.21607653693984183,
+        "regression_fraction": 0.21607653693984183,
+        "fails_2_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 1272.1842887583207,
+        "incumbent_mean_rmse": 1047.5152741192458,
+        "absolute_delta": 224.66901463907493,
+        "relative_delta": 0.21447803214896066,
+        "regression_fraction": 0.21447803214896066,
+        "fails_2_percent_guardrail": true
+      }
+    ],
+    "variable_and_lead_rmse_regressions": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "candidate_rmse": 6.316960250842481,
+        "incumbent_rmse": 5.997635870030839,
+        "absolute_delta": 0.3193243808116417,
+        "relative_delta": 0.053241708521727875,
+        "regression_fraction": 0.053241708521727875,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 48,
+        "candidate_rmse": 8.06081374748726,
+        "incumbent_rmse": 7.91672914403788,
+        "absolute_delta": 0.1440846034493788,
+        "relative_delta": 0.018200016803390257,
+        "regression_fraction": 0.018200016803390257,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 72,
+        "candidate_rmse": 9.702486541526781,
+        "incumbent_rmse": 9.59017618281484,
+        "absolute_delta": 0.11231035871194095,
+        "relative_delta": 0.011710979712051173,
+        "regression_fraction": 0.011710979712051173,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 96,
+        "candidate_rmse": 10.950423437674646,
+        "incumbent_rmse": 10.856444712456689,
+        "absolute_delta": 0.0939787252179567,
+        "relative_delta": 0.008656491854108137,
+        "regression_fraction": 0.008656491854108137,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 120,
+        "candidate_rmse": 12.0072650316823,
+        "incumbent_rmse": 11.901567131842828,
+        "absolute_delta": 0.10569789983947153,
+        "relative_delta": 0.00888100690174449,
+        "regression_fraction": 0.00888100690174449,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 144,
+        "candidate_rmse": 12.875706773798186,
+        "incumbent_rmse": 12.68175549283804,
+        "absolute_delta": 0.19395128096014602,
+        "relative_delta": 0.015293724994909346,
+        "regression_fraction": 0.015293724994909346,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 168,
+        "candidate_rmse": 13.66847004411527,
+        "incumbent_rmse": 13.426340819508514,
+        "absolute_delta": 0.24212922460675657,
+        "relative_delta": 0.018033895300418865,
+        "regression_fraction": 0.018033895300418865,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 192,
+        "candidate_rmse": 14.222500910804662,
+        "incumbent_rmse": 13.927973601548576,
+        "absolute_delta": 0.29452730925608606,
+        "relative_delta": 0.021146458033445666,
+        "regression_fraction": 0.021146458033445666,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 216,
+        "candidate_rmse": 14.77192543897348,
+        "incumbent_rmse": 14.472392144273197,
+        "absolute_delta": 0.2995332947002822,
+        "relative_delta": 0.02069687524455376,
+        "regression_fraction": 0.02069687524455376,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 240,
+        "candidate_rmse": 15.047145432449367,
+        "incumbent_rmse": 14.67085779429217,
+        "absolute_delta": 0.3762876381571978,
+        "relative_delta": 0.025648646005116068,
+        "regression_fraction": 0.025648646005116068,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 264,
+        "candidate_rmse": 15.460318969812887,
+        "incumbent_rmse": 15.015376552407652,
+        "absolute_delta": 0.444942417405235,
+        "relative_delta": 0.029632451497454478,
+        "regression_fraction": 0.029632451497454478,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 288,
+        "candidate_rmse": 15.760725470935371,
+        "incumbent_rmse": 15.260604819709819,
+        "absolute_delta": 0.5001206512255525,
+        "relative_delta": 0.0327720072129528,
+        "regression_fraction": 0.0327720072129528,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 312,
+        "candidate_rmse": 16.036813084305937,
+        "incumbent_rmse": 15.564171656589682,
+        "absolute_delta": 0.4726414277162547,
+        "relative_delta": 0.030367271586608596,
+        "regression_fraction": 0.030367271586608596,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 336,
+        "candidate_rmse": 16.306801818496805,
+        "incumbent_rmse": 15.8272888671053,
+        "absolute_delta": 0.47951295139150396,
+        "relative_delta": 0.030296594408414527,
+        "regression_fraction": 0.030296594408414527,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 360,
+        "candidate_rmse": 16.522540227311698,
+        "incumbent_rmse": 15.98955770054036,
+        "absolute_delta": 0.5329825267713382,
+        "relative_delta": 0.03333316260232303,
+        "regression_fraction": 0.03333316260232303,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 24,
+        "candidate_rmse": 3.800561431362925,
+        "incumbent_rmse": 3.8066473983354157,
+        "absolute_delta": -0.006085966972490642,
+        "relative_delta": -0.0015987734968970163,
+        "regression_fraction": 0.0,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 48,
+        "candidate_rmse": 6.177060947794402,
+        "incumbent_rmse": 6.193933699912759,
+        "absolute_delta": -0.01687275211835715,
+        "relative_delta": -0.0027240769655953534,
+        "regression_fraction": 0.0,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 72,
+        "candidate_rmse": 7.904784398401933,
+        "incumbent_rmse": 7.919194045356949,
+        "absolute_delta": -0.014409646955016342,
+        "relative_delta": -0.0018195850325785068,
+        "regression_fraction": 0.0,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 96,
+        "candidate_rmse": 9.107256543098236,
+        "incumbent_rmse": 9.110033049927196,
+        "absolute_delta": -0.0027765068289600237,
+        "relative_delta": -0.000304774616485306,
+        "regression_fraction": 0.0,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 120,
+        "candidate_rmse": 9.952523046770855,
+        "incumbent_rmse": 9.929085664326802,
+        "absolute_delta": 0.0234373824440528,
+        "relative_delta": 0.0023604774131679193,
+        "regression_fraction": 0.0023604774131679193,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 144,
+        "candidate_rmse": 10.51067447057589,
+        "incumbent_rmse": 10.453282860399868,
+        "absolute_delta": 0.05739161017602079,
+        "relative_delta": 0.005490295339987136,
+        "regression_fraction": 0.005490295339987136,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 168,
+        "candidate_rmse": 10.823333645651264,
+        "incumbent_rmse": 10.746226006398537,
+        "absolute_delta": 0.07710763925272701,
+        "relative_delta": 0.007175322686012321,
+        "regression_fraction": 0.007175322686012321,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 192,
+        "candidate_rmse": 10.951422714946851,
+        "incumbent_rmse": 10.871051381766987,
+        "absolute_delta": 0.08037133317986367,
+        "relative_delta": 0.007393151808174056,
+        "regression_fraction": 0.007393151808174056,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 216,
+        "candidate_rmse": 11.019547456181568,
+        "incumbent_rmse": 10.937835773583915,
+        "absolute_delta": 0.08171168259765338,
+        "relative_delta": 0.00747055306818522,
+        "regression_fraction": 0.00747055306818522,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 240,
+        "candidate_rmse": 11.021927778569756,
+        "incumbent_rmse": 10.93156238732686,
+        "absolute_delta": 0.09036539124289611,
+        "relative_delta": 0.008266466223314811,
+        "regression_fraction": 0.008266466223314811,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 264,
+        "candidate_rmse": 10.974868754921632,
+        "incumbent_rmse": 10.88294638127745,
+        "absolute_delta": 0.09192237364418254,
+        "relative_delta": 0.008446460216171039,
+        "regression_fraction": 0.008446460216171039,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 288,
+        "candidate_rmse": 10.865983177174407,
+        "incumbent_rmse": 10.777790164374565,
+        "absolute_delta": 0.0881930127998416,
+        "relative_delta": 0.008182847453400893,
+        "regression_fraction": 0.008182847453400893,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 312,
+        "candidate_rmse": 10.732817312523148,
+        "incumbent_rmse": 10.65466313285352,
+        "absolute_delta": 0.07815417966962812,
+        "relative_delta": 0.0073352088841401935,
+        "regression_fraction": 0.0073352088841401935,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "candidate_rmse": 10.618567804859659,
+        "incumbent_rmse": 10.55070042907535,
+        "absolute_delta": 0.06786737578430824,
+        "relative_delta": 0.006432499552094291,
+        "regression_fraction": 0.006432499552094291,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "candidate_rmse": 10.493404649096172,
+        "incumbent_rmse": 10.43432717837368,
+        "absolute_delta": 0.059077470722492365,
+        "relative_delta": 0.005661838057458759,
+        "regression_fraction": 0.005661838057458759,
+        "fails_10_percent_guardrail": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 322.21096480297837,
+        "incumbent_rmse": 275.458960201525,
+        "absolute_delta": 46.75200460145339,
+        "relative_delta": 0.16972402918841253,
+        "regression_fraction": 0.16972402918841253,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 48,
+        "candidate_rmse": 633.1032336379045,
+        "incumbent_rmse": 528.1957689449295,
+        "absolute_delta": 104.90746469297505,
+        "relative_delta": 0.19861473881649527,
+        "regression_fraction": 0.19861473881649527,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 72,
+        "candidate_rmse": 943.2548796244724,
+        "incumbent_rmse": 780.0289838430803,
+        "absolute_delta": 163.22589578139218,
+        "relative_delta": 0.20925619324708145,
+        "regression_fraction": 0.20925619324708145,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 96,
+        "candidate_rmse": 1247.0406676966777,
+        "incumbent_rmse": 1022.5195973398946,
+        "absolute_delta": 224.52107035678307,
+        "relative_delta": 0.21957630048448867,
+        "regression_fraction": 0.21957630048448867,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 120,
+        "candidate_rmse": 1537.8255258736206,
+        "incumbent_rmse": 1245.063554354219,
+        "absolute_delta": 292.76197151940164,
+        "relative_delta": 0.2351381746703279,
+        "regression_fraction": 0.2351381746703279,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 144,
+        "candidate_rmse": 1800.4393312736015,
+        "incumbent_rmse": 1435.6821147874975,
+        "absolute_delta": 364.75721648610397,
+        "relative_delta": 0.25406544577599166,
+        "regression_fraction": 0.25406544577599166,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 168,
+        "candidate_rmse": 2040.6261503353915,
+        "incumbent_rmse": 1596.6476290728262,
+        "absolute_delta": 443.9785212625652,
+        "relative_delta": 0.27806919521772233,
+        "regression_fraction": 0.27806919521772233,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 192,
+        "candidate_rmse": 2254.8574245235122,
+        "incumbent_rmse": 1728.4992755621388,
+        "absolute_delta": 526.3581489613734,
+        "relative_delta": 0.3045174252619761,
+        "regression_fraction": 0.3045174252619761,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 216,
+        "candidate_rmse": 2454.6819597554263,
+        "incumbent_rmse": 1837.754039185675,
+        "absolute_delta": 616.9279205697512,
+        "relative_delta": 0.3356966750801524,
+        "regression_fraction": 0.3356966750801524,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 240,
+        "candidate_rmse": 2648.2932829853585,
+        "incumbent_rmse": 1935.4865827893827,
+        "absolute_delta": 712.8067001959757,
+        "relative_delta": 0.3682829457637953,
+        "regression_fraction": 0.3682829457637953,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 264,
+        "candidate_rmse": 2827.8329894479793,
+        "incumbent_rmse": 2010.1579046812378,
+        "absolute_delta": 817.6750847667415,
+        "relative_delta": 0.40677156897104805,
+        "regression_fraction": 0.40677156897104805,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 288,
+        "candidate_rmse": 3010.2524781943716,
+        "incumbent_rmse": 2089.1683780988533,
+        "absolute_delta": 921.0841000955184,
+        "relative_delta": 0.4408855263900301,
+        "regression_fraction": 0.4408855263900301,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 312,
+        "candidate_rmse": 3191.0535628821576,
+        "incumbent_rmse": 2164.0690943005725,
+        "absolute_delta": 1026.9844685815851,
+        "relative_delta": 0.47456177406087247,
+        "regression_fraction": 0.47456177406087247,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 336,
+        "candidate_rmse": 3365.411459442546,
+        "incumbent_rmse": 2217.6235528925827,
+        "absolute_delta": 1147.7879065499633,
+        "relative_delta": 0.5175756295755576,
+        "regression_fraction": 0.5175756295755576,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 360,
+        "candidate_rmse": 3533.4385150050257,
+        "incumbent_rmse": 2260.714565135641,
+        "absolute_delta": 1272.7239498693848,
+        "relative_delta": 0.5629741894430722,
+        "regression_fraction": 0.5629741894430722,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "candidate_rmse": 493.91181984415334,
+        "incumbent_rmse": 427.38629863535255,
+        "absolute_delta": 66.5255212088008,
+        "relative_delta": 0.15565665399479875,
+        "regression_fraction": 0.15565665399479875,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 48,
+        "candidate_rmse": 905.5937359818182,
+        "incumbent_rmse": 766.3765922758797,
+        "absolute_delta": 139.2171437059385,
+        "relative_delta": 0.18165630984697823,
+        "regression_fraction": 0.18165630984697823,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 72,
+        "candidate_rmse": 1293.454284372365,
+        "incumbent_rmse": 1075.481576141051,
+        "absolute_delta": 217.97270823131407,
+        "relative_delta": 0.2026745162975499,
+        "regression_fraction": 0.2026745162975499,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 96,
+        "candidate_rmse": 1658.6280343067851,
+        "incumbent_rmse": 1354.2206868939825,
+        "absolute_delta": 304.40734741280266,
+        "relative_delta": 0.22478415103153251,
+        "regression_fraction": 0.22478415103153251,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 120,
+        "candidate_rmse": 2009.3335692864823,
+        "incumbent_rmse": 1614.1112166499631,
+        "absolute_delta": 395.2223526365192,
+        "relative_delta": 0.24485447381797562,
+        "regression_fraction": 0.24485447381797562,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 144,
+        "candidate_rmse": 2329.3298152645525,
+        "incumbent_rmse": 1839.5960700615126,
+        "absolute_delta": 489.7337452030399,
+        "relative_delta": 0.26621808622730103,
+        "regression_fraction": 0.26621808622730103,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 168,
+        "candidate_rmse": 2630.396102401921,
+        "incumbent_rmse": 2038.167191913014,
+        "absolute_delta": 592.2289104889069,
+        "relative_delta": 0.2905693472246718,
+        "regression_fraction": 0.2905693472246718,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 192,
+        "candidate_rmse": 2908.7926542410896,
+        "incumbent_rmse": 2207.7876666837797,
+        "absolute_delta": 701.00498755731,
+        "relative_delta": 0.31751467685760676,
+        "regression_fraction": 0.31751467685760676,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 216,
+        "candidate_rmse": 3170.1798617695704,
+        "incumbent_rmse": 2353.9537209728505,
+        "absolute_delta": 816.2261407967198,
+        "relative_delta": 0.3467468937577018,
+        "regression_fraction": 0.3467468937577018,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 240,
+        "candidate_rmse": 3427.6813054067366,
+        "incumbent_rmse": 2494.902041155457,
+        "absolute_delta": 932.7792642512795,
+        "relative_delta": 0.3738741036178254,
+        "regression_fraction": 0.3738741036178254,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 264,
+        "candidate_rmse": 3667.7330966017685,
+        "incumbent_rmse": 2605.048661126047,
+        "absolute_delta": 1062.6844354757213,
+        "relative_delta": 0.4079326621931008,
+        "regression_fraction": 0.4079326621931008,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 288,
+        "candidate_rmse": 3907.9389928657497,
+        "incumbent_rmse": 2713.307772829794,
+        "absolute_delta": 1194.6312200359557,
+        "relative_delta": 0.4402859240660477,
+        "regression_fraction": 0.4402859240660477,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 312,
+        "candidate_rmse": 4143.432449071893,
+        "incumbent_rmse": 2811.8879632469766,
+        "absolute_delta": 1331.5444858249161,
+        "relative_delta": 0.47354108813330503,
+        "regression_fraction": 0.47354108813330503,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 336,
+        "candidate_rmse": 4366.103344404449,
+        "incumbent_rmse": 2882.8718495220533,
+        "absolute_delta": 1483.2314948823955,
+        "relative_delta": 0.5144978938721463,
+        "regression_fraction": 0.5144978938721463,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "candidate_rmse": 4579.87445505839,
+        "incumbent_rmse": 2939.4736305220536,
+        "absolute_delta": 1640.4008245363361,
+        "relative_delta": 0.5580593775372631,
+        "regression_fraction": 0.5580593775372631,
+        "fails_10_percent_guardrail": true
+      }
+    ],
+    "variable_and_lead_rmse_regressions_over_10_percent": [
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 322.21096480297837,
+        "incumbent_rmse": 275.458960201525,
+        "absolute_delta": 46.75200460145339,
+        "relative_delta": 0.16972402918841253,
+        "regression_fraction": 0.16972402918841253,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 48,
+        "candidate_rmse": 633.1032336379045,
+        "incumbent_rmse": 528.1957689449295,
+        "absolute_delta": 104.90746469297505,
+        "relative_delta": 0.19861473881649527,
+        "regression_fraction": 0.19861473881649527,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 72,
+        "candidate_rmse": 943.2548796244724,
+        "incumbent_rmse": 780.0289838430803,
+        "absolute_delta": 163.22589578139218,
+        "relative_delta": 0.20925619324708145,
+        "regression_fraction": 0.20925619324708145,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 96,
+        "candidate_rmse": 1247.0406676966777,
+        "incumbent_rmse": 1022.5195973398946,
+        "absolute_delta": 224.52107035678307,
+        "relative_delta": 0.21957630048448867,
+        "regression_fraction": 0.21957630048448867,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 120,
+        "candidate_rmse": 1537.8255258736206,
+        "incumbent_rmse": 1245.063554354219,
+        "absolute_delta": 292.76197151940164,
+        "relative_delta": 0.2351381746703279,
+        "regression_fraction": 0.2351381746703279,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 144,
+        "candidate_rmse": 1800.4393312736015,
+        "incumbent_rmse": 1435.6821147874975,
+        "absolute_delta": 364.75721648610397,
+        "relative_delta": 0.25406544577599166,
+        "regression_fraction": 0.25406544577599166,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 168,
+        "candidate_rmse": 2040.6261503353915,
+        "incumbent_rmse": 1596.6476290728262,
+        "absolute_delta": 443.9785212625652,
+        "relative_delta": 0.27806919521772233,
+        "regression_fraction": 0.27806919521772233,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 192,
+        "candidate_rmse": 2254.8574245235122,
+        "incumbent_rmse": 1728.4992755621388,
+        "absolute_delta": 526.3581489613734,
+        "relative_delta": 0.3045174252619761,
+        "regression_fraction": 0.3045174252619761,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 216,
+        "candidate_rmse": 2454.6819597554263,
+        "incumbent_rmse": 1837.754039185675,
+        "absolute_delta": 616.9279205697512,
+        "relative_delta": 0.3356966750801524,
+        "regression_fraction": 0.3356966750801524,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 240,
+        "candidate_rmse": 2648.2932829853585,
+        "incumbent_rmse": 1935.4865827893827,
+        "absolute_delta": 712.8067001959757,
+        "relative_delta": 0.3682829457637953,
+        "regression_fraction": 0.3682829457637953,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 264,
+        "candidate_rmse": 2827.8329894479793,
+        "incumbent_rmse": 2010.1579046812378,
+        "absolute_delta": 817.6750847667415,
+        "relative_delta": 0.40677156897104805,
+        "regression_fraction": 0.40677156897104805,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 288,
+        "candidate_rmse": 3010.2524781943716,
+        "incumbent_rmse": 2089.1683780988533,
+        "absolute_delta": 921.0841000955184,
+        "relative_delta": 0.4408855263900301,
+        "regression_fraction": 0.4408855263900301,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 312,
+        "candidate_rmse": 3191.0535628821576,
+        "incumbent_rmse": 2164.0690943005725,
+        "absolute_delta": 1026.9844685815851,
+        "relative_delta": 0.47456177406087247,
+        "regression_fraction": 0.47456177406087247,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 336,
+        "candidate_rmse": 3365.411459442546,
+        "incumbent_rmse": 2217.6235528925827,
+        "absolute_delta": 1147.7879065499633,
+        "relative_delta": 0.5175756295755576,
+        "regression_fraction": 0.5175756295755576,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 360,
+        "candidate_rmse": 3533.4385150050257,
+        "incumbent_rmse": 2260.714565135641,
+        "absolute_delta": 1272.7239498693848,
+        "relative_delta": 0.5629741894430722,
+        "regression_fraction": 0.5629741894430722,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "candidate_rmse": 493.91181984415334,
+        "incumbent_rmse": 427.38629863535255,
+        "absolute_delta": 66.5255212088008,
+        "relative_delta": 0.15565665399479875,
+        "regression_fraction": 0.15565665399479875,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 48,
+        "candidate_rmse": 905.5937359818182,
+        "incumbent_rmse": 766.3765922758797,
+        "absolute_delta": 139.2171437059385,
+        "relative_delta": 0.18165630984697823,
+        "regression_fraction": 0.18165630984697823,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 72,
+        "candidate_rmse": 1293.454284372365,
+        "incumbent_rmse": 1075.481576141051,
+        "absolute_delta": 217.97270823131407,
+        "relative_delta": 0.2026745162975499,
+        "regression_fraction": 0.2026745162975499,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 96,
+        "candidate_rmse": 1658.6280343067851,
+        "incumbent_rmse": 1354.2206868939825,
+        "absolute_delta": 304.40734741280266,
+        "relative_delta": 0.22478415103153251,
+        "regression_fraction": 0.22478415103153251,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 120,
+        "candidate_rmse": 2009.3335692864823,
+        "incumbent_rmse": 1614.1112166499631,
+        "absolute_delta": 395.2223526365192,
+        "relative_delta": 0.24485447381797562,
+        "regression_fraction": 0.24485447381797562,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 144,
+        "candidate_rmse": 2329.3298152645525,
+        "incumbent_rmse": 1839.5960700615126,
+        "absolute_delta": 489.7337452030399,
+        "relative_delta": 0.26621808622730103,
+        "regression_fraction": 0.26621808622730103,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 168,
+        "candidate_rmse": 2630.396102401921,
+        "incumbent_rmse": 2038.167191913014,
+        "absolute_delta": 592.2289104889069,
+        "relative_delta": 0.2905693472246718,
+        "regression_fraction": 0.2905693472246718,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 192,
+        "candidate_rmse": 2908.7926542410896,
+        "incumbent_rmse": 2207.7876666837797,
+        "absolute_delta": 701.00498755731,
+        "relative_delta": 0.31751467685760676,
+        "regression_fraction": 0.31751467685760676,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 216,
+        "candidate_rmse": 3170.1798617695704,
+        "incumbent_rmse": 2353.9537209728505,
+        "absolute_delta": 816.2261407967198,
+        "relative_delta": 0.3467468937577018,
+        "regression_fraction": 0.3467468937577018,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 240,
+        "candidate_rmse": 3427.6813054067366,
+        "incumbent_rmse": 2494.902041155457,
+        "absolute_delta": 932.7792642512795,
+        "relative_delta": 0.3738741036178254,
+        "regression_fraction": 0.3738741036178254,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 264,
+        "candidate_rmse": 3667.7330966017685,
+        "incumbent_rmse": 2605.048661126047,
+        "absolute_delta": 1062.6844354757213,
+        "relative_delta": 0.4079326621931008,
+        "regression_fraction": 0.4079326621931008,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 288,
+        "candidate_rmse": 3907.9389928657497,
+        "incumbent_rmse": 2713.307772829794,
+        "absolute_delta": 1194.6312200359557,
+        "relative_delta": 0.4402859240660477,
+        "regression_fraction": 0.4402859240660477,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 312,
+        "candidate_rmse": 4143.432449071893,
+        "incumbent_rmse": 2811.8879632469766,
+        "absolute_delta": 1331.5444858249161,
+        "relative_delta": 0.47354108813330503,
+        "regression_fraction": 0.47354108813330503,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 336,
+        "candidate_rmse": 4366.103344404449,
+        "incumbent_rmse": 2882.8718495220533,
+        "absolute_delta": 1483.2314948823955,
+        "relative_delta": 0.5144978938721463,
+        "regression_fraction": 0.5144978938721463,
+        "fails_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "candidate_rmse": 4579.87445505839,
+        "incumbent_rmse": 2939.4736305220536,
+        "absolute_delta": 1640.4008245363361,
+        "relative_delta": 0.5580593775372631,
+        "regression_fraction": 0.5580593775372631,
+        "fails_10_percent_guardrail": true
+      }
+    ],
+    "max_variable_and_lead_rmse_regression": {
+      "channel_name": "geopotential_500",
+      "lead_hours": 360,
+      "candidate_rmse": 3533.4385150050257,
+      "incumbent_rmse": 2260.714565135641,
+      "absolute_delta": 1272.7239498693848,
+      "relative_delta": 0.5629741894430722,
+      "regression_fraction": 0.5629741894430722,
+      "fails_10_percent_guardrail": true
+    },
+    "early_mean_rmse_failure_count": 2,
+    "variable_and_lead_rmse_failure_count": 30
+  },
+  "resource_notes": {
+    "cpu_count": 48,
+    "memory_available_before_iteration": "174GiB",
+    "disk_available_before_iteration": "4.1T",
+    "gpu_dispatch": "mode=gpu requested_workers=4 effective_workers=4 gpu_count=4 worker_devices=0:0,1:1,2:2,3:3",
+    "gpu_memory_observed_while_running": "about 17.4 GiB used and 5.1 GiB free per GPU; 100% utilization"
+  },
+  "anomalies": [],
+  "cache_reuse": {
+    "candidate_fast": "reused existing compatible fast artifact from outputs/eval",
+    "candidate_iteration": "fresh run; command reported cached=0 pending=229",
+    "incumbent_iteration": "reused existing compatible incumbent iteration artifact from outputs/eval",
+    "incumbent_validation": "existing clean artifact observed but not used for candidate acceptance because validation was not run"
+  }
+}

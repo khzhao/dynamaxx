@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "scale-separated-surface-residual-memory",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter",
+  "scored_at": "2026-06-19T23:15:00Z",
+  "worker_count": 4,
+  "golden_run": false,
+  "commands": [
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual",
+      "exit_status": 0,
+      "notes": "Run by Implementer; failed=False, issues=0, records=120, primary_score=-0.519179."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate only; resumed with 74 cached candidate chunks and completed 155 pending chunks."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate only; completed 46 validation chunks."
+    }
+  ],
+  "cache_reuse": {
+    "iteration": {
+      "leaderboard_pointer_reused": true,
+      "recomputed": false,
+      "artifact_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+      "artifact_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv",
+      "reason": "Cached incumbent metrics were readable, finite, matched the leaderboard incumbent, and used compatible protocol/data/targets/leads/eval code. Candidate source edits do not invalidate the accepted incumbent cache."
+    },
+    "validation": {
+      "leaderboard_pointer_reused": true,
+      "recomputed": false,
+      "artifact_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+      "artifact_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv",
+      "reason": "Cached incumbent metrics were readable, finite, matched the leaderboard incumbent, and used compatible protocol/data/targets/leads/eval code. Candidate source edits do not invalidate the accepted incumbent cache."
+    }
+  },
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.csv",
+    "candidate_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.json",
+    "candidate_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv"
+  },
+  "primary_scores": {
+    "candidate_iteration": -0.532053269893688,
+    "incumbent_iteration": -0.5719873627530224,
+    "iteration_delta": 0.03993409285933447,
+    "candidate_validation": -0.5219023378614627,
+    "incumbent_validation": -0.562579968224105,
+    "validation_delta": 0.04067763036264238
+  },
+  "diagnostics": {
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_validation": {
+      "failed": false,
+      "issue_count": 0
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_passed": true,
+    "iteration_diagnostics_passed": true,
+    "iteration_early_day_1_to_5_guardrail_passed": true,
+    "iteration_variable_lead_guardrail_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_run": true,
+    "validation_primary_delta_passed": true,
+    "validation_diagnostics_passed": true,
+    "validation_early_day_1_to_5_guardrail_passed": true,
+    "validation_variable_lead_guardrail_passed": true,
+    "validation_acceptance_gate_passed": true
+  },
+  "regressions": {
+    "iteration": {
+      "early_day_1_to_5_regressions_over_2_percent": [],
+      "variable_lead_regressions_over_10_percent": [],
+      "max_early_regression_percent": 0.4977511751126028,
+      "max_variable_lead_regression_percent": 0.9503941050181072
+    },
+    "validation": {
+      "early_day_1_to_5_regressions_over_2_percent": [],
+      "variable_lead_regressions_over_10_percent": [],
+      "max_early_regression_percent": 0.548832530474158,
+      "max_variable_lead_regression_percent": 0.9284794899446212
+    }
+  }
+}

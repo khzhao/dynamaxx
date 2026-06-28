@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dse-consistent-sigma-initialization",
+  "candidate_model_name": "dino_mass_dse_init",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "baseline_incumbent_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+  "current_head_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+  "history_directory": ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "protocols_scored": [
+      "fast",
+      "iteration"
+    ],
+    "protocols_not_run": [
+      "validation",
+      "golden"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "model_registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "verification_command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names; required = {'dino_mass_dse_init', 'dino_hsl2_mass_dse'}; names = set(dycore_model_names()); missing = sorted(required - names); print({'registered': sorted(required & names), 'missing': missing}); raise SystemExit(1 if missing else 0)\"",
+    "exit_status": 0
+  },
+  "pytest": {
+    "command": "uv run pytest",
+    "scorer_reran": false,
+    "record_source": "Orchestrator handoff",
+    "exit_status": 0,
+    "summary": "242 passed, 2 skipped"
+  },
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names; required = {'dino_mass_dse_init', 'dino_hsl2_mass_dse'}; names = set(dycore_model_names()); missing = sorted(required - names); print({'registered': sorted(required & names), 'missing': missing}); raise SystemExit(1 if missing else 0)\"",
+      "exit_status": 0,
+      "notes": "Confirmed candidate and incumbent model names are registered."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_mass_dse_init",
+      "exit_status": 0,
+      "notes": "Candidate fast sanity gate passed with clean diagnostics."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_mass_dse_init --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration completed with clean diagnostics."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_mass_dse_init --workers 4",
+      "exit_status": null,
+      "not_run": true,
+      "notes": "Skipped because the candidate did not meet the iteration promotion primary-score gate."
+    },
+    {
+      "command": "uv run dynamaxx-eval golden --model dino_mass_dse_init",
+      "exit_status": null,
+      "not_run": true,
+      "notes": "Golden is prohibited for this model-selection scoring workflow."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_mass_dse_init.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_mass_dse_init.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_mass_dse_init.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_mass_dse_init.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+    "candidate_diff": ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/candidate.diff"
+  },
+  "artifact_record_counts": {
+    "candidate_fast_json_records": 120,
+    "candidate_fast_csv_lines_including_header": 121,
+    "candidate_iteration_json_records": 120,
+    "candidate_iteration_csv_lines_including_header": 121,
+    "incumbent_iteration_json_records": 120,
+    "incumbent_iteration_csv_lines_including_header": 121,
+    "incumbent_validation_json_records": 120,
+    "incumbent_validation_csv_lines_including_header": 121
+  },
+  "primary_scores": {
+    "candidate_fast": -0.26307357364618555,
+    "candidate_iteration": -0.26271419693216724,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2616483974683927,
+    "incumbent_validation": -0.2600180396322455,
+    "iteration_delta": -0.0010657994637745527,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "incumbent_metrics_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "incumbent_metrics_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "incumbent_rerun": false,
+      "validation_checks": [
+        "Requested incumbent dino_hsl2_mass_dse equals leaderboard incumbent dino_hsl2_mass_dse.",
+        "Leaderboard fingerprint data_path, target_variables, lead_days, and protocol list are compatible with iteration scoring.",
+        "Leaderboard eval_code_commit equals current HEAD commit 2c70bb5b77370a074330c2b46954f74f20771f12.",
+        "Cached iteration JSON and CSV exist and are readable.",
+        "Cached iteration JSON has finite primary_score -0.2616483974683927, clean diagnostics, and 60 incumbent model records covering all variable/lead guardrail keys."
+      ],
+      "cache_invalidation": null
+    },
+    "validation": {
+      "incumbent_metrics_reused": false,
+      "incumbent_metrics_available": true,
+      "incumbent_metrics_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "incumbent_metrics_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "incumbent_rerun": false,
+      "not_used_reason": "Candidate iteration did not promote, so candidate validation and validation comparison were skipped.",
+      "cache_invalidation": null
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_gate_passed": false,
+    "iteration_diagnostics_clean": true,
+    "iteration_early_day_1_to_5_mean_rmse_regression_threshold": 0.02,
+    "iteration_early_day_1_to_5_guardrail_passed": true,
+    "iteration_worst_variable_lead_rmse_regression_threshold": 0.1,
+    "iteration_worst_variable_lead_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_delta_threshold": 0.001,
+    "validation_acceptance_gate_passed": null,
+    "validation_skipped_reason": "Iteration primary delta -0.0010657994637745527 did not meet the +0.002 promotion threshold."
+  },
+  "regressions": {
+    "early_day_1_to_5_mean_rmse_regression_fraction": -0.006345484837916622,
+    "early_day_1_to_5_mean_rmse_regression_percent": -0.6345484837916622,
+    "positive_rmse_regression_count": 39,
+    "comparison_key_count": 60,
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 4.332525883827617,
+        "incumbent_mean_rmse": 4.371016832235197,
+        "mean_rmse_regression_fraction": -0.01095646011250583,
+        "mean_rmse_regression_percent": -1.095646011250583
+      },
+      {
+        "variable": "2 m temperature",
+        "channel_name": "2m_temperature",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 4.694835676700746,
+        "incumbent_mean_rmse": 4.720167397134263,
+        "mean_rmse_regression_fraction": -0.007697823688629517,
+        "mean_rmse_regression_percent": -0.7697823688629517
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 607.4303433479454,
+        "incumbent_mean_rmse": 603.1650920588065,
+        "mean_rmse_regression_fraction": 0.008815813122977962,
+        "mean_rmse_regression_percent": 0.8815813122977961
+      },
+      {
+        "variable": "Mean sea level pressure",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 772.4933450773173,
+        "incumbent_mean_rmse": 782.5186026540035,
+        "mean_rmse_regression_fraction": -0.015543468673509104,
+        "mean_rmse_regression_percent": -1.5543468673509104
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 312,
+        "candidate_rmse": 5.861505144513592,
+        "incumbent_rmse": 5.812082973651022,
+        "rmse_delta": 0.04942217086257017,
+        "rmse_regression_fraction": 0.008503349158404092,
+        "rmse_regression_percent": 0.8503349158404092
+      },
+      {
+        "variable": "2 m temperature",
+        "channel_name": "2m_temperature",
+        "lead_hours": 120,
+        "candidate_rmse": 6.279153582627341,
+        "incumbent_rmse": 6.271964201025875,
+        "rmse_delta": 0.007189381601466316,
+        "rmse_regression_fraction": 0.0011462727418454308,
+        "rmse_regression_percent": 0.11462727418454308
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 250.68050470361348,
+        "incumbent_rmse": 245.90449676510394,
+        "rmse_delta": 4.776007938509537,
+        "rmse_regression_fraction": 0.01942220659377261,
+        "rmse_regression_percent": 1.9422206593772608
+      },
+      {
+        "variable": "Mean sea level pressure",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 336,
+        "candidate_rmse": 1309.3906317048763,
+        "incumbent_rmse": 1292.4336927746267,
+        "rmse_delta": 16.956938930249635,
+        "rmse_regression_fraction": 0.0131201616183853,
+        "rmse_regression_percent": 1.31201616183853
+      }
+    ],
+    "worst_rmse_regression_overall": {
+      "variable": "500 hPa geopotential",
+      "channel_name": "geopotential_500",
+      "lead_hours": 24,
+      "candidate_rmse": 250.68050470361348,
+      "incumbent_rmse": 245.90449676510394,
+      "rmse_delta": 4.776007938509537,
+      "rmse_regression_fraction": 0.01942220659377261,
+      "rmse_regression_percent": 1.9422206593772608
+    },
+    "best_rmse_change_overall": {
+      "variable": "10 m zonal wind",
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 24,
+      "candidate_rmse": 2.9435143592655684,
+      "incumbent_rmse": 3.038486182410656,
+      "rmse_delta": -0.09497182314508779,
+      "rmse_regression_fraction": -0.03125629588012133,
+      "rmse_regression_percent": -3.125629588012133
+    }
+  },
+  "anomalies": {
+    "resource_failures": [],
+    "failed_or_restarted_commands": [],
+    "nonfinite_outputs": [],
+    "notes": [
+      "Candidate fast and iteration runs were quiet for long intervals while computing but continued to make progress and exited 0.",
+      "A non-invasive resource sanity check during iteration showed four worker Python processes active and all four GPUs at 100% utilization.",
+      "Unrelated untracked gifs/ was ignored."
+    ]
+  }
+}

@@ -1,0 +1,553 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..80472af 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -59,6 +59,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    precentered_wtg_vertical_dse_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -105,6 +106,7 @@ __all__ = [
+     "log_pressure_initialization_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
++    "precentered_wtg_vertical_dse_dinosaur_dycore_model",
+     "pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model",
+     "primitive_equations",
+     "primitive_equations_states",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..5e34158 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -149,6 +149,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
++    apply_theta_recenter_before_tropical_wtg: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -452,23 +453,45 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     rollout_physics_specs,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 )
+-            if self.apply_tropical_wtg_mass_dse_relaxation:
++            apply_precentered_wtg_order = (
++                self.apply_theta_recenter_before_tropical_wtg
++                and self.apply_theta_layer_mean_recentering
++                and self.apply_tropical_wtg_mass_dse_relaxation
++            )
++            if apply_precentered_wtg_order:
+                 filters.append(
+-                    _tropical_wtg_mass_dse_relaxation_step_filter(
++                    _theta_layer_mean_recenter_step_filter(
+                         coords=coords,
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+-                        step_seconds=step_seconds,
+                     )
+                 )
+-            if self.apply_theta_layer_mean_recentering:
+                 filters.append(
+-                    _theta_layer_mean_recenter_step_filter(
++                    _tropical_wtg_mass_dse_relaxation_step_filter(
+                         coords=coords,
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
++                        step_seconds=step_seconds,
+                     )
+                 )
++            else:
++                if self.apply_tropical_wtg_mass_dse_relaxation:
++                    filters.append(
++                        _tropical_wtg_mass_dse_relaxation_step_filter(
++                            coords=coords,
++                            physics_specs=physics_specs,
++                            reference_temperature=reference_temperature,
++                            step_seconds=step_seconds,
++                        )
++                    )
++                if self.apply_theta_layer_mean_recentering:
++                    filters.append(
++                        _theta_layer_mean_recenter_step_filter(
++                            coords=coords,
++                            physics_specs=physics_specs,
++                            reference_temperature=reference_temperature,
++                        )
++                    )
+             step_fn = ode_solver(equation, time_step=step_seconds)
+             if filters:
+                 step_fn = time_integration.step_with_filters(step_fn, filters)
+@@ -843,9 +866,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,8 +886,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -1368,6 +1389,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def precentered_wtg_vertical_dse_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return vertical-DSE WTG with theta recentering before WTG rollout filters."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg",
++        apply_theta_recenter_before_tropical_wtg=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2559,9 +2591,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2616,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..d6d4d26 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg_model() -> DycoreModel:
++    """Return vertical-DSE WTG with theta recentering before WTG rollout."""
++    from dynamaxx.dycore.models.dinosaur import (
++        precentered_wtg_vertical_dse_dinosaur_dycore_model,
++    )
++
++    return precentered_wtg_vertical_dse_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,8 +311,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg": (
++        dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg_model
+     ),
+ }
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..620df5b 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.precentered_wtg_vertical_dse_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,27 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_precentered_wtg_vertical_dse_is_registered():
++    """The precentered WTG candidate is side-by-side with its incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.apply_theta_layer_mean_recentering
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_theta_recenter_before_tropical_wtg
++    assert not incumbent.apply_theta_recenter_before_tropical_wtg
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_theta_recenter_before_tropical_wtg"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..80f0681 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -84,6 +84,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    precentered_wtg_vertical_dse_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -655,6 +656,27 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_precentered_wtg_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the rollout filter-order selector."""
++    model = precentered_wtg_vertical_dse_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.apply_theta_layer_mean_recentering
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_theta_recenter_before_tropical_wtg
++    assert not incumbent.apply_theta_recenter_before_tropical_wtg
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_theta_recenter_before_tropical_wtg"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3809,10 +3831,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -4866,10 +4887,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -5817,6 +5837,67 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_precentered_wtg_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The precentered WTG candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        precentered_wtg_vertical_dse_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg"
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.apply_theta_layer_mean_recentering
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_theta_recenter_before_tropical_wtg
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6567,6 +6648,138 @@ def test_trajectory_function_applies_tropical_wtg_to_rollout_only(monkeypatch):
+     ]
+ 
+ 
++def test_trajectory_function_keeps_incumbent_wtg_before_theta_recenter(
++    monkeypatch,
++):
++    """The incumbent vertical-DSE WTG rollout still applies WTG before theta."""
++    rollout_filter_calls = []
++    dfi_calls = []
++    real_step_with_filters = time_integration.step_with_filters
++
++    def capture_step_with_filters(step_fn, filters):
++        rollout_filter_calls.append(tuple(filters))
++        return real_step_with_filters(step_fn, filters)
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, time_span, cutoff_period, dt
++        dfi_calls.append(tuple(filters))
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "step_with_filters",
++        capture_step_with_filters,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    coords, physics_specs, _, dinosaur_state = _synthetic_wtg_mass_dse_state()
++    model = replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        include_vertical_advection=False,
++        jit_forecast=False,
++    )
++
++    trajectory_fn = model._trajectory_function(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=3,
++            temperature_kelvin=model.reference_temperature_kelvin,
++        ),
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++    trajectory_fn(dinosaur_state)
++
++    assert len(rollout_filter_calls) == 1
++    rollout_filter_names = [filter_fn.__name__ for filter_fn in rollout_filter_calls[0]]
++    assert rollout_filter_names[-2:] == [
++        "tropical_wtg_mass_dse_relaxation_filter",
++        "theta_layer_mean_recenter_filter",
++    ]
++    assert len(dfi_calls) == 1
++    dfi_filter_names = [filter_fn.__name__ for filter_fn in dfi_calls[0]]
++    assert "tropical_wtg_mass_dse_relaxation_filter" not in dfi_filter_names
++    assert "theta_layer_mean_recenter_filter" not in dfi_filter_names
++
++
++def test_trajectory_function_applies_precentered_wtg_rollout_order(monkeypatch):
++    """The candidate applies theta recentering before rollout WTG only."""
++    rollout_filter_calls = []
++    dfi_calls = []
++    real_step_with_filters = time_integration.step_with_filters
++
++    def capture_step_with_filters(step_fn, filters):
++        rollout_filter_calls.append(tuple(filters))
++        return real_step_with_filters(step_fn, filters)
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, time_span, cutoff_period, dt
++        dfi_calls.append(tuple(filters))
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "step_with_filters",
++        capture_step_with_filters,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    coords, physics_specs, _, dinosaur_state = _synthetic_wtg_mass_dse_state()
++    model = replace(
++        precentered_wtg_vertical_dse_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        include_vertical_advection=False,
++        jit_forecast=False,
++    )
++
++    trajectory_fn = model._trajectory_function(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=3,
++            temperature_kelvin=model.reference_temperature_kelvin,
++        ),
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++    trajectory_fn(dinosaur_state)
++
++    assert len(rollout_filter_calls) == 1
++    rollout_filter_names = [filter_fn.__name__ for filter_fn in rollout_filter_calls[0]]
++    assert rollout_filter_names[-2:] == [
++        "theta_layer_mean_recenter_filter",
++        "tropical_wtg_mass_dse_relaxation_filter",
++    ]
++    assert len(dfi_calls) == 1
++    dfi_filter_names = [filter_fn.__name__ for filter_fn in dfi_calls[0]]
++    assert "tropical_wtg_mass_dse_relaxation_filter" not in dfi_filter_names
++    assert "theta_layer_mean_recenter_filter" not in dfi_filter_names
++
++
+ def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
+     monkeypatch,
+ ):
+@@ -6730,9 +6943,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..d994fb4 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg",
+     )
+ 
+ 
+@@ -660,6 +661,27 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_precentered_wtg_candidate_model():
++    """The precentered WTG alias adds only the rollout-order selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.apply_theta_layer_mean_recentering
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_theta_recenter_before_tropical_wtg
++    assert not incumbent.apply_theta_recenter_before_tropical_wtg
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_theta_recenter_before_tropical_wtg"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

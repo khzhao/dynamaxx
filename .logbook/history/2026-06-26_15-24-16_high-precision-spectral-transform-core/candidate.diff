@@ -1,0 +1,476 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..dc1ed14 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    high_precision_sht_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+@@ -92,6 +93,7 @@ __all__ = [
+     "filtering",
+     "fourier",
+     "held_suarez",
++    "high_precision_sht_dinosaur_dycore_model",
+     "horizontal_semilagrangian_theta_transport_dinosaur_dycore_model",
+     "hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "horizontal_interpolation",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..88fa9da 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -37,7 +37,10 @@ from dynamaxx.dycore.models.dinosaur.channels import (
+     split_pressure_level_channel,
+     supported_output_variables,
+ )
+-from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
++from dynamaxx.dycore.models.dinosaur.coordinates import (
++    grid_metadata,
++    high_precision_fast_spherical_harmonics,
++)
+ from dynamaxx.weather import ForecastInput, WeatherState
+ 
+ DEFAULT_INNER_STEP_SECONDS = 900.0
+@@ -150,6 +153,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     semi_implicit_offcentering: float = 0.0
++    spherical_harmonics_impl: spherical_harmonic.SphericalHarmonicsImpl = (
++        spherical_harmonic.RealSphericalHarmonics
++    )
+     jit_forecast: bool = True
+ 
+     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
+@@ -165,6 +171,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             latitude=forecast_input.latitude,
+             layer_count=len(pressure_levels_hpa),
+             spectral_wavenumbers=self.spectral_wavenumbers,
++            spherical_harmonics_impl=self.spherical_harmonics_impl,
+         )
+         physics_specs = units.SimUnits.from_si()
+         reference_temperature = _reference_temperature(
+@@ -843,9 +850,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,8 +870,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -1368,6 +1373,15 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def high_precision_sht_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
++    """Return vertical-DSE ramp with high-precision Fast SH transforms."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec",
++        spherical_harmonics_impl=high_precision_fast_spherical_harmonics,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2559,9 +2573,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2598,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/coordinates.py b/src/dynamaxx/dycore/models/dinosaur/coordinates.py
+index 4c41e75..c512d8f 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/coordinates.py
++++ b/src/dynamaxx/dycore/models/dinosaur/coordinates.py
+@@ -4,6 +4,7 @@ from __future__ import annotations
+ 
+ from dataclasses import dataclass
+ 
++import jax
+ import jax.numpy as jnp
+ import numpy as np
+ 
+@@ -29,6 +30,9 @@ def grid_metadata(
+     latitude: np.ndarray,
+     layer_count: int,
+     spectral_wavenumbers: int | None,
++    spherical_harmonics_impl: spherical_harmonic.SphericalHarmonicsImpl = (
++        spherical_harmonic.RealSphericalHarmonics
++    ),
+ ) -> GridMetadata:
+     """Build Dinosaur coordinates compatible with the WeatherState grid."""
+     physics_specs = units.SimUnits.from_si()
+@@ -59,6 +63,7 @@ def grid_metadata(
+             latitude_spacing=latitude_spacing,
+             longitude_offset=np.deg2rad(float(longitude[0])),
+             radius=physics_specs.radius,
++            spherical_harmonics_impl=spherical_harmonics_impl,
+         )
+         if not np.allclose(
+             np.rad2deg(horizontal_grid.longitudes), longitude, atol=1e-5
+@@ -102,3 +107,13 @@ def _with_safe_polar_cosine(
+     object.__setattr__(horizontal_grid, "cos_lat", safe_cos_latitude)
+     object.__setattr__(horizontal_grid, "sec2_lat", 1.0 / safe_cos_latitude**2)
+     return horizontal_grid
++
++
++def high_precision_fast_spherical_harmonics(
++    **kwargs,
++) -> spherical_harmonic.FastSphericalHarmonics:
++    """Return FastSphericalHarmonics using highest precision contractions."""
++    return spherical_harmonic.FastSphericalHarmonics(
++        transform_precision=jax.lax.Precision.HIGHEST,
++        **kwargs,
++    )
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..22fde5f 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,13 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec_model() -> DycoreModel:
++    """Return vertical-DSE ramp with high-precision Fast SH transforms."""
++    from dynamaxx.dycore.models.dinosaur import high_precision_sht_dinosaur_dycore_model
++
++    return high_precision_sht_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,8 +309,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec": (
++        dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec_model
+     ),
+ }
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..24e873b 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.high_precision_sht_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,25 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_high_precision_sht_is_registered():
++    """The high-precision SHT candidate is side-by-side with VDSE ramp."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.spherical_harmonics_impl is not incumbent.spherical_harmonics_impl
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "spherical_harmonics_impl"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..b637f4d 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -75,6 +75,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    high_precision_sht_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -97,7 +98,10 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     weak_held_suarez_dinosaur_dycore_model,
+     weather_state_to_dinosaur_state,
+ )
+-from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
++from dynamaxx.dycore.models.dinosaur.coordinates import (
++    grid_metadata,
++    high_precision_fast_spherical_harmonics,
++)
+ from dynamaxx.utils.consts import SECONDS_PER_HOUR
+ from dynamaxx.weather import ForecastInput, WeatherState
+ 
+@@ -655,6 +659,75 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_high_precision_sht_factory_preserves_vdse_ramp_except_selector():
++    """The high-precision SHT candidate changes only name and SH implementation."""
++    model = high_precision_sht_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.spherical_harmonics_impl is high_precision_fast_spherical_harmonics
++    assert (
++        incumbent.spherical_harmonics_impl is spherical_harmonic.RealSphericalHarmonics
++    )
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "spherical_harmonics_impl"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
++def test_high_precision_sht_grid_uses_fast_highest_transform_contract():
++    """High-precision Fast SH grids preserve public transform shapes and dtypes."""
++    longitude = np.array([0.0, 90.0, 180.0, 270.0])
++    latitude = np.array([90.0, 0.0, -90.0])
++    incumbent_grid = grid_metadata(
++        longitude=longitude,
++        latitude=latitude,
++        layer_count=2,
++        spectral_wavenumbers=None,
++    )
++    high_precision_grid = grid_metadata(
++        longitude=longitude,
++        latitude=latitude,
++        layer_count=2,
++        spectral_wavenumbers=None,
++        spherical_harmonics_impl=high_precision_fast_spherical_harmonics,
++    )
++    high_precision_horizontal = high_precision_grid.coords.horizontal
++
++    assert isinstance(
++        incumbent_grid.coords.horizontal.spherical_harmonics,
++        spherical_harmonic.RealSphericalHarmonics,
++    )
++    assert isinstance(
++        high_precision_horizontal.spherical_harmonics,
++        spherical_harmonic.FastSphericalHarmonics,
++    )
++    assert (
++        high_precision_horizontal.spherical_harmonics.transform_precision
++        == jax.lax.Precision.HIGHEST
++    )
++    assert high_precision_horizontal.nodal_shape == (4, 3)
++    assert high_precision_horizontal.mask.shape == high_precision_horizontal.modal_shape
++    assert high_precision_horizontal.mask.dtype == np.bool_
++
++    nodal_field = jnp.arange(2 * 4 * 3, dtype=jnp.float32).reshape(2, 4, 3)
++    modal_field = high_precision_horizontal.to_modal(nodal_field)
++    roundtrip_field = high_precision_horizontal.to_nodal(modal_field)
++
++    assert modal_field.shape == (2, *high_precision_horizontal.modal_shape)
++    assert roundtrip_field.shape == nodal_field.shape
++    assert modal_field.dtype == nodal_field.dtype
++    assert roundtrip_field.dtype == nodal_field.dtype
++    assert bool(jnp.isfinite(modal_field).all())
++    assert bool(jnp.isfinite(roundtrip_field).all())
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3809,10 +3882,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -4866,10 +4938,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -5817,6 +5888,62 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_high_precision_sht_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The high-precision SHT candidate runs a small finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        high_precision_sht_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec"
++    assert model.spherical_harmonics_impl is high_precision_fast_spherical_harmonics
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6730,9 +6857,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..68cf185 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec",
+     )
+ 
+ 
+@@ -660,6 +661,25 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_high_precision_sht_candidate_model():
++    """The high-precision SHT alias changes only the SH implementation selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.spherical_harmonics_impl is not incumbent.spherical_harmonics_impl
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "spherical_harmonics_impl"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

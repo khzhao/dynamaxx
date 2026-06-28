@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "boundary-layer-sheltered-vertical-dse",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_pblcap",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "258 passed, 2 skipped in 301.73s"
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_pblcap",
+      "exit_status": 0,
+      "notes": "Candidate-only fast gate; failed=false, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_pblcap --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate-only iteration gate; compared against valid cached incumbent iteration metrics."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_pblcap.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_pblcap.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_pblcap.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_pblcap.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.22864775066430187,
+    "candidate_iteration": -0.2252107539770965,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2197104515448394,
+    "incumbent_validation": -0.21940899263836755,
+    "iteration_delta": -0.005500302432257104,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0
+  },
+  "cache_reuse": {
+    "iteration_incumbent_reused": true,
+    "iteration_incumbent_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "iteration_cache_validation": "Requested incumbent matched leaderboard incumbent; leaderboard fingerprint was compatible; HEAD matched eval_code_commit; fixed eval code and protocols were unchanged; artifact was readable, finite, clean, and complete for guardrail rows. Candidate dycore source edits did not invalidate the accepted incumbent cache.",
+    "validation_incumbent_reused": false,
+    "validation_cache_validation": "Validation was not run because the candidate failed iteration promotion; validation incumbent cache was present but not used for an acceptance calculation."
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "validation_skip_reason": "Iteration primary delta was -0.005500302432257104, below the fixed +0.002 promotion threshold."
+  },
+  "regressions": {
+    "early_day_1_5_mean_rmse_regressions": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "leads_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "mean_relative_rmse_change": -0.10755148841617779,
+        "max_relative_rmse_change": 0.0037212236379431315
+      },
+      {
+        "channel_name": "2m_temperature",
+        "leads_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "mean_relative_rmse_change": 0.6689371902001219,
+        "max_relative_rmse_change": 0.9807248789339442
+      },
+      {
+        "channel_name": "geopotential_500",
+        "leads_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "mean_relative_rmse_change": -0.35121541470718254,
+        "max_relative_rmse_change": -0.14815394123397824
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "leads_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "mean_relative_rmse_change": -0.08185493132637704,
+        "max_relative_rmse_change": 0.13321146396180653
+      }
+    ],
+    "max_early_day_1_5_mean_rmse_regression": 0.6689371902001219,
+    "early_day_1_5_regression_threshold": 0.02,
+    "passes_early_day_1_5_guardrail": false,
+    "worst_variable_lead_regression": {
+      "channel_name": "2m_temperature",
+      "lead_hours": 288,
+      "candidate_rmse": 7.704538036941457,
+      "incumbent_rmse": 3.6279727891622984,
+      "relative_rmse_change": 1.1236482423343757
+    },
+    "worst_variable_lead_regression_threshold": 0.1,
+    "passes_worst_variable_lead_guardrail": false,
+    "guardrail_failures": [
+      "2m_temperature early day 1-5 mean RMSE regression exceeded 2%.",
+      "2m_temperature at 288h RMSE regression exceeded 10%."
+    ]
+  }
+}

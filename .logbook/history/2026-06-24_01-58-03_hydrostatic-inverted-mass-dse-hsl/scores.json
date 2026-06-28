@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hydrostatic-inverted-mass-dse-hsl",
+  "candidate_model_name": "dino_mass_dse_hydroinv",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "incumbent_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+  "scored_at": "2026-06-24T05:06:56Z",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "run_by": "Orchestrator",
+      "notes": "Verified from Orchestrator handoff: full test gate passed with 242 passed and 2 skipped. Scorer did not rerun full pytest."
+    },
+    {
+      "command": "git rev-parse HEAD",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Reported HEAD 2c70bb5b77370a074330c2b46954f74f20771f12, matching the leaderboard eval_code_commit."
+    },
+    {
+      "command": "git diff --name-only",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Dirty worktree files are dycore model/registry/test files for the candidate; no fixed evaluation protocol files were dirty."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\ncandidate = \"dino_mass_dse_hydroinv\"\nincumbent = \"dino_hsl2_mass_dse\"\nregistered = set(dycore_model_names())\nmissing = [name for name in (candidate, incumbent) if name not in registered]\nif missing:\n    raise SystemExit(f\"missing registered models: {missing}\")\nfor name in (candidate, incumbent):\n    model = create_dycore_model(name)\n    print(f\"{name}: registered, factory returned {model.name}\")\nPY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Confirmed candidate and incumbent are registered and construct successfully."
+    },
+    {
+      "command": "uv run python - <<'PY'\n# validate .logbook/leaderboard.json cached incumbent iteration and validation artifacts\n# checks: requested incumbent, fingerprint, readable JSON/CSV, finite primary score, clean diagnostics, and required model rows\nPY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Confirmed cached incumbent iteration and validation artifacts are reusable under roles/SCORER.md."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_mass_dse_hydroinv",
+      "exit_status": 0,
+      "run_by": "Orchestrator",
+      "notes": "Verified from Orchestrator handoff and existing artifact; Scorer did not rerun fast. Result artifact has failed=False, issues=0, records=120, primary_score=-0.297130911050922."
+    },
+    {
+      "command": "uv run python - <<'PY'\n# verify outputs/eval/fast_dino_mass_dse_hydroinv.json expecting 60 records\nPY",
+      "exit_status": 1,
+      "run_by": "Scorer",
+      "notes": "Initial fast verification incorrectly expected only candidate model rows. The artifact correctly contains 120 rows: 60 candidate rows and 60 persistence reference rows."
+    },
+    {
+      "command": "uv run python - <<'PY'\n# verify outputs/eval/fast_dino_mass_dse_hydroinv.json expecting 120 records and clean diagnostics\nPY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Corrected fast artifact verification passed: failed=False, issues=0, records=120, model_counts={'dino_mass_dse_hydroinv': 60, 'persistence': 60}."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_mass_dse_hydroinv --workers 4",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Result: failed=False, issues=0, records=120, primary_score=-0.29185769674400885."
+    },
+    {
+      "command": "uv run python - <<'PY'\n# compute iteration primary delta and RMSE guardrails against cached incumbent rows filtered by model_name\nPY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Iteration promotion gate failed; validation was skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_mass_dse_hydroinv --workers 4",
+      "exit_status": null,
+      "run_by": "Scorer",
+      "notes": "Skipped because the candidate did not pass the iteration promotion gate."
+    },
+    {
+      "command": "uv run dynamaxx-eval golden --model dino_mass_dse_hydroinv",
+      "exit_status": null,
+      "run_by": "Scorer",
+      "notes": "Not run; golden is prohibited for this model-selection scoring workflow."
+    }
+  ],
+  "artifacts": {
+    "candidate_diff": ".logbook/history/2026-06-24_01-58-03_hydrostatic-inverted-mass-dse-hsl/candidate.diff",
+    "candidate_fast_json": "outputs/eval/fast_dino_mass_dse_hydroinv.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_mass_dse_hydroinv.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_mass_dse_hydroinv.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_mass_dse_hydroinv.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dino_mass_dse_hydroinv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.297130911050922,
+    "candidate_iteration": -0.29185769674400885,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2616483974683927,
+    "incumbent_validation": -0.2600180396322455,
+    "iteration_delta": -0.030209299275616164,
+    "iteration_required_delta": 0.002,
+    "iteration_margin_to_required_delta": -0.032209299275616166,
+    "validation_delta": null,
+    "validation_required_delta": 0.001
+  },
+  "diagnostics": {
+    "fast": {
+      "candidate_failed": false,
+      "candidate_issue_count": 0,
+      "candidate_record_count": 120
+    },
+    "iteration": {
+      "candidate_failed": false,
+      "candidate_issue_count": 0,
+      "candidate_record_count": 120,
+      "incumbent_failed": false,
+      "incumbent_issue_count": 0
+    },
+    "validation": {
+      "candidate_failed": null,
+      "candidate_issue_count": null,
+      "candidate_record_count": null,
+      "incumbent_failed": false,
+      "incumbent_issue_count": 0
+    }
+  },
+  "gate_status": {
+    "pytest_passed": true,
+    "fast_passed": true,
+    "iteration_diagnostics_clean": true,
+    "iteration_primary_delta_gate_passed": false,
+    "iteration_early_rmse_guardrail_passed": false,
+    "iteration_worst_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_ran": false,
+    "validation_acceptance_gate_passed": null,
+    "golden_ran": false
+  },
+  "regressions": {
+    "record_filter": "Guardrail calculations compare only records whose model_name matches the candidate or incumbent; each eval JSON also contains persistence reference rows.",
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.409501547905528,
+        "incumbent_mean_rmse": 4.371016832235197,
+        "mean_rmse_delta": 0.038484715670330516,
+        "regression_fraction": 0.00880452241375851,
+        "regression_percent": 0.8804522413758511,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.786294229247909,
+        "incumbent_mean_rmse": 4.720167397134262,
+        "mean_rmse_delta": 0.066126832113647,
+        "regression_fraction": 0.01400942520678278,
+        "regression_percent": 1.4009425206782782,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 608.8047530017452,
+        "incumbent_mean_rmse": 603.1650920588065,
+        "mean_rmse_delta": 5.63966094293869,
+        "regression_fraction": 0.009350111631441765,
+        "regression_percent": 0.9350111631441764,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 801.655543730707,
+        "incumbent_mean_rmse": 782.5186026540035,
+        "mean_rmse_delta": 19.136941076703465,
+        "regression_fraction": 0.024455573339468593,
+        "regression_percent": 2.4455573339468595,
+        "gate_limit_percent": 2.0,
+        "passes": false
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 1363.6671169131687,
+        "incumbent_rmse": 1274.1359354948697,
+        "rmse_delta": 89.53118141829896,
+        "regression_fraction": 0.07026815500932039,
+        "regression_percent": 7.026815500932039,
+        "gate_limit_percent": 10.0,
+        "passes": true
+      }
+    ]
+  },
+  "cache_reuse": {
+    "fast": {
+      "incumbent_reused": null,
+      "reason": "No incumbent fast comparison is required by the fixed scoring workflow."
+    },
+    "iteration": {
+      "reused": true,
+      "recomputed": false,
+      "incumbent_model_name": "dino_hsl2_mass_dse",
+      "leaderboard_path": ".logbook/leaderboard.json",
+      "json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "checks": [
+        "requested incumbent equals leaderboard incumbent dino_hsl2_mass_dse",
+        "leaderboard fingerprint includes iteration with matching data_path, target variables, lead_days, and eval_code_commit",
+        "JSON and CSV artifacts exist and are readable",
+        "primary_score is finite",
+        "diagnostics are failed=False with zero issues",
+        "required incumbent model rows are present for guardrail comparisons"
+      ]
+    },
+    "validation": {
+      "reused": true,
+      "recomputed": false,
+      "incumbent_model_name": "dino_hsl2_mass_dse",
+      "leaderboard_path": ".logbook/leaderboard.json",
+      "json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "checks": [
+        "requested incumbent equals leaderboard incumbent dino_hsl2_mass_dse",
+        "leaderboard fingerprint includes validation with matching data_path, target variables, lead_days, and eval_code_commit",
+        "JSON and CSV artifacts exist and are readable",
+        "primary_score is finite",
+        "diagnostics are failed=False with zero issues",
+        "required incumbent model rows are present"
+      ],
+      "notes": "Candidate validation was not run because iteration did not promote."
+    }
+  },
+  "anomalies": [
+    "The first fast artifact verification command exited nonzero because it expected 60 total records. The eval artifact correctly contains 120 total records: 60 candidate rows plus 60 persistence reference rows. Corrected verification passed before scoring.",
+    "Candidate iteration was a fresh run with cached=0 chunks. Runtime was long but stable, with no failed chunks, nonfinite outputs, or diagnostic issues.",
+    "No incumbent protocol was rerun. Candidate source edits in the dirty worktree were not treated as incumbent cache invalidation under roles/SCORER.md."
+  ],
+  "lessons": [
+    "Hydrostatic inversion of mass-weighted DSE strongly degraded the fixed iteration primary score relative to the cached incumbent, with delta -0.030209299275616164 versus the +0.002 promotion threshold.",
+    "The candidate also breached the early 1-5 day mean sea-level-pressure RMSE guardrail at 2.4455573339468595%, though the worst individual variable-lead RMSE regression stayed below the 10% limit.",
+    "Future scoring and analysis should continue filtering eval JSON records by model_name because persistence reference rows are included in the same artifact."
+  ],
+  "recommendation_to_orchestrator": "Report measured gate status as no promotion to validation. This is a measurement report only; Scorer does not accept or reject the candidate."
+}

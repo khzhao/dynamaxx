@@ -1,0 +1,248 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hydrostatic-balanced-theta-pressure-work",
+  "candidate_model_name": "dino_hsl2_theta_pw",
+  "incumbent_model_name": "dino_hsl2_theta",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/primitive_equations.py src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Recorded from Orchestrator local checks; not rerun by Scorer."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Recorded from Orchestrator local checks; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -k 'pressure_work or hsl2_theta or hsl_theta' tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Recorded from Orchestrator local checks: 22 passed, 143 deselected; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Recorded from Orchestrator local checks: 231 passed, 2 skipped; not rerun by Scorer."
+    },
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import list_dycore_models; names=set(list_dycore_models()); print('dino_hsl2_theta_pw', 'registered' if 'dino_hsl2_theta_pw' in names else 'missing'); print('dino_hsl2_theta', 'registered' if 'dino_hsl2_theta' in names else 'missing')\"",
+      "exit_status": 1,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Failed registration probe because list_dycore_models is not a registry API."
+    },
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import create_dycore_model; print(create_dycore_model('dino_hsl2_theta_pw').name); print(create_dycore_model('dino_hsl2_theta').name)\"",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed both candidate and incumbent construct from the registry."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_theta_pw",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate fast completed cleanly: failed=False, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_theta_pw --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate iteration completed cleanly: failed=False, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_theta_pw --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run because the candidate failed the iteration promotion guardrails."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_theta_pw.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_theta_pw.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_theta_pw.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta_pw.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_theta.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.22613547323004646,
+    "candidate_iteration": -0.22517062459723133,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.31282890543336245,
+    "incumbent_validation": -0.3072374345999185,
+    "iteration_delta": 0.08765828083613111,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_delta_passed": true,
+    "early_day_1_to_5_mean_rmse_regression_threshold": 0.02,
+    "early_day_1_to_5_mean_rmse_guardrail_passed": false,
+    "worst_variable_lead_rmse_regression_threshold": 0.1,
+    "worst_variable_lead_rmse_guardrail_passed": false,
+    "validation_ran": false,
+    "golden_ran": false
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 4.456612844664318,
+        "candidate_mean_rmse": 4.405931662047128,
+        "relative_regression": -0.011372130446078094,
+        "percent_regression": -1.1372130446078095,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 4.822779440662406,
+        "candidate_mean_rmse": 4.75037418164789,
+        "relative_regression": -0.015013180657619007,
+        "percent_regression": -1.5013180657619007,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 613.8510255130138,
+        "candidate_mean_rmse": 628.6412600553697,
+        "relative_regression": 0.02409417583035754,
+        "percent_regression": 2.409417583035754,
+        "passes_threshold": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 814.9462536112021,
+        "candidate_mean_rmse": 814.3733852442195,
+        "relative_regression": -0.0007029523289960024,
+        "percent_regression": -0.07029523289960024,
+        "passes_threshold": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "incumbent_rmse": 384.3756441280812,
+        "candidate_rmse": 486.23953613476107,
+        "relative_regression": 0.26501130746134605,
+        "percent_regression": 26.501130746134606,
+        "passes_threshold": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "incumbent_rmse": 246.28388574739014,
+        "candidate_rmse": 278.7766439182909,
+        "relative_regression": 0.13193213219084957,
+        "percent_regression": 13.193213219084956,
+        "passes_threshold": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 48,
+        "incumbent_rmse": 645.7030925866882,
+        "candidate_rmse": 719.3808572929502,
+        "relative_regression": 0.11410471089910487,
+        "percent_regression": 11.410471089910487,
+        "passes_threshold": false
+      }
+    ],
+    "positive_rmse_regression_count": 11
+  },
+  "cache_reuse": {
+    "incumbent_iteration": {
+      "reused": true,
+      "json": "outputs/eval/iteration_dino_hsl2_theta.json",
+      "csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+      "reason": "Leaderboard incumbent matched requested incumbent; HEAD matched eval_code_commit; fingerprint target variables, lead range, and protocol were compatible; artifact existed, was readable, finite, and contained required model rows."
+    },
+    "incumbent_validation": {
+      "reused": true,
+      "json": "outputs/eval/validation_dino_hsl2_theta.json",
+      "csv": "outputs/eval/validation_dino_hsl2_theta.csv",
+      "reason": "Leaderboard validation cache was checked and retained for reporting; candidate validation did not run because iteration did not promote."
+    }
+  },
+  "anomalies": [
+    "The first registration probe used a non-existent list_dycore_models helper and exited 1; a second probe using create_dycore_model confirmed registration.",
+    "Candidate and incumbent metric files include persistence reference rows. Guardrails were computed only from rows where model_name matched the candidate and incumbent model names."
+  ]
+}

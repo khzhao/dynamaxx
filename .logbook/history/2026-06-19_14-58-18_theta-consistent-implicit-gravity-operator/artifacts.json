@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "theta-consistent-implicit-gravity-operator",
+  "history_path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator/proposal.md",
+      "description": "Selected ready proposal copied into immutable history."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator/implementation.md",
+      "description": "Implementer record for the theta-consistent implicit gravity operator candidate."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_theta_implicit.json",
+      "description": "Candidate fast metrics JSON."
+    },
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_theta_implicit.csv",
+      "description": "Candidate fast metrics CSV."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_theta_implicit.json",
+      "description": "Candidate iteration metrics JSON."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_theta_implicit.csv",
+      "description": "Candidate iteration metrics CSV."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.json",
+      "description": "Accepted incumbent iteration JSON snapshot captured before recomputing incumbent with --restart."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.csv",
+      "description": "Accepted incumbent iteration CSV snapshot captured before recomputing incumbent with --restart."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+      "description": "Fresh current-source incumbent iteration metrics JSON from the required --restart rerun."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv",
+      "description": "Fresh current-source incumbent iteration metrics CSV from the required --restart rerun."
+    }
+  ],
+  "log_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator/scores.json",
+      "description": "Scorer metrics, cache decisions, commands, and guardrails."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_14-58-18_theta-consistent-implicit-gravity-operator/scoring_notes.md",
+      "description": "Scorer notes and gate summary."
+    }
+  ],
+  "notes": "Iteration did not promote to validation. Validation and golden were not run."
+}

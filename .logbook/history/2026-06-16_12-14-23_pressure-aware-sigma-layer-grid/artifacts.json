@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "pressure-aware-sigma-layer-grid",
+  "history_path": ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/coordinates.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_pressure_grid.json",
+    "outputs/eval/fast_dinosaur_dfi_pressure_grid.csv",
+    "outputs/eval/iteration_dinosaur_dfi_pressure_grid.json",
+    "outputs/eval/iteration_dinosaur_dfi_pressure_grid.csv",
+    "outputs/eval/iteration_dinosaur_dfi.json",
+    "outputs/eval/iteration_dinosaur_dfi.csv",
+    "outputs/eval/validation_dinosaur_dfi.json",
+    "outputs/eval/validation_dinosaur_dfi.csv",
+    "outputs/eval/runs/iteration_dinosaur_dfi_pressure_grid"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid/proposal.md",
+    ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid/implementation.md",
+    ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid/scores.json",
+    ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid/scoring_notes.md",
+    ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid/decision.md",
+    ".logbook/history/2026-06-16_12-14-23_pressure-aware-sigma-layer-grid/artifacts.json"
+  ],
+  "notes": "Rejected model-selection candidate. Source/test changes were reverted; raw fast and iteration artifacts were preserved."
+}

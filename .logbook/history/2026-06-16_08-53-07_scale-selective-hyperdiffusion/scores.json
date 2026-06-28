@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "scale-selective-hyperdiffusion",
+  "candidate_model_name": "dinosaur_hyperdiffusion",
+  "incumbent_model_name": "dinosaur",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4beb6c221f8655f80b6530713ffc75697e9c654e plus uncommitted candidate registration",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/dycore/test_registry.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; scorer reused this passing candidate test record."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; scorer reused this passing full test record."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_hyperdiffusion",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; scorer verified JSON/CSV artifacts are compatible and diagnostic-clean."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_hyperdiffusion --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-16T09:28:51Z",
+      "notes": "Run by Scorer; fresh run_dir outputs/eval/runs/iteration_dinosaur_hyperdiffusion, cached=0, pending=229 at start."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_hyperdiffusion --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run because candidate failed the iteration promotion gate."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_hyperdiffusion.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_hyperdiffusion.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_hyperdiffusion.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_hyperdiffusion.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.3371938385977156,
+    "candidate_iteration": -1.376430535805006,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.3251884351511753,
+    "incumbent_validation": -1.3128324262513928,
+    "iteration_delta": -0.05124210065383061,
+    "validation_delta": null,
+    "iteration_required_minimum_candidate_score": -1.3231884351511753,
+    "validation_required_minimum_candidate_score": -1.311832426251393
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_primary_score_gate_passed": false,
+    "iteration_early_rmse_gate_passed": false,
+    "iteration_lead_rmse_gate_passed": true,
+    "validation_skipped_reason": "Iteration promotion gate failed; candidate validation was not run.",
+    "iteration_gate_failures": [
+      "primary_score_delta -0.051242100653831 is below required +0.002000000000000",
+      "mean RMSE regression over leads 1-5 days exceeded 2% for at least one variable"
+    ]
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "lead_days": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "candidate_mean_rmse": 9.716682863807474,
+        "incumbent_mean_rmse": 9.3748337168382,
+        "relative_change": 0.0364645557771629,
+        "regression_percent": 3.64645557771629,
+        "gate_failed": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "lead_days": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "candidate_mean_rmse": 8.79451901735827,
+        "incumbent_mean_rmse": 8.69699303400542,
+        "relative_change": 0.011213758936165892,
+        "regression_percent": 1.1213758936165892,
+        "gate_failed": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "lead_days": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "candidate_mean_rmse": 784.2664009915084,
+        "incumbent_mean_rmse": 774.0538022374324,
+        "relative_change": 0.013193654917211294,
+        "regression_percent": 1.3193654917211295,
+        "gate_failed": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "lead_days": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "candidate_mean_rmse": 1079.0748744842583,
+        "incumbent_mean_rmse": 1064.750013833815,
+        "relative_change": 0.01345373135884183,
+        "regression_percent": 1.345373135884183,
+        "gate_failed": false
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 72,
+        "lead_day": 3,
+        "candidate_rmse": 10.058213977686675,
+        "incumbent_rmse": 9.67463389880593,
+        "relative_change": 0.03964802005873197,
+        "regression_percent": 3.9648020058731968,
+        "exceeds_10_percent": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "lead_day": 15,
+        "candidate_rmse": 13.607921562617769,
+        "incumbent_rmse": 13.35367746508267,
+        "relative_change": 0.019039257028627368,
+        "regression_percent": 1.9039257028627368,
+        "exceeds_10_percent": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 360,
+        "lead_day": 15,
+        "candidate_rmse": 2236.2657223954866,
+        "incumbent_rmse": 2164.997345247519,
+        "relative_change": 0.032918459371052686,
+        "regression_percent": 3.2918459371052684,
+        "exceeds_10_percent": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "lead_day": 15,
+        "candidate_rmse": 3012.6475672955266,
+        "incumbent_rmse": 2920.4306179951527,
+        "relative_change": 0.031576490375135144,
+        "regression_percent": 3.1576490375135142,
+        "exceeds_10_percent": false
+      }
+    ]
+  },
+  "compatibility_checks": {
+    "candidate_and_incumbent_registered": true,
+    "candidate_fast_json_csv_compatible": true,
+    "candidate_iteration_json_csv_compatible": true,
+    "incumbent_iteration_json_csv_compatible": true,
+    "incumbent_validation_json_csv_compatible": true,
+    "target_variables_match_fingerprint": true,
+    "lead_hours_match_fingerprint": true,
+    "stale_iteration_manifest_found_before_run": false
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "lower-tropospheric-airmass-t2m-diagnostic",
+  "history_path": ".logbook/history/2026-06-28_02-44-14_lower-tropospheric-airmass-t2m-diagnostic",
+  "source_artifacts": [
+    ".logbook/history/2026-06-28_02-44-14_lower-tropospheric-airmass-t2m-diagnostic/proposal.md",
+    ".logbook/history/2026-06-28_02-44-14_lower-tropospheric-airmass-t2m-diagnostic/implementation.md",
+    ".logbook/history/2026-06-28_02-44-14_lower-tropospheric-airmass-t2m-diagnostic/scores.json",
+    ".logbook/history/2026-06-28_02-44-14_lower-tropospheric-airmass-t2m-diagnostic/scoring_notes.md",
+    ".logbook/history/2026-06-28_02-44-14_lower-tropospheric-airmass-t2m-diagnostic/decision.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  ],
+  "log_artifacts": [],
+  "notes": "Rejected at iteration. Incumbent iteration metrics were reused from the leaderboard cache; validation was not run."
+}

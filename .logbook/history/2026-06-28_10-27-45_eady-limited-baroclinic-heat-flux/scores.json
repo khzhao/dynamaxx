@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "eady-limited-baroclinic-heat-flux",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "3992244f20b2a938fdd96f8904f3749f5505670d",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "sed -n '1,240p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "notes": "Read shared dycore optimization protocol."
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "notes": "Read Scorer role instructions."
+    },
+    {
+      "command": "git status --short",
+      "exit_status": 0,
+      "notes": "Observed dirty candidate worktree; no source, test, registry, leaderboard, or protocol files were modified by Scorer."
+    },
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import create_dycore_model; names=['dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx','dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m']; print({name: create_dycore_model(name).name for name in names})\"",
+      "exit_status": 0,
+      "notes": "Confirmed candidate and incumbent model registration."
+    },
+    {
+      "command": "git rev-parse HEAD",
+      "exit_status": 0,
+      "notes": "HEAD was 3992244f20b2a938fdd96f8904f3749f5505670d, matching leaderboard eval_code_commit."
+    },
+    {
+      "command": "git diff --name-only",
+      "exit_status": 0,
+      "notes": "Current diff only touched dycore source, registry, and tests; no evaluation-code diff was present."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "Full suite passed: 272 passed, 2 skipped in 311.17s."
+    },
+    {
+      "command": "uv run python - <<'PY' ... verify candidate fast artifact finite and clean ... PY",
+      "exit_status": 0,
+      "notes": "Fast artifact was readable, finite, diagnostics-clean, and had 120 records; fast was not rerun."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration completed with failed=False, issues=0, 120 records, primary_score=-0.21288078610169414."
+    },
+    {
+      "command": "uv run python - <<'PY' ... compute candidate/incumbent gate comparison ... PY",
+      "exit_status": 0,
+      "notes": "Computed primary delta, diagnostics, early-lead RMSE regressions, and worst variable-lead RMSE regression."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx --workers 4",
+      "exit_status": null,
+      "notes": "Not run because the fixed iteration promotion gate failed."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.21702676229647105,
+    "candidate_iteration": -0.21288078610169414,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.21299732605547173,
+    "incumbent_validation": -0.21274255459898536,
+    "iteration_delta": 0.00011653995377758353,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_validation": null,
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "incumbent_validation": {
+      "failed": false,
+      "issue_count": 0
+    }
+  },
+  "finite_checks": {
+    "candidate_fast": true,
+    "candidate_iteration": true,
+    "incumbent_iteration": true,
+    "incumbent_validation": true
+  },
+  "cache_reuse": {
+    "incumbent_rerun": false,
+    "iteration": {
+      "reused": true,
+      "json_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+      "csv_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "leaderboard_protocol_includes_iteration": true,
+        "head_matches_leaderboard_eval_code_commit": true,
+        "candidate_and_incumbent_protocol_match": true,
+        "candidate_and_incumbent_target_variables_match": true,
+        "candidate_and_incumbent_lead_hours_match": true,
+        "artifact_readable": true,
+        "model_name_matches": true,
+        "primary_score_finite": true,
+        "records_available_for_guardrails": true
+      }
+    },
+    "validation": {
+      "reused_for_comparison": false,
+      "json_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+      "csv_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "leaderboard_protocol_includes_validation": true,
+        "head_matches_leaderboard_eval_code_commit": true,
+        "artifact_readable": true,
+        "model_name_matches": true,
+        "primary_score_finite": true
+      },
+      "notes": "Incumbent validation artifact was checked and valid, but candidate validation was skipped because iteration did not promote."
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_was_allowed_if_iteration_promoted": true,
+    "validation_was_run": false,
+    "validation_skip_reason": "Iteration promotion gate failed because primary delta 0.00011653995377758353 was below the required 0.002.",
+    "validation_acceptance_gate_passed": null,
+    "iteration_checks": {
+      "candidate_diagnostics_clean": true,
+      "primary_delta": 0.00011653995377758353,
+      "primary_threshold": 0.002,
+      "primary_passed": false,
+      "early_lead_mean_rmse_regression_threshold": 0.02,
+      "early_lead_mean_rmse_passed": true,
+      "variable_lead_rmse_regression_threshold": 0.1,
+      "variable_lead_rmse_passed": true
+    }
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 4.778312127625187,
+        "incumbent_mean_rmse": 4.778312129066622,
+        "absolute_regression": -1.44143452729395e-9,
+        "relative_regression": -3.0166186058161807e-10,
+        "relative_regression_percent": -3.016618605816181e-8,
+        "failed": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 2.793822260325721,
+        "incumbent_mean_rmse": 2.7938222592769724,
+        "absolute_regression": 1.048748643484032e-9,
+        "relative_regression": 3.75381304233521e-10,
+        "relative_regression_percent": 3.75381304233521e-8,
+        "failed": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 878.0844090910693,
+        "incumbent_mean_rmse": 878.0844088717619,
+        "absolute_regression": 2.1930748062004568e-7,
+        "relative_regression": 2.497567186073042e-10,
+        "relative_regression_percent": 2.4975671860730422e-8,
+        "failed": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 817.7806710948773,
+        "incumbent_mean_rmse": 817.7806709386822,
+        "absolute_regression": 1.5619514215359231e-7,
+        "relative_regression": 1.9099881875944208e-10,
+        "relative_regression_percent": 1.9099881875944207e-8,
+        "failed": false
+      }
+    ],
+    "worst_variable_lead_rmse_regression": {
+      "channel_name": "2m_temperature",
+      "lead_hours": 48,
+      "lead_days": 2.0,
+      "candidate_rmse": 2.66656641493805,
+      "incumbent_rmse": 2.666566408278792,
+      "absolute_regression": 6.6592580338920015e-9,
+      "relative_regression": 2.497315654025058e-9,
+      "relative_regression_percent": 2.497315654025058e-7,
+      "failed": false
+    }
+  },
+  "recommendation_to_orchestrator": "Do not promote this candidate to validation under the fixed iteration gate; primary improvement is positive but subthreshold. The Orchestrator should decide rejection or revision.",
+  "scorer_notes": {
+    "incumbent_rerun": "No incumbent rerun was performed; cached leaderboard incumbent artifacts were valid and reused for iteration comparison.",
+    "validation": "Candidate validation was skipped as required because iteration did not promote.",
+    "golden": "Golden was not run.",
+    "source_changes": "Scorer did not change dycore source, tests, registry, fixed evaluation protocols, metrics, target variables, lead times, roles, or .logbook/leaderboard.json."
+  }
+}

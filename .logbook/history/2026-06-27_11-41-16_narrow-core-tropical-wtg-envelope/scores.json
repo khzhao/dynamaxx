@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "scored_at": "2026-06-27T11:41:16Z",
+  "role": "Scorer",
+  "proposal_slug": "narrow-core-tropical-wtg-envelope",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "history_path": ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.2244004137048363,
+    "candidate_iteration": -0.2203902442291438,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2197104515448394,
+    "incumbent_validation": -0.21940899263836755,
+    "iteration_delta": -0.0006797926843044033,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "validation_run": false,
+    "validation_skip_reason": "Iteration primary delta was -0.0006797926843044033, below the fixed +0.002 promotion threshold."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_day1_5_mean_rmse": 4.296776587928994,
+        "incumbent_day1_5_mean_rmse": 4.291454635917505,
+        "relative_regression": 0.001240127756902372
+      },
+      {
+        "channel_name": "2m_temperature",
+        "candidate_day1_5_mean_rmse": 4.751581934997662,
+        "incumbent_day1_5_mean_rmse": 4.751335465357272,
+        "relative_regression": 0.00005187376100622064
+      },
+      {
+        "channel_name": "geopotential_500",
+        "candidate_day1_5_mean_rmse": 592.5015676301908,
+        "incumbent_day1_5_mean_rmse": 592.5709106473444,
+        "relative_regression": -0.00011702062303020523
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_day1_5_mean_rmse": 771.6154752260088,
+        "incumbent_day1_5_mean_rmse": 771.1150019948005,
+        "relative_regression": 0.0006490254111430836
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 264,
+        "candidate_rmse": 5.494635884744522,
+        "incumbent_rmse": 5.47932500473572,
+        "relative_regression": 0.0027943003920317165
+      }
+    ]
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_reused": true,
+      "json_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "csv_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "reason": "Leaderboard incumbent cache matched the current accepted commit and fixed protocol fingerprint; no cache invalidation was found."
+    },
+    "validation": {
+      "incumbent_reused": false,
+      "json_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "csv_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "reason": "Validation was skipped because iteration did not promote."
+    },
+    "incumbent_rerun": false,
+    "cache_invalidation_found": false,
+    "cached_incumbent_commit": "ff40def55ac707e8915c840b856a0aaa3345b046"
+  }
+}

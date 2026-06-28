@@ -1,0 +1,1036 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 4a37e09..4ed7418 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -54,6 +54,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
++    ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+@@ -93,6 +94,7 @@ __all__ = [
+     "layer_coordinates",
+     "leapfrog_utils",
+     "log_pressure_initialization_dinosaur_dycore_model",
++    "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
+     "primitive_equations",
+     "primitive_equations_states",
+     "pytree_utils",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 4769707..a00935c 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -70,6 +70,10 @@ _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
+ _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
+ _LAND_SEA_MASK_CHANNEL = "land_sea_mask"
+ _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT = 0.5
++_OCEAN_BULK_SHF_TRANSFER_COEFFICIENT = 1.0e-3
++_OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS = 10_000.0
++_OCEAN_BULK_SHF_MIN_EFOLDING_DAYS = 6.0
++_OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+ _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
+ _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
+ _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
+@@ -121,6 +125,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_stability_aware_near_surface_residual_decay: bool = False
+     use_scale_separated_near_surface_residual: bool = False
+     use_land_sea_surface_temperature_residual: bool = False
++    apply_ocean_bulk_sensible_heat_flux: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+     apply_symmetric_exact_coriolis_rotation_split: bool = False
+@@ -166,6 +171,28 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             forecast_input.step_seconds,
+             self.inner_step_seconds,
+         )
++        land_sea_fraction = None
++        if (
++            self.use_land_sea_surface_temperature_residual
++            or self.apply_ocean_bulk_sensible_heat_flux
++        ):
++            land_sea_fraction = _load_land_sea_fraction_for_grid(
++                longitude=forecast_input.longitude,
++                latitude=forecast_input.latitude,
++                initial_time=forecast_input.initial_times[0],
++            )
++        ocean_bulk_shf_ocean_weight = None
++        if self.apply_ocean_bulk_sensible_heat_flux:
++            valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
++                land_sea_fraction,
++                (forecast_input.longitude.size, forecast_input.latitude.size),
++            )
++            if valid_land_sea_fraction is not None:
++                ocean_bulk_shf_ocean_weight = 1.0 - _to_dinosaur_latitude_order(
++                    valid_land_sea_fraction,
++                    grid.latitude_reversed,
++                )
++
+         trajectory_fn = self._trajectory_function(
+             coords=grid.coords,
+             physics_specs=physics_specs,
+@@ -173,14 +200,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             inner_steps=inner_steps,
+             output_count=max(forecast_input.lead_steps) + 1,
+             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
++            ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
+         )
+-        land_sea_fraction = None
+-        if self.use_land_sea_surface_temperature_residual:
+-            land_sea_fraction = _load_land_sea_fraction_for_grid(
+-                longitude=forecast_input.longitude,
+-                latitude=forecast_input.latitude,
+-                initial_time=forecast_input.initial_times[0],
+-            )
+ 
+         forecasts = []
+         for initial_index in range(forecast_input.initial_times.size):
+@@ -204,7 +225,26 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
+             )
+-            _, trajectory = trajectory_fn(dinosaur_state)
++            if (
++                self.apply_ocean_bulk_sensible_heat_flux
++                and ocean_bulk_shf_ocean_weight is not None
++            ):
++                ocean_bulk_shf_temperature_anchor = (
++                    _ocean_bulk_sensible_heat_flux_temperature_anchor(
++                        single_state,
++                        dinosaur_state=dinosaur_state,
++                        coords=grid.coords,
++                        latitude_reversed=grid.latitude_reversed,
++                        physics_specs=physics_specs,
++                        reference_temperature=reference_temperature,
++                    )
++                )
++                _, trajectory = trajectory_fn(
++                    dinosaur_state,
++                    ocean_bulk_shf_temperature_anchor,
++                )
++            else:
++                _, trajectory = trajectory_fn(dinosaur_state)
+             trajectory_state = dinosaur_state_to_weather_state(
+                 trajectory,
+                 coords=grid.coords,
+@@ -263,6 +303,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         inner_steps: int,
+         output_count: int,
+         use_humidity_in_dynamics: bool,
++        ocean_bulk_shf_ocean_weight: jax.Array | None = None,
+     ):
+         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+         use_coriolis_rotation_split = (
+@@ -279,10 +320,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             self.apply_weak_held_suarez_relaxation
+             and self.use_analysis_offset_weak_held_suarez_equilibrium
+         )
++        use_ocean_bulk_sensible_heat_flux = (
++            self.apply_ocean_bulk_sensible_heat_flux
++            and ocean_bulk_shf_ocean_weight is not None
++        )
+ 
+         def build_equation(
+             equation_physics_specs: Any,
+             equilibrium_temperature_offset: jax.Array | None = None,
++            ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
+         ) -> Any:
+             equation = _primitive_equation(
+                 reference_temperature=reference_temperature,
+@@ -304,6 +350,19 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 )
++            if (
++                use_ocean_bulk_sensible_heat_flux
++                and ocean_bulk_shf_temperature_anchor is not None
++            ):
++                equation = _compose_ocean_bulk_sensible_heat_flux_equation(
++                    equation=equation,
++                    coords=coords,
++                    physics_specs=equation_physics_specs,
++                    reference_temperature=reference_temperature,
++                    ocean_weight=cast(jax.Array, ocean_bulk_shf_ocean_weight),
++                    temperature_anchor=ocean_bulk_shf_temperature_anchor,
++                    step_seconds=step_seconds,
++                )
+             return equation
+ 
+         step_seconds = _nondimensionalize_seconds(
+@@ -328,10 +387,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
+ 
+         def build_trajectory(
+             equilibrium_temperature_offset: jax.Array | None = None,
++            ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
+         ) -> Any:
+             equation = build_equation(
+                 rollout_physics_specs,
+                 equilibrium_temperature_offset=equilibrium_temperature_offset,
++                ocean_bulk_shf_temperature_anchor=ocean_bulk_shf_temperature_anchor,
+             )
+             filters = build_filters(rollout_physics_specs)
+             if (
+@@ -353,6 +414,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 )
+                 dfi_filters = build_filters(physics_specs)
++            elif use_ocean_bulk_sensible_heat_flux:
++                dfi_equation = build_equation(
++                    rollout_physics_specs,
++                    equilibrium_temperature_offset=equilibrium_temperature_offset,
++                )
+             if self.apply_theta_layer_mean_recentering:
+                 filters.append(
+                     _theta_layer_mean_recenter_step_filter(
+@@ -403,20 +469,56 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             return trajectory_fn
+ 
+         if use_analysis_offset_equilibrium:
++            if use_ocean_bulk_sensible_heat_flux:
++
++                def trajectory_fn(
++                    dinosaur_state,
++                    ocean_bulk_shf_temperature_anchor,
++                ):
++                    equilibrium_temperature_offset = (
++                        _analysis_offset_weak_held_suarez_equilibrium(
++                            dinosaur_state,
++                            coords=coords,
++                            physics_specs=physics_specs,
++                            reference_temperature=reference_temperature,
++                        )
++                    )
++                    offset_trajectory_fn = build_trajectory(
++                        equilibrium_temperature_offset=(equilibrium_temperature_offset),
++                        ocean_bulk_shf_temperature_anchor=(
++                            ocean_bulk_shf_temperature_anchor
++                        ),
++                    )
++                    return offset_trajectory_fn(dinosaur_state)
+ 
+-            def trajectory_fn(dinosaur_state):
+-                equilibrium_temperature_offset = (
+-                    _analysis_offset_weak_held_suarez_equilibrium(
+-                        dinosaur_state,
+-                        coords=coords,
+-                        physics_specs=physics_specs,
+-                        reference_temperature=reference_temperature,
++            else:
++
++                def trajectory_fn(dinosaur_state):
++                    equilibrium_temperature_offset = (
++                        _analysis_offset_weak_held_suarez_equilibrium(
++                            dinosaur_state,
++                            coords=coords,
++                            physics_specs=physics_specs,
++                            reference_temperature=reference_temperature,
++                        )
+                     )
++                    offset_trajectory_fn = build_trajectory(
++                        equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    )
++                    return offset_trajectory_fn(dinosaur_state)
++
++        elif use_ocean_bulk_sensible_heat_flux:
++
++            def trajectory_fn(
++                dinosaur_state,
++                ocean_bulk_shf_temperature_anchor,
++            ):
++                ocean_bulk_shf_trajectory_fn = build_trajectory(
++                    ocean_bulk_shf_temperature_anchor=(
++                        ocean_bulk_shf_temperature_anchor
++                    ),
+                 )
+-                offset_trajectory_fn = build_trajectory(
+-                    equilibrium_temperature_offset=equilibrium_temperature_offset,
+-                )
+-                return offset_trajectory_fn(dinosaur_state)
++                return ocean_bulk_shf_trajectory_fn(dinosaur_state)
+ 
+         else:
+             trajectory_fn = build_trajectory()
+@@ -918,6 +1020,22 @@ def land_sea_surface_temperature_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def ocean_bulk_sensible_heat_flux_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the incumbent with weak ocean-only bulk sensible heat exchange."""
++    return replace(
++        land_sea_surface_temperature_dinosaur_dycore_model(),
++        name=(
++            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++            "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++        ),
++        apply_ocean_bulk_sensible_heat_flux=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1482,6 +1600,62 @@ def _valid_land_sea_fraction_or_none(
+     return jnp.asarray(candidate, dtype=jnp.float32)
+ 
+ 
++def _ocean_bulk_sensible_heat_flux_temperature_anchor(
++    initial_state: WeatherState,
++    *,
++    dinosaur_state: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    latitude_reversed: bool,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++) -> jax.Array | None:
++    """Return a finite lead-zero ocean thermal anchor in Dinosaur latitude order."""
++    if TWO_METER_TEMPERATURE_VARIABLE in initial_state.variables:
++        temperature_index = int(
++            initial_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
++        )
++        anchor_temperature = initial_state.values[temperature_index] * _unit_factor(
++            physics_specs, "kelvin"
++        )
++        anchor_temperature = _to_dinosaur_latitude_order(
++            anchor_temperature,
++            latitude_reversed,
++        )
++    else:
++        full_temperature = (
++            coords.horizontal.to_nodal(dinosaur_state.temperature_variation)
++            + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
++        )
++        anchor_temperature = full_temperature[-1]
++    return _valid_ocean_bulk_shf_temperature_anchor_or_none(
++        anchor_temperature,
++        coords.horizontal.nodal_shape,
++    )
++
++
++def _valid_ocean_bulk_shf_temperature_anchor_or_none(
++    temperature_anchor: jax.Array | None,
++    spatial_shape: tuple[int, int],
++) -> jax.Array | None:
++    """Return a positive finite anchor field or `None` for incumbent fallback."""
++    if temperature_anchor is None:
++        return None
++    try:
++        candidate = np.asarray(jax.device_get(temperature_anchor), dtype=np.float32)
++    except Exception:
++        return None
++    if candidate.shape != tuple(spatial_shape):
++        return None
++    if candidate.size == 0:
++        return None
++    if not bool(np.isfinite(candidate).all()):
++        return None
++    if float(np.min(candidate)) <= 0.0:
++        return None
++    candidate.setflags(write=False)
++    return jnp.asarray(candidate, dtype=jnp.float32)
++
++
+ def _load_land_sea_fraction_for_grid(
+     *,
+     longitude: np.ndarray,
+@@ -2103,6 +2277,139 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
+         )
+ 
+ 
++class _OceanBulkSensibleHeatFluxForcingSigma(time_integration.ExplicitODE):
++    """Weak ocean-weighted bulk sensible heat flux for the lowest sigma layer."""
++
++    def __init__(
++        self,
++        *,
++        coords: coordinate_systems.CoordinateSystem,
++        physics_specs: Any,
++        reference_temperature: np.ndarray,
++        ocean_weight: jax.Array,
++        temperature_anchor: jax.Array,
++        step_seconds: float,
++    ):
++        assert step_seconds > 0.0
++        self.coords = coords
++        self.physics_specs = physics_specs
++        self.reference_temperature = jnp.asarray(reference_temperature)
++        self.ocean_weight = jnp.asarray(ocean_weight, dtype=jnp.float32)
++        self.temperature_anchor = jnp.asarray(temperature_anchor, dtype=jnp.float32)
++        self.step_seconds = float(step_seconds)
++        self.wind_unit_factor = _unit_factor(physics_specs, "meter / second")
++        self.rate_unit_factor = _unit_factor(physics_specs, "1 / second")
++        self.temperature_unit_factor = _unit_factor(physics_specs, "kelvin")
++
++    def explicit_terms(
++        self,
++        state: primitive_equations.State,
++    ) -> primitive_equations.State:
++        nodal_temperature = (
++            self.coords.horizontal.to_nodal(state.temperature_variation)
++            + self.reference_temperature[:, jnp.newaxis, jnp.newaxis]
++        )
++        current_temperature = nodal_temperature[-1]
++        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++            self.coords.horizontal,
++            state.vorticity,
++            state.divergence,
++        )
++        lowest_u_wind = u_wind[-1]
++        lowest_v_wind = v_wind[-1]
++        wind_speed = jnp.sqrt(jnp.maximum(lowest_u_wind**2 + lowest_v_wind**2, 0.0))
++        wind_speed_meters_per_second = wind_speed / self.wind_unit_factor
++        exchange_rate_per_second = (
++            _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT
++            * wind_speed_meters_per_second
++            / _OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS
++        )
++        max_exchange_rate_per_second = 1.0 / (
++            _OCEAN_BULK_SHF_MIN_EFOLDING_DAYS * 24.0 * 3600.0
++        )
++        exchange_rate = (
++            jnp.minimum(exchange_rate_per_second, max_exchange_rate_per_second)
++            * self.rate_unit_factor
++        )
++        temperature_tendency = (
++            self.ocean_weight
++            * exchange_rate
++            * (self.temperature_anchor - current_temperature)
++        )
++        max_temperature_tendency = (
++            _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++            * self.temperature_unit_factor
++            / self.step_seconds
++        )
++        temperature_tendency = jnp.clip(
++            temperature_tendency,
++            -max_temperature_tendency,
++            max_temperature_tendency,
++        )
++        finite_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(self.ocean_weight)),
++                    jnp.all(jnp.isfinite(self.temperature_anchor)),
++                    jnp.all(jnp.isfinite(current_temperature)),
++                    jnp.all(jnp.isfinite(lowest_u_wind)),
++                    jnp.all(jnp.isfinite(lowest_v_wind)),
++                    jnp.all(jnp.isfinite(wind_speed_meters_per_second)),
++                    jnp.all(jnp.isfinite(exchange_rate)),
++                    jnp.all(jnp.isfinite(temperature_tendency)),
++                ]
++            )
++        )
++        temperature_tendency = jnp.where(
++            finite_diagnostics,
++            temperature_tendency,
++            jnp.zeros_like(temperature_tendency),
++        )
++        nodal_temperature_tendency = (
++            jnp.zeros_like(nodal_temperature).at[-1].set(temperature_tendency)
++        )
++        modal_temperature_tendency = self.coords.horizontal.to_modal(
++            nodal_temperature_tendency
++        )
++        modal_temperature_tendency = jnp.where(
++            jnp.all(jnp.isfinite(modal_temperature_tendency)),
++            modal_temperature_tendency,
++            jnp.zeros_like(modal_temperature_tendency),
++        )
++        return primitive_equations.State(
++            vorticity=jnp.zeros_like(state.vorticity),
++            divergence=jnp.zeros_like(state.divergence),
++            temperature_variation=modal_temperature_tendency,
++            log_surface_pressure=jnp.zeros_like(state.log_surface_pressure),
++            tracers=jax.tree_util.tree_map(jnp.zeros_like, state.tracers),
++            sim_time=None if state.sim_time is None else 0.0,
++        )
++
++
++def _compose_ocean_bulk_sensible_heat_flux_equation(
++    *,
++    equation: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    ocean_weight: jax.Array,
++    temperature_anchor: jax.Array | None,
++    step_seconds: float,
++) -> Any:
++    """Compose primitive equations with the opt-in ocean sensible heat flux."""
++    if temperature_anchor is None:
++        return equation
++    forcing = _OceanBulkSensibleHeatFluxForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        ocean_weight=ocean_weight,
++        temperature_anchor=temperature_anchor,
++        step_seconds=step_seconds,
++    )
++    return time_integration.compose_equations([equation, forcing])
++
++
+ def _compose_weak_held_suarez_equation(
+     *,
+     equation: Any,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b14bcfc..5b3d876 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -161,6 +161,15 @@ def dinosaur_land_sea_surface_temperature_model() -> DycoreModel:
+     return land_sea_surface_temperature_dinosaur_dycore_model()
+ 
+ 
++def dinosaur_ocean_bulk_sensible_heat_flux_model() -> DycoreModel:
++    """Return the land-sea incumbent with weak ocean bulk SHF forcing."""
++    from dynamaxx.dycore.models.dinosaur import (
++        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    )
++
++    return ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -228,6 +237,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface"
+     ): dinosaur_land_sea_surface_temperature_model,
++    (
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    ): dinosaur_ocean_bulk_sensible_heat_flux_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index efd7bae..d2530a4 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -111,6 +111,13 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq_landsea_surface"
+ )
++assert (
++    dinosaur.ocean_bulk_sensible_heat_flux_dinosaur_dycore_model().name
++    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++    "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -202,6 +209,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -617,6 +628,35 @@ def test_dinosaur_land_sea_surface_temperature_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_ocean_bulk_shf_is_registered():
++    """The ocean bulk SHF candidate is side-by-side with the incumbent."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    )
++    assert model.apply_ocean_bulk_sensible_heat_flux
++    assert not incumbent.apply_ocean_bulk_sensible_heat_flux
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 1be478d..64fc16a 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -26,6 +26,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
+     _DRY_AIR_GAS_CONSTANT_SI,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
++    _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+     DEFAULT_INNER_STEP_SECONDS,
+@@ -39,6 +40,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _analysis_offset_weak_hs_low_mode_mask,
+     _apply_near_surface_residual_correction,
+     _apply_scale_separated_near_surface_residual_correction,
++    _compose_ocean_bulk_sensible_heat_flux_equation,
+     _compose_weak_held_suarez_equation,
+     _exact_coriolis_rotation_step_filter,
+     _horizontal_diffusion_step_filter,
+@@ -48,6 +50,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _land_sea_surface_temperature_residual_decays,
+     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
+     _nondimensionalize_seconds,
++    _ocean_bulk_sensible_heat_flux_temperature_anchor,
++    _OceanBulkSensibleHeatFluxForcingSigma,
+     _pressure_coordinates,
+     _primitive_equation,
+     _primitive_equation_state,
+@@ -58,6 +62,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _surface_layer_richardson_10m_wind,
+     _symmetric_exact_coriolis_rotation_step,
+     _theta_layer_mean_recenter_step_filter,
++    _to_dinosaur_latitude_order,
+     _TracerSafeHeldSuarezForcingSigma,
+     _unit_factor,
+     _valid_land_sea_fraction_or_none,
+@@ -72,13 +77,14 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
++    ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     split_pressure_level_channel,
+     stability_aware_surface_residual_dinosaur_dycore_model,
+-    theta_mean_recenter_dinosaur_dycore_model,
+     supported_output_variables,
++    theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+     weather_state_to_dinosaur_state,
+@@ -519,6 +525,25 @@ def test_land_sea_surface_temperature_factory_preserves_incumbent_except_selecto
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_ocean_bulk_shf_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the ocean bulk SHF selector."""
++    model = ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
++    incumbent = land_sea_surface_temperature_dinosaur_dycore_model()
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    )
++    assert model.apply_ocean_bulk_sensible_heat_flux
++    assert not incumbent.apply_ocean_bulk_sensible_heat_flux
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3601,7 +3626,6 @@ def test_theta_layer_mean_recenter_falls_back_for_nonfinite_pressure():
+     np.testing.assert_array_equal(corrected.sim_time, bad_next_state.sim_time)
+ 
+ 
+-
+ def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
+     """Weak HS composition combines one primitive equation with fixed forcing."""
+     compose_calls = []
+@@ -3930,6 +3954,252 @@ def test_weak_held_suarez_helper_uses_dinosaur_forcing_type():
+     )
+ 
+ 
++def test_ocean_bulk_shf_zero_ocean_weight_reproduces_incumbent_tendency():
++    """Zero ocean weight adds no explicit tendency to the primitive equations."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    equation = _primitive_equation(
++        reference_temperature=reference_temperature,
++        orography=jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords=coords,
++        physics_specs=cast(Any, physics_specs),
++        include_vertical_advection=False,
++        humidity_key=None,
++    )
++    current_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)[-1]
++        + reference_temperature[-1]
++    )
++    candidate_equation = _compose_ocean_bulk_sensible_heat_flux_equation(
++        equation=equation,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        ocean_weight=jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=current_temperature + 5.0,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++
++    incumbent_tendency = equation.explicit_terms(state)
++    candidate_tendency = candidate_equation.explicit_terms(state)
++
++    _assert_pytree_allclose(candidate_tendency, incumbent_tendency)
++
++
++def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
++    """The opt-in flux changes only the lowest-layer temperature tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    current_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)[-1]
++        + reference_temperature[-1]
++    )
++    forcing = _OceanBulkSensibleHeatFluxForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        ocean_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=current_temperature + 4.0,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++
++    tendency = forcing.explicit_terms(state)
++    nodal_temperature_tendency = coords.horizontal.to_nodal(
++        tendency.temperature_variation
++    )
++
++    np.testing.assert_array_equal(tendency.vorticity, jnp.zeros_like(state.vorticity))
++    np.testing.assert_array_equal(tendency.divergence, jnp.zeros_like(state.divergence))
++    np.testing.assert_array_equal(
++        tendency.log_surface_pressure,
++        jnp.zeros_like(state.log_surface_pressure),
++    )
++    assert tendency.tracers == {}
++    np.testing.assert_allclose(nodal_temperature_tendency[0], 0.0, atol=1e-7)
++    assert float(jnp.min(nodal_temperature_tendency[-1])) > 0.0
++
++    equilibrium_forcing = _OceanBulkSensibleHeatFluxForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        ocean_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=current_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    equilibrium_tendency = equilibrium_forcing.explicit_terms(state)
++    np.testing.assert_allclose(
++        equilibrium_tendency.temperature_variation,
++        0.0,
++        atol=1e-7,
++    )
++
++
++def test_ocean_bulk_shf_caps_step_increment_and_finite_falls_back():
++    """Strong forcing is capped, and nonfinite anchors add no tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    current_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)[-1]
++        + reference_temperature[-1]
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    forcing = _OceanBulkSensibleHeatFluxForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        ocean_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=current_temperature + 10_000.0,
++        step_seconds=step_seconds,
++    )
++
++    tendency = forcing.explicit_terms(state)
++    nodal_temperature_tendency = coords.horizontal.to_nodal(
++        tendency.temperature_variation
++    )
++    max_increment = (
++        _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++    assert float(jnp.max(jnp.abs(nodal_temperature_tendency[-1] * step_seconds))) <= (
++        max_increment + 1.0e-6
++    )
++
++    invalid_forcing = _OceanBulkSensibleHeatFluxForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        ocean_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=(current_temperature + 4.0).at[0, 0].set(jnp.nan),
++        step_seconds=step_seconds,
++    )
++
++    invalid_tendency = invalid_forcing.explicit_terms(state)
++
++    np.testing.assert_array_equal(
++        invalid_tendency.temperature_variation,
++        jnp.zeros_like(invalid_tendency.temperature_variation),
++    )
++
++
++def test_ocean_bulk_shf_anchor_uses_lead_zero_t2m_before_lowest_layer():
++    """Anchor construction uses initial T2m and rejects nonfinite lead-zero fields."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1), lead_steps=(0,)
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    single_state = WeatherState(
++        values=forecast_input.initial_state.values[0],
++        variables=forecast_input.initial_state.variables,
++    )
++    dinosaur_state = weather_state_to_dinosaur_state(
++        single_state,
++        coords=grid.coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=False,
++    )
++
++    anchor = _ocean_bulk_sensible_heat_flux_temperature_anchor(
++        single_state,
++        dinosaur_state=dinosaur_state,
++        coords=grid.coords,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++
++    expected_anchor = _to_dinosaur_latitude_order(
++        single_state.select(("2m_temperature",)).values[0]
++        * _unit_factor(physics_specs, "kelvin"),
++        grid.latitude_reversed,
++    )
++    np.testing.assert_array_equal(anchor, expected_anchor)
++
++    bad_temperature_index = int(single_state.variable_indices(("2m_temperature",))[0])
++    invalid_state = WeatherState(
++        values=single_state.values.at[bad_temperature_index, 0, 0].set(jnp.nan),
++        variables=single_state.variables,
++    )
++
++    assert (
++        _ocean_bulk_sensible_heat_flux_temperature_anchor(
++            invalid_state,
++            dinosaur_state=dinosaur_state,
++            coords=grid.coords,
++            latitude_reversed=grid.latitude_reversed,
++            physics_specs=physics_specs,
++            reference_temperature=reference_temperature,
++        )
++        is None
++    )
++
++
++def test_ocean_bulk_shf_composes_rollout_not_dfi(monkeypatch):
++    """The ocean SHF term leaves the incumbent DFI equation path unchanged."""
++    ocean_compose_calls = []
++
++    def capture_ocean_composition(**kwargs):
++        ocean_compose_calls.append(kwargs)
++        return kwargs["equation"]
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_compose_ocean_bulk_sensible_heat_flux_equation",
++        capture_ocean_composition,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    model = replace(
++        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=("2m_temperature",),
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1), lead_steps=(0,)
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert forecast.variables == ("2m_temperature",)
++    assert len(ocean_compose_calls) == 1
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -4910,6 +5180,67 @@ def _analysis_offset_test_setup(
+     return coords, physics_specs, reference_temperature
+ 
+ 
++def _ocean_bulk_shf_test_setup() -> tuple[
++    coordinate_systems.CoordinateSystem,
++    Any,
++    np.ndarray,
++    Any,
++]:
++    physics_specs = units.SimUnits.from_si()
++    horizontal_grid = spherical_harmonic.Grid(
++        longitude_wavenumbers=4,
++        total_wavenumbers=6,
++        longitude_nodes=16,
++        latitude_nodes=8,
++        latitude_spacing="gauss",
++        radius=physics_specs.radius,
++    )
++    coords = coordinate_systems.CoordinateSystem(
++        horizontal_grid,
++        sigma_coordinates.SigmaCoordinates.equidistant(2),
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=2,
++        temperature_kelvin=250.0,
++    )
++    wind_unit = _unit_factor(physics_specs, "meter / second")
++    u_wind = (
++        jnp.zeros(coords.nodal_shape, dtype=jnp.float32).at[-1].set(12.0 * wind_unit)
++    )
++    v_wind = (
++        jnp.zeros(coords.nodal_shape, dtype=jnp.float32).at[-1].set(3.0 * wind_unit)
++    )
++    vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
++        coords.horizontal,
++        u_wind,
++        v_wind,
++    )
++    full_temperature = jnp.stack(
++        [
++            jnp.full(coords.horizontal.nodal_shape, 260.0, dtype=jnp.float32),
++            jnp.full(coords.horizontal.nodal_shape, 280.0, dtype=jnp.float32),
++        ],
++        axis=0,
++    )
++    surface_pressure = jnp.full(
++        coords.horizontal.nodal_shape,
++        100_000.0 * _unit_factor(physics_specs, "pascal"),
++        dtype=jnp.float32,
++    )
++    state = _primitive_equation_state(
++        vorticity=vorticity,
++        divergence=divergence,
++        temperature_variation=coords.horizontal.to_modal(
++            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
++        ),
++        log_surface_pressure=coords.horizontal.to_modal(
++            jnp.log(surface_pressure)
++        )[jnp.newaxis],
++        tracers={},
++    )
++    return coords, physics_specs, reference_temperature, state
++
++
+ def _dinosaur_state_with_hs_equilibrium_offset(
+     *,
+     coords: coordinate_systems.CoordinateSystem,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index bc2ef52..4c35f19 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -46,6 +46,10 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+     )
+ 
+ 
+@@ -508,6 +512,35 @@ def test_registry_creates_land_sea_surface_temperature_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_ocean_bulk_shf_candidate_model():
++    """The ocean bulk SHF candidate is registered side by side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    )
++    assert model.apply_ocean_bulk_sensible_heat_flux
++    assert not incumbent.apply_ocean_bulk_sensible_heat_flux
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

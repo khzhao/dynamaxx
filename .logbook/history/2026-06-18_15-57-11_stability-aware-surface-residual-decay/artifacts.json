@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "stability-aware-surface-residual-decay",
+  "history_path": ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "status": "accepted_retained",
+      "commit": "5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81"
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "status": "accepted_retained",
+      "commit": "5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81"
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "status": "accepted_retained",
+      "commit": "5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "status": "accepted_retained",
+      "commit": "5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "status": "accepted_retained",
+      "commit": "5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81"
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "status": "accepted_retained",
+      "commit": "5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81"
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay/proposal.md",
+    ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay/implementation.md",
+    ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay/scores.json",
+    ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay/scoring_notes.md",
+    ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay/decision.md",
+    ".logbook/history/2026-06-18_15-57-11_stability-aware-surface-residual-decay/artifacts.json"
+  ],
+  "notes": "Accepted because iteration delta was +0.021993842696981458 and validation delta was +0.02232254120121757 with clean diagnostics and no RMSE guardrail violations. Candidate source and tests were retained in commit 5cdb5ba7bd929dc6f29eba14da306f1ce5f6eb81 and the leaderboard was updated."
+}

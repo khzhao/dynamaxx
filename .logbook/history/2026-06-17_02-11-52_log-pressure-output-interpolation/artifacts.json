@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "log-pressure-output-interpolation",
+  "history_path": ".logbook/history/2026-06-17_02-11-52_log-pressure-output-interpolation",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/vertical_interpolation.py",
+      "description": "Rejected candidate added column-aware log-pressure sigma-to-pressure interpolation helper."
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "description": "Rejected candidate added a side-by-side output interpolation flag and factory."
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "description": "Rejected candidate exported the side-by-side factory."
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "description": "Rejected candidate registered dinosaur_dfi_surface_residual_weak_hs_logp_init_logp_output."
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "description": "Rejected candidate added interpolation, configuration, and smoke-forecast tests."
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "description": "Rejected candidate added import and registry checks."
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "description": "Rejected candidate added registry construction checks."
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_logp_output.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_logp_output.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_logp_output.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_logp_output.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-17_02-11-52_log-pressure-output-interpolation/proposal.md",
+    ".logbook/history/2026-06-17_02-11-52_log-pressure-output-interpolation/implementation.md",
+    ".logbook/history/2026-06-17_02-11-52_log-pressure-output-interpolation/scores.json",
+    ".logbook/history/2026-06-17_02-11-52_log-pressure-output-interpolation/scoring_notes.md",
+    ".logbook/history/2026-06-17_02-11-52_log-pressure-output-interpolation/decision.md"
+  ],
+  "notes": "Candidate rejected because iteration primary delta was below +0.002 and 54 variable+lead RMSE guardrails failed. Golden was not run."
+}

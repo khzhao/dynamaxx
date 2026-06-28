@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "log-pressure-sigma-initialization",
+  "history_path": ".logbook/history/2026-06-17_00-55-17_log-pressure-sigma-initialization",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "description": "Adds default-off log-pressure initialization selection and candidate factory."
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/vertical_interpolation.py",
+      "description": "Adds JAX-compatible log-pressure pressure-to-sigma interpolation helper."
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "description": "Exports the side-by-side candidate factory."
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "description": "Registers dinosaur_dfi_surface_residual_weak_hs_logp_init."
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "description": "Covers configuration preservation, initialization selection, interpolation behavior, and smoke forecast."
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "description": "Covers candidate import and registry availability."
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "description": "Covers registry listing and candidate construction."
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-17_00-55-17_log-pressure-sigma-initialization/proposal.md",
+    ".logbook/history/2026-06-17_00-55-17_log-pressure-sigma-initialization/implementation.md",
+    ".logbook/history/2026-06-17_00-55-17_log-pressure-sigma-initialization/scores.json",
+    ".logbook/history/2026-06-17_00-55-17_log-pressure-sigma-initialization/scoring_notes.md",
+    ".logbook/history/2026-06-17_00-55-17_log-pressure-sigma-initialization/decision.md"
+  ],
+  "notes": "Candidate accepted and committed as bc39a2b7fbbe5fbab0aa568afcf90c32b7a4b41c. Golden was not run."
+}

@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dry-consistent-geopotential-diagnostic",
+  "history_path": ".logbook/history/2026-06-17_09-10-51_dry-consistent-geopotential-diagnostic",
+  "source_artifacts": [
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py"
+    },
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py"
+    },
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/registry.py"
+    },
+    {
+      "type": "reverted_test_file",
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py"
+    },
+    {
+      "type": "reverted_test_file",
+      "path": "tests/dycore/models/dinosaur/test_dependency.py"
+    },
+    {
+      "type": "reverted_test_file",
+      "path": "tests/dycore/test_registry.py"
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "protocol": "fast",
+      "format": "json",
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_dry_geopotential.json"
+    },
+    {
+      "protocol": "fast",
+      "format": "csv",
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_dry_geopotential.csv"
+    },
+    {
+      "protocol": "iteration",
+      "format": "json",
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_dry_geopotential.json"
+    },
+    {
+      "protocol": "iteration",
+      "format": "csv",
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_dry_geopotential.csv"
+    }
+  ],
+  "log_artifacts": [
+    {
+      "type": "proposal",
+      "path": ".logbook/history/2026-06-17_09-10-51_dry-consistent-geopotential-diagnostic/proposal.md"
+    },
+    {
+      "type": "implementation",
+      "path": ".logbook/history/2026-06-17_09-10-51_dry-consistent-geopotential-diagnostic/implementation.md"
+    },
+    {
+      "type": "scores",
+      "path": ".logbook/history/2026-06-17_09-10-51_dry-consistent-geopotential-diagnostic/scores.json"
+    },
+    {
+      "type": "scoring_notes",
+      "path": ".logbook/history/2026-06-17_09-10-51_dry-consistent-geopotential-diagnostic/scoring_notes.md"
+    },
+    {
+      "type": "decision",
+      "path": ".logbook/history/2026-06-17_09-10-51_dry-consistent-geopotential-diagnostic/decision.md"
+    }
+  ],
+  "notes": "Rejected candidate; iteration primary delta was negative, the 24 h Z500 variable+lead guardrail failed, validation was not run, and implementation changes were reverted."
+}

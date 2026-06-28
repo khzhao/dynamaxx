@@ -1,0 +1,554 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..85e387d 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -54,6 +54,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    late_tapered_tropical_wtg_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+@@ -98,6 +99,7 @@ __all__ = [
+     "hybrid_coordinates",
+     "jax_numpy_utils",
+     "land_sea_surface_temperature_dinosaur_dycore_model",
++    "late_tapered_tropical_wtg_dinosaur_dycore_model",
+     "layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model",
+     "layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "layer_coordinates",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..99e396e 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -88,6 +88,9 @@ _TROPICAL_WTG_LOW_MODE_CUTOFF = 8.0
+ _TROPICAL_WTG_LOW_MODE_TAPER_ZERO = 16.0
+ _TROPICAL_WTG_RELAXATION_TIMESCALE_DAYS = 5.0
+ _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.25
++_TROPICAL_WTG_TAPER_START_HOURS = 120.0
++_TROPICAL_WTG_TAPER_END_HOURS = 240.0
++_TROPICAL_WTG_LATE_RELAXATION_FRACTION = 0.70
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -149,6 +152,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
++    apply_late_tropical_wtg_taper: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -459,6 +463,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        apply_late_taper=self.apply_late_tropical_wtg_taper,
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -789,6 +794,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    apply_late_taper: bool = False,
+ ) -> Any:
+     """Return a rollout-only weak tropical free-tropospheric mass-DSE filter."""
+     orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+@@ -843,9 +849,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,10 +869,17 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+-        mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
++        if apply_late_taper:
++            taper_weight = _late_tropical_wtg_relaxation_taper(
++                next_state.sim_time,
++                physics_specs,
++            )
++            effective_relaxation_fraction = relaxation_fraction * taper_weight
++        else:
++            effective_relaxation_fraction = relaxation_fraction
++        mass_dse_increment = -effective_relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+             mass_dse_increment / safe_layer_pressure_thickness / physics_specs.Cp
+         )
+@@ -932,6 +944,30 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+     return tropical_wtg_mass_dse_relaxation_filter
+ 
+ 
++def _late_tropical_wtg_relaxation_taper(
++    sim_time: jax.Array | None,
++    physics_specs: Any,
++) -> jax.Array:
++    """Return the fixed forecast-age multiplier for late tropical WTG relaxation."""
++    if sim_time is None:
++        return jnp.asarray(1.0, dtype=jnp.float32)
++    sim_time = jnp.asarray(sim_time)
++    hour = _nondimensionalize_seconds(physics_specs, 3600.0)
++    start_time = jnp.asarray(_TROPICAL_WTG_TAPER_START_HOURS * hour)
++    end_time = jnp.asarray(_TROPICAL_WTG_TAPER_END_HOURS * hour)
++    taper_fraction = jnp.clip(
++        (sim_time - start_time) / (end_time - start_time),
++        0.0,
++        1.0,
++    )
++    smooth_fraction = taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
++    scheduled_taper = 1.0 - (
++        (1.0 - _TROPICAL_WTG_LATE_RELAXATION_FRACTION) * smooth_fraction
++    )
++    valid_sim_time = jnp.isfinite(sim_time) & (sim_time >= 0.0)
++    return jnp.where(valid_sim_time, scheduled_taper, jnp.ones_like(scheduled_taper))
++
++
+ def _tropical_wtg_latitude_envelope(
+     horizontal_grid: spherical_harmonic.Grid,
+ ) -> jax.Array:
+@@ -1368,6 +1404,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def late_tapered_tropical_wtg_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the incumbent WTG vertical-DSE model with late WTG taper enabled."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_wtg_taper",
++        apply_late_tropical_wtg_taper=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2559,9 +2606,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2631,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..b9a69ee 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_wtg_taper_model() -> DycoreModel:
++    """Return the WTG vertical-DSE incumbent with late WTG taper enabled."""
++    from dynamaxx.dycore.models.dinosaur import (
++        late_tapered_tropical_wtg_dinosaur_dycore_model,
++    )
++
++    return late_tapered_tropical_wtg_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,8 +311,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_wtg_taper": (
++        dino_hsl2_mass_dse_wtg_vdse_wtg_taper_model
+     ),
+ }
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..87ebba5 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.late_tapered_tropical_wtg_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_wtg_taper"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_wtg_taper",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,26 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_late_tapered_tropical_wtg_is_registered():
++    """The late-WTG taper candidate is side-by-side with the incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_wtg_taper")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_wtg_taper"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_late_tropical_wtg_taper
++    assert not incumbent.apply_late_tropical_wtg_taper
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_late_tropical_wtg_taper"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..f7d3b66 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -49,6 +49,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _inner_steps_per_forecast_step,
+     _interp_sigma_to_pressure_by_time,
+     _land_sea_surface_temperature_residual_decays,
++    _late_tropical_wtg_relaxation_taper,
+     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
+     _nondimensionalize_seconds,
+     _ocean_bulk_sensible_heat_flux_temperature_anchor,
+@@ -79,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    late_tapered_tropical_wtg_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+@@ -655,6 +657,26 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_late_tapered_tropical_wtg_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the late WTG taper selector."""
++    model = late_tapered_tropical_wtg_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_wtg_taper"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_late_tropical_wtg_taper
++    assert not incumbent.apply_late_tropical_wtg_taper
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_late_tropical_wtg_taper"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3809,10 +3831,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -3861,6 +3882,118 @@ def test_tropical_wtg_mass_dse_filter_falls_back_for_nonfinite_dse():
+     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+ 
+ 
++def test_late_tropical_wtg_relaxation_taper_endpoints():
++    """The fixed late-lead taper is full through 120h and 70 percent by 240h."""
++    physics_specs = units.SimUnits.from_si()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    sim_time = jnp.asarray([0.0, 120.0, 240.0, 360.0], dtype=jnp.float32) * hour
++
++    weights = _late_tropical_wtg_relaxation_taper(sim_time, physics_specs)
++
++    np.testing.assert_allclose(weights, [1.0, 1.0, 0.70, 0.70], rtol=1e-6)
++
++
++def test_late_tropical_wtg_taper_scales_filter_increment_at_late_lead():
++    """At 240h the opt-in WTG filter applies 70 percent of incumbent strength."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=jnp.asarray(240.0 * hour, dtype=jnp.float32),
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    common_filter_kwargs = {
++        "coords": coords,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "step_seconds": _nondimensionalize_seconds(physics_specs, 60.0),
++    }
++    incumbent_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        **common_filter_kwargs,
++        apply_late_taper=False,
++    )
++    tapered_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        **common_filter_kwargs,
++        apply_late_taper=True,
++    )
++
++    incumbent_delta = (
++        incumbent_filter(prev_state, next_state).temperature_variation
++        - next_state.temperature_variation
++    )
++    tapered_delta = (
++        tapered_filter(prev_state, next_state).temperature_variation
++        - next_state.temperature_variation
++    )
++
++    np.testing.assert_allclose(
++        tapered_delta,
++        0.70 * incumbent_delta,
++        rtol=1e-5,
++        atol=1e-6,
++    )
++
++
++@pytest.mark.parametrize("sim_time", [None, jnp.inf, jnp.nan])
++def test_late_tropical_wtg_taper_invalid_time_matches_incumbent(sim_time):
++    """Missing or nonfinite forecast age keeps exact untapered WTG behavior."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=None if sim_time is None else jnp.asarray(sim_time, dtype=jnp.float32),
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    common_filter_kwargs = {
++        "coords": coords,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "step_seconds": _nondimensionalize_seconds(physics_specs, 3600.0),
++    }
++    incumbent_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        **common_filter_kwargs,
++        apply_late_taper=False,
++    )
++    tapered_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        **common_filter_kwargs,
++        apply_late_taper=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    tapered = tapered_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(
++        tapered.temperature_variation,
++        incumbent.temperature_variation,
++    )
++    np.testing.assert_array_equal(tapered.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(tapered.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        tapered.log_surface_pressure,
++        incumbent.log_surface_pressure,
++    )
++    assert tapered.tracers.keys() == incumbent.tracers.keys()
++    for tracer_name, tracer_value in tapered.tracers.items():
++        np.testing.assert_array_equal(tracer_value, incumbent.tracers[tracer_name])
++    if sim_time is None:
++        assert tapered.sim_time is incumbent.sim_time is None
++    else:
++        np.testing.assert_array_equal(tapered.sim_time, incumbent.sim_time)
++
++
+ def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
+     """Weak HS composition combines one primitive equation with fixed forcing."""
+     compose_calls = []
+@@ -4866,10 +4999,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -5817,6 +5949,66 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_late_tapered_tropical_wtg_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The late-tapered WTG candidate runs a small finite non-JIT forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        late_tapered_tropical_wtg_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_wtg_taper"
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_late_tropical_wtg_taper
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6730,9 +6922,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..9d0fe2e 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_wtg_taper",
+     )
+ 
+ 
+@@ -660,6 +661,26 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_late_tapered_tropical_wtg_candidate_model():
++    """The late-WTG taper alias changes only the taper selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_wtg_taper")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_wtg_taper"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.apply_late_tropical_wtg_taper
++    assert not incumbent.apply_late_tropical_wtg_taper
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_late_tropical_wtg_taper"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

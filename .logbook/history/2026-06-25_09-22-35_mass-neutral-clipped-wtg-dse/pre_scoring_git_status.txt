@@ -1,0 +1,7 @@
+ M src/dynamaxx/dycore/models/dinosaur/__init__.py
+ M src/dynamaxx/dycore/models/dinosaur/adapter.py
+ M src/dynamaxx/dycore/registry.py
+ M tests/dycore/models/dinosaur/test_dependency.py
+ M tests/dycore/models/dinosaur/test_primitive_equations.py
+ M tests/dycore/test_registry.py
+?? gifs/

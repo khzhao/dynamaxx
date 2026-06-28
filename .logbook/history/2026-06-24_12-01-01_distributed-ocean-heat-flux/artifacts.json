@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "distributed-ocean-heat-flux",
+  "history_path": ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux",
+  "source_artifacts": [
+    ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/proposal.md",
+    ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/implementation.md",
+    ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_ocean_flux_taper.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_ocean_flux_taper.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_ocean_flux_taper.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_ocean_flux_taper.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_mass_dse_ocean_flux_taper",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/scores.json",
+    ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/scoring_notes.md",
+    ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/decision.md"
+  ],
+  "notes": "Rejected after fixed iteration scored -0.2801194788322577 versus cached incumbent -0.2616483974683927, delta -0.018471081363864994. Early 2m_temperature RMSE regressed +37.99203594077941%, and 26 individual variable-lead RMSE guardrails exceeded 10%. Validation and golden were not run. Candidate code was reverted and the ready proposal was removed."
+}

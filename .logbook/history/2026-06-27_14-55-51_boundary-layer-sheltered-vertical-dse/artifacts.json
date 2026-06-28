@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "boundary-layer-sheltered-vertical-dse",
+  "history_path": ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse",
+  "source_artifacts": [
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/proposal.md",
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/candidate.diff",
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/resource_snapshot.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_pblcap.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_pblcap.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_pblcap.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_pblcap.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/implementation.md",
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/scores.json",
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/scoring_notes.md",
+    ".logbook/history/2026-06-27_14-55-51_boundary-layer-sheltered-vertical-dse/decision.md"
+  ],
+  "notes": "Rejected after clean fast and iteration because iteration delta -0.005500302432257104 was below the +0.002 promotion threshold and T2m guardrails failed. Validation was not run. Incumbent scores were loaded from the valid leaderboard cache; no incumbent rerun occurred."
+}

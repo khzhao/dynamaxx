@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "full-grid-spectral-truncation",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_t120",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4756cc9a4b69c41eec60e2177fb03a73974f0e2d",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "executed_protocols": [
+      "fast"
+    ],
+    "skipped_protocols": {
+      "iteration": "Skipped because the candidate failed fast diagnostics.",
+      "validation": "Skipped because iteration was not allowed after the fast gate failed.",
+      "golden": "Not run; golden is prohibited for iterative model selection."
+    },
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "worker_count": 4
+  },
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "candidate_created_model_name": "dinosaur_dfi_surface_residual_weak_hs_t120",
+    "incumbent_created_model_name": "dinosaur_dfi_surface_residual_weak_hs",
+    "repository_api": "dynamaxx.dycore.registry.create_dycore_model"
+  },
+  "commands": [
+    {
+      "command": "python -m compileall -q src/dynamaxx/dycore/models/dinosaur src/dynamaxx/dycore/registry.py tests/dycore",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided",
+      "notes": "Candidate test record provided by Implementer."
+    },
+    {
+      "command": "uv run ruff format <changed files>",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided",
+      "notes": "Reformatted one file."
+    },
+    {
+      "command": "uv run ruff check <changed files>",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided",
+      "notes": "Passed."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided",
+      "notes": "Focused tests passed: 42 passed."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided",
+      "notes": "Full tests passed: 108 passed, 2 skipped."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided",
+      "notes": "Passed."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_t120",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "implementer-provided-and-scorer-verified",
+      "notes": "Command exited successfully, but fixed diagnostics failed with nonfinite forecast and metric records."
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, registered_model_names\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_t120'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs'\nregistered = set(registered_model_names())\nprint('candidate_registered', candidate in registered)\nprint('incumbent_registered', incumbent in registered)\nprint('candidate_class', type(create_dycore_model(candidate)).__name__)\nprint('incumbent_class', type(create_dycore_model(incumbent)).__name__)\nPY",
+      "exit_status": 1,
+      "started_at": null,
+      "finished_at": null,
+      "source": "scorer-run",
+      "notes": "Initial registration probe used a non-existent helper name. This did not modify the repository and was superseded by the successful dycore_model_names check."
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_t120'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs'\nregistered = set(dycore_model_names())\nprint('candidate_registered', candidate in registered)\nprint('incumbent_registered', incumbent in registered)\nprint('candidate_model_name', create_dycore_model(candidate).name)\nprint('incumbent_model_name', create_dycore_model(incumbent).name)\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "scorer-run",
+      "notes": "Confirmed candidate and incumbent registration through the repository API."
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python - <<'PY'\nimport json, math\nfrom collections import Counter\nfrom pathlib import Path\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_t120'\npath = Path('outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_t120.json')\ndata = json.loads(path.read_text())\nrecords = data['records']\ncounts = Counter(record.get('model_name') for record in records)\nnonfinite = []\nfor record in records:\n    if record.get('model_name') != candidate:\n        continue\n    bad_fields = [name for name in ('rmse', 'mae', 'bias', 'skill_vs_persistence') if not math.isfinite(float(record.get(name, float('nan'))))]\n    if bad_fields:\n        nonfinite.append((record.get('lead_hours'), record.get('channel_name'), bad_fields))\nprint(counts)\nprint(data.get('primary_score'))\nprint(data['diagnostics'])\nprint(nonfinite[:8])\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "scorer-run",
+      "notes": "Verified exact model-name filtering, diagnostics, and earliest nonfinite metric rows from the candidate fast artifact."
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python - <<'PY'\nimport json\nfrom pathlib import Path\nfor path in ['outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json', 'outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json']:\n    data = json.loads(Path(path).read_text())\n    print(path, data.get('model_name'), data.get('primary_score'), data.get('diagnostics'), len(data.get('records', [])))\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "source": "scorer-run",
+      "notes": "Read compatible incumbent reference artifacts only; no incumbent evaluation was run."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_t120.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_t120.csv",
+    "candidate_iteration_json": null,
+    "candidate_iteration_csv": null,
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  },
+  "filtered_record_counts": {
+    "candidate_fast_candidate_rows": 60,
+    "candidate_fast_persistence_rows": 60,
+    "candidate_fast_total_rows": 120,
+    "candidate_nonfinite_metric_rows": 60
+  },
+  "primary_scores": {
+    "candidate_fast": -1.7976931348623157e308,
+    "candidate_fast_raw": "-Infinity",
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2218408656785489,
+    "incumbent_validation": -1.2103467803549615,
+    "iteration_delta": null,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": true,
+    "candidate_issue_count": 2,
+    "candidate_issue_codes": [
+      "nonfinite_forecast",
+      "nonfinite_metric"
+    ],
+    "candidate_issues": [
+      {
+        "code": "nonfinite_forecast",
+        "message": "Forecast contains NaN or Inf values.",
+        "severity": "error",
+        "value": 420789600
+      },
+      {
+        "code": "nonfinite_metric",
+        "message": "Metric records contain NaN or Inf values.",
+        "severity": "error",
+        "value": 240
+      }
+    ],
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "nonfinite_metrics": {
+    "earliest_candidate_lead_hours": 24,
+    "earliest_candidate_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "earliest_candidate_variable_labels": [
+      "2 m temperature",
+      "Mean sea level pressure",
+      "500 hPa geopotential",
+      "10 m zonal wind"
+    ],
+    "nonfinite_fields": [
+      "rmse",
+      "mae",
+      "bias",
+      "skill_vs_persistence"
+    ],
+    "notes": "All 60 exact-filtered candidate metric records contain nonfinite metric fields, starting at the first scored lead of 24 hours for all four target variables."
+  },
+  "gate_status": {
+    "fast_passed": false,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_skip_reason": "Fast diagnostics failed; iteration is not allowed by protocol.",
+    "validation_skip_reason": "Iteration did not run because fast failed.",
+    "golden_skip_reason": "Golden was not run for iterative model selection."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": [],
+    "notes": "Regression guardrails were not computed because the candidate failed fast diagnostics and has nonfinite candidate metrics."
+  }
+}

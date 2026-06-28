@@ -1,0 +1,121 @@
+model_name,variable,channel_name,lead_hours,rmse,mae,bias,skill_vs_persistence
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,24,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,24,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,24,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,24,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,48,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,48,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,48,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,48,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,72,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,72,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,72,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,72,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,96,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,96,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,96,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,96,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,120,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,120,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,120,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,120,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,144,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,144,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,144,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,144,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,168,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,168,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,168,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,168,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,192,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,192,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,192,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,192,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,216,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,216,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,216,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,216,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,240,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,240,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,240,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,240,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,264,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,264,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,264,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,264,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,288,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,288,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,288,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,288,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,312,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,312,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,312,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,312,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,336,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,336,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,336,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,336,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,2 m temperature,2m_temperature,360,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,Mean sea level pressure,mean_sea_level_pressure,360,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,500 hPa geopotential,geopotential_500,360,nan,nan,nan,nan
+dino_hsl2_theta_cpvert,10 m zonal wind,10m_u_component_of_wind,360,nan,nan,nan,nan
+persistence,2 m temperature,2m_temperature,24,2.055466321450892,1.1997782843453544,0.013619871011802129,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,24,590.0508755304797,347.28529575892856,-1.4380380085536413,0.0
+persistence,500 hPa geopotential,geopotential_500,24,590.8544357840722,349.00198800223217,1.3240563528878349,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,24,3.8726827839050366,2.4867180415562222,0.015216513403824397,0.0
+persistence,2 m temperature,2m_temperature,48,2.6805635582821448,1.570119994027274,0.019256300159863064,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,48,785.3667023390138,482.15834263392856,-2.3012428283691406,0.0
+persistence,500 hPa geopotential,geopotential_500,48,813.3433205866125,497.73416573660717,0.050964219229561944,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,48,4.5783411623151355,3.0800064631870816,0.00545791643006461,0.0
+persistence,2 m temperature,2m_temperature,72,2.91314208193675,1.7169110434395927,0.008778947804655348,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,72,883.3580409841915,549.4306989397321,-1.7205039433070592,0.0
+persistence,500 hPa geopotential,geopotential_500,72,938.8260906959438,575.2672991071429,-2.225754601614816,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,72,4.911344540267956,3.347076416015625,0.006473657275949206,0.0
+persistence,2 m temperature,2m_temperature,96,3.0655612603956945,1.7951107025146484,0.012768941266196114,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,96,940.6323101282152,586.1261858258929,-1.1323901585170202,0.0
+persistence,500 hPa geopotential,geopotential_500,96,991.8668545439238,613.8429129464286,-4.030274527413504,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,96,5.185401899288315,3.528975622994559,-0.0015095280749457224,0.0
+persistence,2 m temperature,2m_temperature,120,3.186034477413379,1.851670265197754,-0.0077485208000455585,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,120,945.1682389924028,591.9482421875,-1.7239288602556502,0.0
+persistence,500 hPa geopotential,geopotential_500,120,1006.759085949989,629.8162667410714,-2.3223282950265065,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,120,5.165655315462854,3.536022186279297,-0.0031870859009878977,0.0
+persistence,2 m temperature,2m_temperature,144,3.3330678379957046,1.9346177237374442,-0.0032512545585632324,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,144,976.6540548511242,613.0837751116071,-1.7404492241995675,0.0
+persistence,500 hPa geopotential,geopotential_500,144,1044.476116118917,651.1828962053571,-1.757256099155971,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,144,5.323125493694835,3.628155027117048,-0.004567152687481472,0.0
+persistence,2 m temperature,2m_temperature,168,3.439564112425024,1.995349611554827,0.0034468972257205416,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,168,994.6891115174774,626.9232003348214,-1.9029889787946428,0.0
+persistence,500 hPa geopotential,geopotential_500,168,1061.8674251390466,665.1483677455357,-0.7506717954363141,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,168,5.363183907854017,3.6789422716413225,-0.03848469257354736,0.0
+persistence,2 m temperature,2m_temperature,192,3.526349589472992,2.0374317169189453,-0.005879755531038556,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,192,1003.3092031586559,638.1612025669643,-0.8508529663085938,0.0
+persistence,500 hPa geopotential,geopotential_500,192,1088.8698269306574,681.4292689732143,-1.9722559792654855,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,192,5.338884756868809,3.6752597263881137,-0.056085450308663506,0.0
+persistence,2 m temperature,2m_temperature,216,3.575379763619742,2.0616704395839145,-0.006638982466288975,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,216,995.0025125596418,632.9574497767857,0.13518985680171422,0.0
+persistence,500 hPa geopotential,geopotential_500,216,1102.0615746344276,689.1833844866071,-0.8016131264822823,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,216,5.325696336539385,3.682921818324498,-0.0788203137261527,0.0
+persistence,2 m temperature,2m_temperature,240,3.618172365248571,2.0855253764561246,0.014805045511041368,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,240,988.5199976299344,630.1619698660714,-0.3706816945757185,0.0
+persistence,500 hPa geopotential,geopotential_500,240,1100.1900485175927,688.4144810267857,-0.14708409990583146,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,240,5.368072405087432,3.7108772822788785,-0.054039878504616876,0.0
+persistence,2 m temperature,2m_temperature,264,3.6389864491685238,2.1030897412981306,0.019031362874167308,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,264,1000.5181157780203,637.3016183035714,0.391538211277553,0.0
+persistence,500 hPa geopotential,geopotential_500,264,1104.004011379876,689.33642578125,-0.5323333740234375,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,264,5.394476496761029,3.712475912911551,-0.0321507602930069,0.0
+persistence,2 m temperature,2m_temperature,288,3.663860816296683,2.1304212297712053,0.012491945709500994,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,288,1006.2391081930491,642.9347098214286,-0.974348749433245,0.0
+persistence,500 hPa geopotential,geopotential_500,288,1111.9702591089642,692.2297712053571,-1.5715277535574776,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,288,5.370167127861692,3.7098726545061385,-0.0019066384328263147,0.0
+persistence,2 m temperature,2m_temperature,312,3.7436612279489765,2.1682699748447964,0.013097028647150313,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,312,1006.6315115274308,649.13525390625,-1.8332578114100866,0.0
+persistence,500 hPa geopotential,geopotential_500,312,1119.941388772517,699.3570033482143,-3.935039520263672,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,312,5.387431119049227,3.7234739576067244,0.02322058379650116,0.0
+persistence,2 m temperature,2m_temperature,336,3.7502072231621235,2.183700289045061,0.013017916253634862,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,336,994.7154654185573,638.4645647321429,-1.8762133462088448,0.0
+persistence,500 hPa geopotential,geopotential_500,336,1113.0957473897486,696.5357142857143,-8.267313276018415,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,336,5.419985872772097,3.7403501783098494,0.015566713043621607,0.0
+persistence,2 m temperature,2m_temperature,360,3.7041696979899146,2.170876911708287,0.009942565645490373,0.0
+persistence,Mean sea level pressure,mean_sea_level_pressure,360,993.9269519005336,632.0475725446429,-1.7225843157087053,0.0
+persistence,500 hPa geopotential,geopotential_500,360,1117.3496702976583,696.7354910714286,-10.766734531947545,0.0
+persistence,10 m zonal wind,10m_u_component_of_wind,360,5.470713534617398,3.7699187142508372,-0.004256153745310647,0.0

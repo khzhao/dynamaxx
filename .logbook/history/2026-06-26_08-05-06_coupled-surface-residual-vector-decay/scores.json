@@ -1,0 +1,279 @@
+{
+  "schema_version": 1,
+  "scored_at": "2026-06-26T10:58:00Z",
+  "proposal_slug": "coupled-surface-residual-vector-decay",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "history_directory": ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay",
+  "worker_count": 4,
+  "validation_allowed_if_promoted": true,
+  "golden_run": false,
+  "commands_run": [
+    {
+      "command": "sed -n '1,240p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "purpose": "read shared scoring protocol"
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "purpose": "read Scorer role instructions"
+    },
+    {
+      "command": "find .logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay -maxdepth 3 -type f | sort",
+      "exit_status": 0,
+      "purpose": "inspect history directory"
+    },
+    {
+      "command": "sed -n '1,220p' .logbook/leaderboard.json",
+      "exit_status": 0,
+      "purpose": "read authoritative incumbent cache pointer"
+    },
+    {
+      "command": "python - <<'PY' ... read fast candidate, incumbent iteration, and incumbent validation JSON artifacts ... PY",
+      "exit_status": 0,
+      "purpose": "verify cached artifact readability, finite primary scores, diagnostics, and row counts"
+    },
+    {
+      "command": "git rev-parse HEAD",
+      "exit_status": 0,
+      "purpose": "check current commit against leaderboard eval_code_commit"
+    },
+    {
+      "command": "sed -n '1,220p' .logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/pre_scoring_status.txt",
+      "exit_status": 0,
+      "purpose": "read Orchestrator-verified pre-scoring status"
+    },
+    {
+      "command": "git diff --name-only",
+      "exit_status": 0,
+      "purpose": "check dirty files for evaluation-code compatibility"
+    },
+    {
+      "command": "uv run python - <<'PY' ... registry.dycore_model_names() and registry.create_dycore_model() for candidate and incumbent ... PY",
+      "exit_status": 0,
+      "purpose": "verify candidate and incumbent registration"
+    },
+    {
+      "command": "python - <<'PY' ... inspect fast candidate and cached incumbent CSV artifacts ... PY",
+      "exit_status": 0,
+      "purpose": "verify raw CSV artifact presence and row counts"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec --workers 4",
+      "exit_status": 0,
+      "purpose": "run fixed candidate iteration evaluation"
+    },
+    {
+      "command": "python - <<'PY' ... compute candidate-vs-incumbent iteration deltas and guardrails from model rows ... PY",
+      "exit_status": 0,
+      "purpose": "compute scoring comparisons"
+    },
+    {
+      "command": "python - <<'PY' ... inspect duplicate record keys and confirm model-vs-persistence rows ... PY",
+      "exit_status": 0,
+      "purpose": "confirm guardrails must filter to candidate/incumbent model rows"
+    },
+    {
+      "command": "python - <<'PY' ... recompute guardrails after filtering model rows ... PY",
+      "exit_status": 0,
+      "purpose": "compute final guardrail values"
+    },
+    {
+      "command": "ls -l outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.json outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.csv",
+      "exit_status": 0,
+      "purpose": "verify candidate iteration raw artifact files"
+    },
+    {
+      "command": "git status --short",
+      "exit_status": 0,
+      "purpose": "inspect worktree after scoring run"
+    },
+    {
+      "command": "python - <<'PY' ... verify candidate iteration artifacts exist and candidate validation artifact is absent ... PY",
+      "exit_status": 0,
+      "purpose": "verify validation was skipped"
+    }
+  ],
+  "pre_scoring_records_reused": {
+    "full_pytest": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "summary": "261 passed, 2 skipped",
+      "rerun_by_scorer": false
+    },
+    "focused_pytest": {
+      "summary": "195 passed",
+      "rerun_by_scorer": false
+    },
+    "candidate_fast": {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec",
+      "exit_status": 0,
+      "artifact_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.json",
+      "artifact_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.csv",
+      "primary_score": -0.2413961488632447,
+      "diagnostics_failed": false,
+      "diagnostic_issue_count": 0,
+      "record_count": 120,
+      "rerun_by_scorer": false
+    },
+    "git_diff_check": {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "rerun_by_scorer": false
+    }
+  },
+  "registration": {
+    "candidate_registered": true,
+    "candidate_created_type": "DinosaurPrimitiveEquationsDycoreModel",
+    "incumbent_registered": true,
+    "incumbent_created_type": "DinosaurPrimitiveEquationsDycoreModel"
+  },
+  "raw_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "recomputed": false,
+      "json_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "csv_path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "artifact_exists_and_readable": true,
+        "finite_primary_score": true,
+        "contains_incumbent_model_rows": true,
+        "contains_guardrail_records": true,
+        "target_variables_compatible": true,
+        "lead_days_compatible": true,
+        "protocol_in_fingerprint": true,
+        "data_path_compatible": true,
+        "eval_code_commit_compatible": true,
+        "current_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+        "leaderboard_eval_code_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+        "dirty_files_touch_eval_protocol": false
+      },
+      "reason": "Leaderboard incumbent cache is compatible and authoritative under roles/SCORER.md."
+    },
+    "validation": {
+      "incumbent_metrics_reused": false,
+      "recomputed": false,
+      "json_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "csv_path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "reason": "Validation comparison was not needed because the candidate failed the iteration promotion gate."
+    }
+  },
+  "fast": {
+    "candidate_primary_score": -0.2413961488632447,
+    "candidate_diagnostics_failed": false,
+    "candidate_diagnostic_issue_count": 0,
+    "candidate_record_count": 120
+  },
+  "iteration": {
+    "candidate_primary_score": -0.2368096372876574,
+    "incumbent_primary_score": -0.2197104515448394,
+    "primary_delta": -0.01709918574281799,
+    "primary_delta_threshold_for_validation": 0.002,
+    "candidate_diagnostics_failed": false,
+    "candidate_diagnostic_issue_count": 0,
+    "candidate_record_count": 120,
+    "candidate_model_record_count": 60,
+    "incumbent_diagnostics_failed": false,
+    "incumbent_diagnostic_issue_count": 0,
+    "incumbent_record_count": 120,
+    "incumbent_model_record_count": 60,
+    "gate_status": {
+      "diagnostics_pass": true,
+      "primary_delta_pass": false,
+      "early_day_1_to_5_mean_rmse_guardrail_pass": false,
+      "per_variable_lead_rmse_guardrail_pass": true,
+      "promotes_to_validation": false
+    },
+    "early_day_1_to_5_mean_rmse_guardrail_by_channel": [
+      {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 4.2914549976767375,
+        "incumbent_mean_rmse": 4.291454635917505,
+        "rmse_delta": 3.617592323479357e-07,
+        "relative_regression": 8.429757810327925e-08,
+        "relative_regression_pct": 8.429757810327926e-06,
+        "guardrail_failed": false,
+        "record_count": 5
+      },
+      {
+        "variable": "2 m temperature",
+        "channel_name": "2m_temperature",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 4.889359735984955,
+        "incumbent_mean_rmse": 4.751335465357272,
+        "rmse_delta": 0.13802427062768352,
+        "relative_regression": 0.02904957387960501,
+        "relative_regression_pct": 2.904957387960501,
+        "guardrail_failed": true,
+        "record_count": 5
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 592.5711687270714,
+        "incumbent_mean_rmse": 592.5709106473444,
+        "rmse_delta": 0.0002580797270184121,
+        "relative_regression": 4.355254744727127e-07,
+        "relative_regression_pct": 4.355254744727127e-05,
+        "guardrail_failed": false,
+        "record_count": 5
+      },
+      {
+        "variable": "Mean sea level pressure",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 771.1149491007974,
+        "incumbent_mean_rmse": 771.1150019948005,
+        "rmse_delta": -5.289400314723025e-05,
+        "relative_regression": -6.859418246357357e-08,
+        "relative_regression_pct": -6.8594182463573575e-06,
+        "guardrail_failed": false,
+        "record_count": 5
+      }
+    ],
+    "worst_variable_lead_rmse_regression": {
+      "variable": "2 m temperature",
+      "channel_name": "2m_temperature",
+      "lead_hours": 216,
+      "candidate_rmse": 7.655583102559531,
+      "incumbent_rmse": 7.36316176431721,
+      "rmse_delta": 0.2924213382423204,
+      "relative_regression": 0.039714099404882054,
+      "relative_regression_pct": 3.9714099404882055,
+      "guardrail_failed": false
+    },
+    "per_variable_lead_rmse_regressions_over_10pct_count": 0,
+    "early_day_1_to_5_mean_rmse_regressions_over_2pct_count": 1
+  },
+  "validation": {
+    "status": "skipped",
+    "reason": "Candidate did not promote from iteration: primary delta was below +0.002 and the early day 1-5 2m_temperature mean RMSE guardrail regressed by 2.904957387960501%.",
+    "candidate_primary_score": null,
+    "incumbent_primary_score": -0.21940899263836755,
+    "primary_delta": null,
+    "candidate_diagnostics_failed": null,
+    "candidate_diagnostic_issue_count": null
+  },
+  "anomalies": [
+    "Iteration evaluation was long and quiet between progress prints but completed successfully with exit status 0.",
+    "Evaluation records include both the evaluated model and persistence rows; guardrail comparisons were computed only from candidate and incumbent model rows.",
+    "Validation was skipped per protocol because the candidate failed iteration promotion."
+  ]
+}

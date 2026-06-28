@@ -1,0 +1,63 @@
+{
+  "evaluation_artifacts": [
+    {
+      "description": "Candidate fast metrics JSON.",
+      "path": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_ocean.json"
+    },
+    {
+      "description": "Candidate fast metrics CSV.",
+      "path": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_ocean.csv"
+    },
+    {
+      "description": "Candidate iteration metrics JSON.",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_ocean.json"
+    },
+    {
+      "description": "Candidate iteration metrics CSV.",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_ocean.csv"
+    },
+    {
+      "description": "Cached incumbent iteration metrics JSON reused from leaderboard.",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.json"
+    },
+    {
+      "description": "Cached incumbent iteration metrics CSV reused from leaderboard.",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.csv"
+    },
+    {
+      "description": "Cached incumbent validation metrics JSON checked but not used because validation was skipped.",
+      "path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.json"
+    },
+    {
+      "description": "Cached incumbent validation metrics CSV checked but not used because validation was skipped.",
+      "path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.csv"
+    }
+  ],
+  "log_artifacts": [
+    {
+      "description": "Scorer measurements, gate status, cache reuse record, and regression summaries.",
+      "path": ".logbook/history/2026-06-25_06-00-55_ocean-weighted-tropical-wtg-mass-dse/scores.json"
+    },
+    {
+      "description": "Human-readable scoring notes, command statuses, cache validation, and measurement lessons.",
+      "path": ".logbook/history/2026-06-25_06-00-55_ocean-weighted-tropical-wtg-mass-dse/scoring_notes.md"
+    }
+  ],
+  "notes": "Validation and golden were not run. Candidate failed the iteration primary-delta promotion gate with clean diagnostics and passing RMSE guardrails.",
+  "proposal_slug": "ocean-weighted-tropical-wtg-mass-dse",
+  "schema_version": 1,
+  "source_artifacts": [
+    {
+      "description": "Selected ready proposal copied into immutable history.",
+      "path": ".logbook/history/2026-06-25_06-00-55_ocean-weighted-tropical-wtg-mass-dse/proposal.md"
+    },
+    {
+      "description": "Implementer record with changed files, tests, and known limitations.",
+      "path": ".logbook/history/2026-06-25_06-00-55_ocean-weighted-tropical-wtg-mass-dse/implementation.md"
+    },
+    {
+      "description": "Saved source/test diff for the implemented candidate.",
+      "path": ".logbook/history/2026-06-25_06-00-55_ocean-weighted-tropical-wtg-mass-dse/candidate.diff"
+    }
+  ]
+}

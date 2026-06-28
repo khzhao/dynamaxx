@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "role": "Scorer",
+  "proposal_slug": "cfl-blended-hsl-theta",
+  "history_path": ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta",
+  "candidate_model_name": "dino_hsl_cflblend",
+  "incumbent_model_name": "dino_hsl2_theta",
+  "incumbent_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+  "evaluated_at": "2026-06-22T18:04:00Z",
+  "commands": [
+    {
+      "name": "pytest",
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "230 passed, 2 skipped in 185.94s after bounded repair."
+    },
+    {
+      "name": "candidate_fast_initial",
+      "command": "uv run dynamaxx-eval fast --model dino_hsl_cflblend",
+      "exit_status": 0,
+      "raw_json": "outputs/eval/fast_dino_hsl_cflblend.json",
+      "raw_csv": "outputs/eval/fast_dino_hsl_cflblend.csv",
+      "notes": "Fast command completed but diagnostics failed with nonfinite forecast and nonfinite metrics before repair."
+    },
+    {
+      "name": "candidate_fast_post_repair",
+      "command": "uv run dynamaxx-eval fast --model dino_hsl_cflblend",
+      "exit_status": 0,
+      "raw_json": "outputs/eval/fast_dino_hsl_cflblend.json",
+      "raw_csv": "outputs/eval/fast_dino_hsl_cflblend.csv",
+      "notes": "Fast command completed but diagnostics still failed with nonfinite forecast and nonfinite metrics."
+    }
+  ],
+  "primary_scores": {
+    "candidate_fast": -1.7976931348623157e+308,
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.31282890543336245,
+    "incumbent_validation": -0.3072374345999185,
+    "iteration_delta_candidate_minus_incumbent": null,
+    "validation_delta_candidate_minus_incumbent": null
+  },
+  "diagnostics": {
+    "fast": {
+      "failed": true,
+      "issue_count": 2,
+      "issues": [
+        {
+          "code": "nonfinite_forecast",
+          "message": "Forecast contains NaN or Inf values.",
+          "severity": "error",
+          "value": 372699360
+        },
+        {
+          "code": "nonfinite_metric",
+          "message": "Metric records contain NaN or Inf values.",
+          "severity": "error",
+          "value": 240
+        }
+      ]
+    },
+    "iteration": null,
+    "validation": null
+  },
+  "gate_status": {
+    "fast_passed": false,
+    "iteration_ran": false,
+    "validation_ran": false,
+    "golden_ran": false,
+    "terminal_gate": "fast"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "reused": false,
+      "reason": "Candidate failed the fast diagnostic gate before iteration."
+    },
+    "validation": {
+      "reused": false,
+      "reason": "Candidate failed the fast diagnostic gate before validation."
+    }
+  },
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl_cflblend.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl_cflblend.csv",
+    "candidate_diff": ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/candidate.diff"
+  },
+  "anomalies": [
+    "The initial linear CFL blend produced nonfinite forecasts under the fast gate.",
+    "A bounded square-root CFL-weight repair preserved the selected proposal's endpoints but still produced nonfinite fast forecasts."
+  ],
+  "recommendation_to_orchestrator": "Reject without iteration or validation because the fixed fast diagnostic gate failed after bounded repair."
+}

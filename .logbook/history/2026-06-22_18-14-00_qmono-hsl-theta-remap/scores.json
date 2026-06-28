@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "qmono-hsl-theta-remap",
+  "candidate_model_name": "dino_hsl_qmono",
+  "incumbent_model_name": "dino_hsl2_theta",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Run by Orchestrator before scoring; 232 passed, 2 skipped in 206.00s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl_qmono",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-22T18:33:34Z",
+      "notes": "Fast gate passed with failed=False and zero diagnostic issues."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl_qmono --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-22T18:34:44Z",
+      "finished_at": "2026-06-22T21:47:18Z",
+      "notes": "Candidate-only iteration run completed 229/229 chunks; incumbent was not rerun."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl_qmono --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run because iteration delta was below the +0.002 promotion threshold."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl_qmono.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl_qmono.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl_qmono.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl_qmono.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_theta.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.38682576342658237,
+    "candidate_iteration": -0.3714466304069767,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.31282890543336245,
+    "incumbent_validation": -0.3072374345999185,
+    "iteration_delta": -0.05861772497361423,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "incumbent_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+      "incumbent_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+      "validation_checks": [
+        "leaderboard incumbent matched requested incumbent dino_hsl2_theta",
+        "artifact files existed and were readable",
+        "primary_score was finite",
+        "diagnostics were clean",
+        "candidate and incumbent artifacts contained comparable model rows for every target variable and lead"
+      ],
+      "rerun_reason": null
+    },
+    "validation": {
+      "incumbent_metrics_reused": false,
+      "incumbent_json": "outputs/eval/validation_dino_hsl2_theta.json",
+      "incumbent_csv": "outputs/eval/validation_dino_hsl2_theta.csv",
+      "validation_checks": [
+        "cached validation artifacts existed and were readable"
+      ],
+      "rerun_reason": null,
+      "not_used_reason": "candidate did not promote from iteration, so candidate validation was not run"
+    }
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "variable": "10 m zonal wind",
+        "candidate_mean_rmse": 4.667923699509057,
+        "incumbent_mean_rmse": 4.456612844664318,
+        "relative_regression": 0.04741512494129507
+      },
+      {
+        "channel_name": "2m_temperature",
+        "variable": "2 m temperature",
+        "candidate_mean_rmse": 5.037729108248389,
+        "incumbent_mean_rmse": 4.822779440662406,
+        "relative_regression": 0.04456966573542065
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure",
+        "candidate_mean_rmse": 834.9899135706885,
+        "incumbent_mean_rmse": 814.9462536112021,
+        "relative_regression": 0.024595069761556232
+      },
+      {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential",
+        "candidate_mean_rmse": 627.2786903370225,
+        "incumbent_mean_rmse": 613.8510255130138,
+        "relative_regression": 0.021874468341543718
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure",
+        "lead_hours": 360,
+        "candidate_rmse": 1531.600121561051,
+        "incumbent_rmse": 1412.7737336172008,
+        "relative_regression": 0.0841085767071934
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure",
+        "lead_hours": 336,
+        "candidate_rmse": 1545.6424960610368,
+        "incumbent_rmse": 1429.9009283307648,
+        "relative_regression": 0.08094376710796758
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure",
+        "lead_hours": 312,
+        "candidate_rmse": 1562.5847856952623,
+        "incumbent_rmse": 1450.4944509529655,
+        "relative_regression": 0.07727732751314842
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "variable": "10 m zonal wind",
+        "lead_hours": 288,
+        "candidate_rmse": 6.574336635235651,
+        "incumbent_rmse": 6.107490793742223,
+        "relative_regression": 0.07643823908367753
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "variable": "10 m zonal wind",
+        "lead_hours": 360,
+        "candidate_rmse": 6.5576260725028535,
+        "incumbent_rmse": 6.093039574300966,
+        "relative_regression": 0.07624872488296419
+      }
+    ]
+  }
+}

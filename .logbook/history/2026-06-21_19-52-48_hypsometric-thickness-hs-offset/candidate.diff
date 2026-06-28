@@ -1,0 +1,675 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index e719750..39cdfa4 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -50,6 +50,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     default_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
++    hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+@@ -83,6 +84,7 @@ __all__ = [
+     "filtering",
+     "fourier",
+     "held_suarez",
++    "hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model",
+     "hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "horizontal_interpolation",
+     "hybrid_coordinates",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 9d58e73..480a5e1 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -112,6 +112,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS
+     )
+     use_analysis_offset_weak_held_suarez_equilibrium: bool = False
++    use_hypsometric_thickness_analysis_hs_equilibrium: bool = False
+     apply_near_surface_residual_correction: bool = False
+     near_surface_residual_decay_hours: float = 48.0
+     use_stability_aware_near_surface_residual_decay: bool = False
+@@ -192,7 +193,28 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
+             )
+-            _, trajectory = trajectory_fn(dinosaur_state)
++            if self.use_hypsometric_thickness_analysis_hs_equilibrium:
++                equilibrium_temperature_offset = (
++                    _hypsometric_thickness_analysis_held_suarez_equilibrium_offset(
++                        initial_state=single_state,
++                        initialized_dinosaur_state=dinosaur_state,
++                        coords=grid.coords,
++                        pressure_levels_hpa=pressure_levels_hpa,
++                        latitude_reversed=grid.latitude_reversed,
++                        physics_specs=physics_specs,
++                        reference_temperature=reference_temperature,
++                        include_humidity=has_humidity,
++                        use_log_pressure_initialization=(
++                            self.use_log_pressure_initialization
++                        ),
++                    )
++                )
++                _, trajectory = trajectory_fn(
++                    dinosaur_state,
++                    equilibrium_temperature_offset,
++                )
++            else:
++                _, trajectory = trajectory_fn(dinosaur_state)
+             trajectory_state = dinosaur_state_to_weather_state(
+                 trajectory,
+                 coords=grid.coords,
+@@ -265,6 +287,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             self.apply_weak_held_suarez_relaxation
+             and self.use_analysis_offset_weak_held_suarez_equilibrium
+         )
++        use_hypsometric_thickness_offset = (
++            use_analysis_offset_equilibrium
++            and self.use_hypsometric_thickness_analysis_hs_equilibrium
++        )
+ 
+         def build_equation(
+             equation_physics_specs: Any,
+@@ -388,7 +414,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 trajectory_fn = initialized_trajectory_fn
+             return trajectory_fn
+ 
+-        if use_analysis_offset_equilibrium:
++        if use_hypsometric_thickness_offset:
++
++            def trajectory_fn(dinosaur_state, equilibrium_temperature_offset):
++                offset_trajectory_fn = build_trajectory(
++                    equilibrium_temperature_offset=equilibrium_temperature_offset,
++                )
++                return offset_trajectory_fn(dinosaur_state)
++
++        elif use_analysis_offset_equilibrium:
+ 
+             def trajectory_fn(dinosaur_state):
+                 equilibrium_temperature_offset = (
+@@ -455,6 +489,99 @@ def _analysis_offset_weak_held_suarez_equilibrium(
+     )
+ 
+ 
++def _hypsometric_thickness_analysis_held_suarez_equilibrium_offset(
++    *,
++    initial_state: WeatherState,
++    initialized_dinosaur_state: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    pressure_levels_hpa: tuple[int, ...],
++    latitude_reversed: bool,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    include_humidity: bool,
++    use_log_pressure_initialization: bool,
++) -> jax.Array:
++    """Return the thickness-derived analysis-HS offset with incumbent fallback."""
++    incumbent_offset = _analysis_offset_weak_held_suarez_equilibrium(
++        initialized_dinosaur_state,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++    if len(pressure_levels_hpa) < 2 or not has_pressure_level_stack(
++        initial_state.variables,
++        GEOPOTENTIAL_VARIABLE,
++        pressure_levels_hpa,
++    ):
++        return incumbent_offset
++
++    analyzed_temperature = _stack_pressure_level_channels(
++        initial_state,
++        TEMPERATURE_VARIABLE,
++        pressure_levels_hpa,
++    )
++    geopotential = _stack_pressure_level_channels(
++        initial_state,
++        GEOPOTENTIAL_VARIABLE,
++        pressure_levels_hpa,
++    )
++    if geopotential.shape != analyzed_temperature.shape:
++        return incumbent_offset
++
++    specific_humidity = None
++    if has_pressure_level_stack(
++        initial_state.variables,
++        SPECIFIC_HUMIDITY_VARIABLE,
++        pressure_levels_hpa,
++    ):
++        specific_humidity = _stack_pressure_level_channels(
++            initial_state,
++            SPECIFIC_HUMIDITY_VARIABLE,
++            pressure_levels_hpa,
++        )
++        if specific_humidity.shape != analyzed_temperature.shape:
++            specific_humidity = None
++
++    thickness_temperature = _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
++        analyzed_temperature=analyzed_temperature,
++        geopotential=geopotential,
++        pressure_levels_hpa=pressure_levels_hpa,
++        specific_humidity=specific_humidity,
++    )
++    temperature_channels = tuple(
++        f"{TEMPERATURE_VARIABLE}_{pressure_level}"
++        for pressure_level in pressure_levels_hpa
++    )
++    temperature_indices = jnp.asarray(
++        initial_state.variable_indices(temperature_channels),
++        dtype=jnp.int32,
++    )
++    thickness_state = WeatherState(
++        values=initial_state.values.at[temperature_indices].set(thickness_temperature),
++        variables=initial_state.variables,
++    )
++    thickness_dinosaur_state = weather_state_to_dinosaur_state(
++        thickness_state,
++        coords=coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=include_humidity,
++        use_log_pressure_initialization=use_log_pressure_initialization,
++    )
++    candidate_offset = _analysis_offset_weak_held_suarez_equilibrium(
++        thickness_dinosaur_state,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++    candidate_is_valid = jnp.all(jnp.isfinite(geopotential)) & jnp.all(
++        jnp.isfinite(candidate_offset)
++    )
++    return jnp.where(candidate_is_valid, candidate_offset, incumbent_offset)
++
++
+ def _analysis_offset_weak_hs_low_mode_mask(
+     horizontal_grid: spherical_harmonic.Grid,
+ ) -> jax.Array:
+@@ -888,6 +1015,22 @@ def analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the analysis-HS incumbent using thickness-derived offset source."""
++    return replace(
++        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
++        name=(
++            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++            "scale_surface_residual_analysis_hs_eq_thickness_hs_eq"
++        ),
++        use_hypsometric_thickness_analysis_hs_equilibrium=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b10f158..f0ddc51 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -152,6 +152,17 @@ def dinosaur_analysis_offset_held_suarez_equilibrium_model() -> DycoreModel:
+     return analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
+ 
+ 
++def dinosaur_hypsometric_thickness_analysis_hs_equilibrium_model() -> DycoreModel:
++    """Return the analysis-HS dycore using thickness-derived offset source."""
++    from dynamaxx.dycore.models.dinosaur import (
++        hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model,
++    )
++
++    return (
++        hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model()
++    )
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -213,6 +224,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq"
+     ): dinosaur_analysis_offset_held_suarez_equilibrium_model,
++    (
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_thickness_hs_eq"
++    ): dinosaur_hypsometric_thickness_analysis_hs_equilibrium_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 9339c84..d4bda6c 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -104,6 +104,13 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq"
+ )
++assert (
++    dinosaur.hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model().name
++    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++    "scale_surface_residual_analysis_hs_eq_thickness_hs_eq"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -191,6 +198,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_thickness_hs_eq",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 5540954..a0d6f13 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -42,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _exact_coriolis_rotation_step_filter,
+     _horizontal_diffusion_step_filter,
+     _hydrostatic_temperature_from_geopotential_thickness,
++    _hypsometric_thickness_analysis_held_suarez_equilibrium_offset,
+     _inner_steps_per_forecast_step,
+     _interp_sigma_to_pressure_by_time,
+     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
+@@ -64,6 +65,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
++    hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+@@ -153,6 +155,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.apply_near_surface_residual_correction
+     assert model.near_surface_residual_decay_hours == 48.0
+     assert not model.use_analysis_offset_weak_held_suarez_equilibrium
++    assert not model.use_hypsometric_thickness_analysis_hs_equilibrium
+     assert not model.use_stability_aware_near_surface_residual_decay
+     assert not model.use_scale_separated_near_surface_residual
+     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
+@@ -495,6 +498,31 @@ def test_analysis_offset_hs_eq_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_thickness_hs_eq_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the analysis-HS offset source."""
++    model = (
++        hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model()
++    )
++    incumbent = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_thickness_hs_eq"
++    )
++    assert model.use_analysis_offset_weak_held_suarez_equilibrium
++    assert model.use_hypsometric_thickness_analysis_hs_equilibrium
++    assert not incumbent.use_hypsometric_thickness_analysis_hs_equilibrium
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hypsometric_thickness_analysis_hs_equilibrium",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -1259,6 +1287,58 @@ def test_analysis_offset_hs_eq_candidate_forecast_is_finite(monkeypatch):
+     )
+ 
+ 
++def test_thickness_hs_eq_candidate_forecast_is_finite(monkeypatch):
++    """The thickness-source analysis-HS candidate runs a non-JIT smoke forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "10m_v_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++    np.testing.assert_array_equal(
++        forecast.select(("2m_temperature",)).values[0],
++        forecast_input.initial_state.select(("2m_temperature",)).values,
++    )
++    np.testing.assert_array_equal(
++        forecast.select(("10m_u_component_of_wind",)).values[0],
++        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
++    )
++
++
+ def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
+     """The residual candidate changes only selected near-surface diagnostics."""
+ 
+@@ -3596,6 +3676,104 @@ def test_analysis_offset_hs_eq_offset_applies_low_order_mask():
+     assert float(jnp.abs(retained_low_mode).max()) > 0.1
+ 
+ 
++def test_thickness_hs_eq_offset_falls_back_without_geopotential():
++    """Missing pressure-level geopotential returns the accepted offset exactly."""
++    initial_state = _structured_initial_state(init_count=1)
++    variables = tuple(
++        variable
++        for variable in initial_state.variables
++        if not variable.startswith("geopotential_")
++    )
++    setup = _analysis_offset_forecast_setup(initial_state.select(variables))
++    incumbent_offset = _analysis_offset_weak_held_suarez_equilibrium(
++        setup["dinosaur_state"],
++        coords=setup["grid"].coords,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++    )
++
++    candidate_offset = _hypsometric_thickness_analysis_held_suarez_equilibrium_offset(
++        initial_state=setup["weather_state"],
++        initialized_dinosaur_state=setup["dinosaur_state"],
++        coords=setup["grid"].coords,
++        pressure_levels_hpa=setup["pressure_levels_hpa"],
++        latitude_reversed=setup["grid"].latitude_reversed,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++        include_humidity=True,
++        use_log_pressure_initialization=True,
++    )
++
++    np.testing.assert_array_equal(candidate_offset, incumbent_offset)
++
++
++def test_thickness_hs_eq_offset_falls_back_for_nonfinite_geopotential():
++    """Nonfinite analyzed geopotential returns the accepted offset exactly."""
++    initial_state = _structured_initial_state(init_count=1)
++    geopotential_index = int(initial_state.variable_indices(("geopotential_500",))[0])
++    invalid_values = initial_state.values.at[0, geopotential_index, 0, 0].set(jnp.nan)
++    setup = _analysis_offset_forecast_setup(initial_state.with_values(invalid_values))
++    incumbent_offset = _analysis_offset_weak_held_suarez_equilibrium(
++        setup["dinosaur_state"],
++        coords=setup["grid"].coords,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++    )
++
++    candidate_offset = _hypsometric_thickness_analysis_held_suarez_equilibrium_offset(
++        initial_state=setup["weather_state"],
++        initialized_dinosaur_state=setup["dinosaur_state"],
++        coords=setup["grid"].coords,
++        pressure_levels_hpa=setup["pressure_levels_hpa"],
++        latitude_reversed=setup["grid"].latitude_reversed,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++        include_humidity=True,
++        use_log_pressure_initialization=True,
++    )
++
++    np.testing.assert_array_equal(candidate_offset, incumbent_offset)
++
++
++def test_thickness_hs_eq_offset_reuses_accepted_mask_and_cap():
++    """Valid thickness offsets match the accepted capped low-mode helper."""
++    setup = _analysis_offset_forecast_setup(_structured_initial_state(init_count=1))
++    accepted_offset = _analysis_offset_weak_held_suarez_equilibrium(
++        setup["dinosaur_state"],
++        coords=setup["grid"].coords,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++    )
++
++    candidate_offset = _hypsometric_thickness_analysis_held_suarez_equilibrium_offset(
++        initial_state=setup["weather_state"],
++        initialized_dinosaur_state=setup["dinosaur_state"],
++        coords=setup["grid"].coords,
++        pressure_levels_hpa=setup["pressure_levels_hpa"],
++        latitude_reversed=setup["grid"].latitude_reversed,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++        include_humidity=True,
++        use_log_pressure_initialization=True,
++    )
++
++    offset_cap = (
++        _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN
++        * _unit_factor(setup["physics_specs"], "kelvin")
++    )
++    high_mode_mask = 1.0 - _analysis_offset_weak_hs_low_mode_mask(
++        setup["grid"].coords.horizontal
++    )
++    np.testing.assert_allclose(candidate_offset, accepted_offset, rtol=1e-6, atol=1e-6)
++    assert float(jnp.max(jnp.abs(candidate_offset))) <= float(offset_cap)
++    np.testing.assert_allclose(
++        setup["grid"].coords.horizontal.to_modal(candidate_offset) * high_mode_mask,
++        0.0,
++        rtol=1e-5,
++        atol=1e-5,
++    )
++
++
+ def test_weak_held_suarez_helper_uses_dinosaur_forcing_type():
+     """The helper composes a Dinosaur explicit forcing with primitive equations."""
+     forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
+@@ -3724,6 +3902,71 @@ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+         assert bool(jnp.isfinite(forcing.equilibrium_temperature_offset).all())
+ 
+ 
++def test_thickness_hs_eq_trajectory_uses_supplied_offset_for_rollout_and_dfi(
++    monkeypatch,
++):
++    """The thickness candidate threads its precomputed offset into both equations."""
++    compose_calls = []
++    real_compose_equations = time_integration.compose_equations
++
++    def capture_compose_equations(equations):
++        compose_calls.append(tuple(equations))
++        return real_compose_equations(equations)
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "compose_equations",
++        capture_compose_equations,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    setup = _analysis_offset_forecast_setup(_structured_initial_state(init_count=1))
++    model = replace(
++        hypsometric_thickness_analysis_held_suarez_equilibrium_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    trajectory_fn = model._trajectory_function(
++        coords=setup["grid"].coords,
++        physics_specs=setup["physics_specs"],
++        reference_temperature=setup["reference_temperature"],
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++    supplied_offset = jnp.full(
++        setup["grid"].coords.nodal_shape,
++        0.5,
++        dtype=jnp.float32,
++    )
++
++    trajectory_fn(setup["dinosaur_state"], supplied_offset)
++
++    assert len(compose_calls) == 2
++    for primitive_equation, forcing in compose_calls:
++        assert isinstance(primitive_equation, primitive_equations.PrimitiveEquations)
++        assert isinstance(forcing, _TracerSafeHeldSuarezForcingSigma)
++        np.testing.assert_array_equal(
++            forcing.equilibrium_temperature_offset,
++            supplied_offset,
++        )
++
++
+ def test_trajectory_function_matches_direct_dinosaur_package_call():
+     """The wrapper trajectory uses the same Dinosaur calls as a direct setup."""
+     model = DinosaurPrimitiveEquationsDycoreModel(
+@@ -4648,6 +4891,46 @@ def _dinosaur_state_with_hs_equilibrium_offset(
+     )
+ 
+ 
++def _analysis_offset_forecast_setup(initial_state: WeatherState) -> dict[str, Any]:
++    pressure_levels_hpa = (100, 500, 900)
++    forecast_input = _forecast_input(initial_state, lead_steps=(0,))
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    weather_state = WeatherState(
++        values=forecast_input.initial_state.values[0],
++        variables=forecast_input.initial_state.variables,
++    )
++    dinosaur_state = weather_state_to_dinosaur_state(
++        weather_state,
++        coords=grid.coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=True,
++        use_log_pressure_initialization=True,
++        use_hydrostatic_temperature_initialization=True,
++        use_layer_mean_hydrostatic_temperature_initialization=True,
++    )
++    return {
++        "weather_state": weather_state,
++        "dinosaur_state": dinosaur_state,
++        "grid": grid,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++    }
++
++
+ def _assert_pytree_allclose(actual, expected):
+     for actual_leaf, expected_leaf in zip(
+         jax.tree_util.tree_leaves(actual),
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 6c6f6c7..78b7217 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -42,6 +42,10 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_thickness_hs_eq",
+     )
+ 
+ 
+@@ -475,6 +479,39 @@ def test_registry_creates_analysis_offset_hs_eq_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_thickness_hs_eq_candidate_model():
++    """The thickness-source analysis-HS candidate is registered side by side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_thickness_hs_eq"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_thickness_hs_eq"
++    )
++    assert model.use_analysis_offset_weak_held_suarez_equilibrium
++    assert model.use_hypsometric_thickness_analysis_hs_equilibrium
++    assert not incumbent.use_hypsometric_thickness_analysis_hs_equilibrium
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hypsometric_thickness_analysis_hs_equilibrium",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

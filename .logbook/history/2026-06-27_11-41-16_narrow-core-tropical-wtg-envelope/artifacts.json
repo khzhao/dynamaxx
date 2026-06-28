@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "narrow-core-tropical-wtg-envelope",
+  "history_path": ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope",
+  "source_artifacts": [
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/proposal.md",
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_wtg_narrow"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/resource_snapshot.md",
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/implementation.md",
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/scores.json",
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/scoring_notes.md",
+    ".logbook/history/2026-06-27_11-41-16_narrow-core-tropical-wtg-envelope/decision.md"
+  ],
+  "notes": "Rejected after clean fast and iteration because iteration delta -0.0006797926843044033 was below the +0.002 promotion threshold. Validation was not run. Incumbent scores were loaded from the valid leaderboard cache; no incumbent rerun occurred."
+}

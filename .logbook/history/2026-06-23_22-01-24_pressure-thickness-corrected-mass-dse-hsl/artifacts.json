@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "pressure-thickness-corrected-mass-dse-hsl",
+  "history_path": ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl",
+  "source_artifacts": [
+    ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_mass_dse_fluxcorr.json",
+    "outputs/eval/fast_dino_mass_dse_fluxcorr.csv",
+    "outputs/eval/iteration_dino_mass_dse_fluxcorr.json",
+    "outputs/eval/iteration_dino_mass_dse_fluxcorr.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl/proposal.md",
+    ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl/implementation.md",
+    ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl/scores.json",
+    ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl/scoring_notes.md",
+    ".logbook/history/2026-06-23_22-01-24_pressure-thickness-corrected-mass-dse-hsl/decision.md"
+  ],
+  "notes": "Rejected after iteration failed to promote. Candidate source/test changes were reverted; ignored history and evaluation artifacts were preserved. Cached incumbent metrics were reused and golden was not run."
+}

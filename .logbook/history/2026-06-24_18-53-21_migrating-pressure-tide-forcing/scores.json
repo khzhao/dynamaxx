@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "migrating-pressure-tide-forcing",
+  "history_path": ".logbook/history/2026-06-24_18-53-21_migrating-pressure-tide-forcing",
+  "candidate_model_name": "dino_hsl2_mass_dse_pressure_tide",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "baseline_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+  "scored_at": "2026-06-24T22:00:44Z",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "validation_protocol_available_but_not_run": true,
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "completed_gate_records": {
+    "focused_ruff_pytest_and_fast": "Verified from Implementer and Orchestrator records; fast artifact was readable and clean.",
+    "full_repo_pytest": "Verified from Orchestrator record: uv run pytest -> 247 passed, 2 skipped in 223.11s."
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "executed_by_scorer": false,
+      "notes": "Verified from Orchestrator-provided completed gate: full repo pytest passed with 247 passed, 2 skipped in 223.11s; Scorer did not rerun."
+    },
+    {
+      "command": "uv run python - <<'PY' ... create_dycore_model('dino_hsl2_mass_dse_pressure_tide') and create_dycore_model('dino_hsl2_mass_dse') ... PY",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "Confirmed candidate and incumbent model registration through the dycore registry."
+    },
+    {
+      "command": "python - <<'PY' ... verify outputs/eval/fast_dino_hsl2_mass_dse_pressure_tide.json ... PY",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "Reused Implementer fast artifact: failed=False, issues=0, records=120, primary_score=-0.28549097969436926."
+    },
+    {
+      "command": "python - <<'PY' ... validate leaderboard incumbent iteration and validation caches ... PY",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "Validated leaderboard fingerprint, artifact readability, finite primary scores, exact incumbent rows, and clean diagnostics for cached iteration and validation artifacts."
+    },
+    {
+      "command": "test -d /home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative && echo data_path_exists=true",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "Confirmed the leaderboard WeatherBench2 processed data path exists locally."
+    },
+    {
+      "command": "git diff --name-only -- src/dynamaxx/eval tests/eval pyproject.toml uv.lock",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "No output; fixed eval runner/tests/dependency files were not changed in the worktree."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_pressure_tide --workers 4",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "Run by Scorer. Candidate iteration completed with failed=False, issues=0, records=120, primary_score=-0.2857361476786912."
+    },
+    {
+      "command": "python - <<'PY' ... compute primary delta and RMSE guardrails ... PY",
+      "exit_status": 0,
+      "executed_by_scorer": true,
+      "notes": "Computed candidate-versus-incumbent primary delta and fixed RMSE guardrails using exact model_name filters."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_pressure_tide --workers 4",
+      "exit_status": null,
+      "executed_by_scorer": false,
+      "notes": "Not run because iteration promotion gates did not pass."
+    },
+    {
+      "command": "uv run dynamaxx-eval golden --model dino_hsl2_mass_dse_pressure_tide",
+      "exit_status": null,
+      "executed_by_scorer": false,
+      "notes": "Not run; golden is prohibited for this iteration."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_pressure_tide.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_pressure_tide.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_pressure_tide.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_pressure_tide.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.28549097969436926,
+    "candidate_iteration": -0.2857361476786912,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2616483974683927,
+    "incumbent_validation": -0.2600180396322455,
+    "iteration_delta": -0.02408775021029852,
+    "iteration_absolute_delta": 0.02408775021029852,
+    "validation_delta": null,
+    "validation_absolute_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0,
+    "candidate_fast_record_model_counts": {
+      "dino_hsl2_mass_dse_pressure_tide": 60,
+      "persistence": 60
+    },
+    "candidate_iteration_record_model_counts": {
+      "dino_hsl2_mass_dse_pressure_tide": 60,
+      "persistence": 60
+    },
+    "incumbent_iteration_record_model_counts": {
+      "dino_hsl2_mass_dse": 60,
+      "persistence": 60
+    },
+    "incumbent_validation_record_model_counts": {
+      "dino_hsl2_mass_dse": 60,
+      "persistence": 60
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_gate_passed": false,
+    "iteration_diagnostics_gate_passed": true,
+    "early_day_1_to_5_mean_rmse_regression_threshold": 0.02,
+    "iteration_early_day_1_to_5_mean_rmse_guardrail_passed": false,
+    "worst_variable_lead_rmse_regression_threshold": 0.1,
+    "iteration_variable_lead_rmse_guardrail_passed": false,
+    "validation_allowed_by_orchestrator_if_iteration_passed": true,
+    "validation_ran": false,
+    "validation_not_run_reason": "Candidate iteration did not pass promotion thresholds: primary delta was below +0.002, early RMSE guardrails failed, and worst variable/lead RMSE guardrails failed.",
+    "validation_acceptance_gate_passed": null,
+    "golden_ran": false
+  },
+  "cache_reuse": {
+    "fast": {
+      "incumbent_reused": null,
+      "candidate_artifact_reused": true,
+      "reason": "No incumbent fast comparison is required; Scorer verified and reused the Implementer fast artifact instead of rerunning fast."
+    },
+    "iteration": {
+      "incumbent_reused": true,
+      "incumbent_model_name": "dino_hsl2_mass_dse",
+      "leaderboard_path": ".logbook/leaderboard.json",
+      "metrics_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "metrics_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "validation_checks": [
+        "requested incumbent matched .logbook/leaderboard.json incumbent_model_name",
+        "leaderboard data_path matched the fixed WeatherBench2 processed ERA5 path",
+        "leaderboard protocols included iteration and validation",
+        "leaderboard target_variables matched the fixed four target variables",
+        "leaderboard lead_days was 1..15",
+        "leaderboard eval_code_commit matched HEAD 2c70bb5b77370a074330c2b46954f74f20771f12",
+        "current uncommitted diff did not touch src/dynamaxx/eval, tests/eval, pyproject.toml, or uv.lock",
+        "candidate side-by-side source, registry, and tests edits do not invalidate the accepted incumbent cache",
+        "iteration JSON and CSV artifacts existed and were readable",
+        "iteration artifact top-level model_name matched the incumbent",
+        "iteration primary_score was finite",
+        "iteration artifact contained 60 exact incumbent rows for target variables at lead hours 24..360",
+        "iteration incumbent diagnostics were clean"
+      ]
+    },
+    "validation": {
+      "incumbent_reused": false,
+      "checked_valid": true,
+      "used_for_candidate_comparison": false,
+      "incumbent_model_name": "dino_hsl2_mass_dse",
+      "leaderboard_path": ".logbook/leaderboard.json",
+      "metrics_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "metrics_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "reason": "Candidate validation was not run because iteration promotion gates failed; cached incumbent validation artifact was still validated and recorded.",
+      "validation_checks": [
+        "requested incumbent matched .logbook/leaderboard.json incumbent_model_name",
+        "leaderboard data_path matched the fixed WeatherBench2 processed ERA5 path",
+        "leaderboard protocols included iteration and validation",
+        "leaderboard target_variables matched the fixed four target variables",
+        "leaderboard lead_days was 1..15",
+        "leaderboard eval_code_commit matched HEAD 2c70bb5b77370a074330c2b46954f74f20771f12",
+        "current uncommitted diff did not touch src/dynamaxx/eval, tests/eval, pyproject.toml, or uv.lock",
+        "candidate side-by-side source, registry, and tests edits do not invalidate the accepted incumbent cache",
+        "validation JSON and CSV artifacts existed and were readable",
+        "validation artifact top-level model_name matched the incumbent",
+        "validation primary_score was finite",
+        "validation artifact contained 60 exact incumbent rows for target variables at lead hours 24..360",
+        "validation incumbent diagnostics were clean"
+      ]
+    }
+  },
+  "regressions": {
+    "iteration": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "2m_temperature",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 4.725820444792529,
+          "incumbent_mean_rmse": 4.720167397134263,
+          "relative_regression": 0.0011976371138230346,
+          "percent_regression": 0.11976371138230346,
+          "guardrail_threshold_fraction": 0.02,
+          "passes_threshold": true
+        },
+        {
+          "variable": "mean_sea_level_pressure",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 848.8906773551471,
+          "incumbent_mean_rmse": 782.5186026540035,
+          "relative_regression": 0.08481852632772549,
+          "percent_regression": 8.481852632772549,
+          "guardrail_threshold_fraction": 0.02,
+          "passes_threshold": false
+        },
+        {
+          "variable": "geopotential_500",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 680.5558192986707,
+          "incumbent_mean_rmse": 603.1650920588065,
+          "relative_regression": 0.12830770258222912,
+          "percent_regression": 12.830770258222913,
+          "guardrail_threshold_fraction": 0.02,
+          "passes_threshold": false
+        },
+        {
+          "variable": "10m_u_component_of_wind",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 4.402785097202161,
+          "incumbent_mean_rmse": 4.371016832235197,
+          "relative_regression": 0.0072679347131953806,
+          "percent_regression": 0.7267934713195381,
+          "guardrail_threshold_fraction": 0.02,
+          "passes_threshold": true
+        }
+      ],
+      "early_day_1_to_5_mean_rmse_failures": [
+        {
+          "variable": "mean_sea_level_pressure",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 848.8906773551471,
+          "incumbent_mean_rmse": 782.5186026540035,
+          "relative_regression": 0.08481852632772549,
+          "percent_regression": 8.481852632772549,
+          "guardrail_threshold_fraction": 0.02,
+          "passes_threshold": false
+        },
+        {
+          "variable": "geopotential_500",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 680.5558192986707,
+          "incumbent_mean_rmse": 603.1650920588065,
+          "relative_regression": 0.12830770258222912,
+          "percent_regression": 12.830770258222913,
+          "guardrail_threshold_fraction": 0.02,
+          "passes_threshold": false
+        }
+      ],
+      "worst_early_day_1_to_5_mean_rmse_regression": {
+        "variable": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 680.5558192986707,
+        "incumbent_mean_rmse": 603.1650920588065,
+        "relative_regression": 0.12830770258222912,
+        "percent_regression": 12.830770258222913,
+        "guardrail_threshold_fraction": 0.02,
+        "passes_threshold": false
+      },
+      "max_rmse_regression_by_variable_and_lead": [
+        {
+          "variable": "2m_temperature",
+          "lead_hours": 72,
+          "lead_days": 3,
+          "candidate_rmse": 5.0141478676164395,
+          "incumbent_rmse": 5.005059952005905,
+          "relative_regression": 0.001815745604983595,
+          "percent_regression": 0.18157456049835952,
+          "guardrail_threshold_fraction": 0.1,
+          "passes_threshold": true
+        },
+        {
+          "variable": "mean_sea_level_pressure",
+          "lead_hours": 72,
+          "lead_days": 3,
+          "candidate_rmse": 904.4039364602387,
+          "incumbent_rmse": 822.0978561773743,
+          "relative_regression": 0.100117132850309,
+          "percent_regression": 10.0117132850309,
+          "guardrail_threshold_fraction": 0.1,
+          "passes_threshold": false
+        },
+        {
+          "variable": "geopotential_500",
+          "lead_hours": 24,
+          "lead_days": 1,
+          "candidate_rmse": 287.56522108024734,
+          "incumbent_rmse": 245.90449676510394,
+          "relative_regression": 0.1694183102106469,
+          "percent_regression": 16.94183102106469,
+          "guardrail_threshold_fraction": 0.1,
+          "passes_threshold": false
+        },
+        {
+          "variable": "10m_u_component_of_wind",
+          "lead_hours": 96,
+          "lead_days": 4,
+          "candidate_rmse": 5.0885076676371,
+          "incumbent_rmse": 5.043005606579813,
+          "relative_regression": 0.00902280596276133,
+          "percent_regression": 0.9022805962761331,
+          "guardrail_threshold_fraction": 0.1,
+          "passes_threshold": true
+        }
+      ],
+      "variable_lead_rmse_regressions_over_10_percent": [
+        {
+          "variable": "mean_sea_level_pressure",
+          "lead_hours": 72,
+          "lead_days": 3,
+          "candidate_rmse": 904.4039364602387,
+          "incumbent_rmse": 822.0978561773743,
+          "relative_regression": 0.100117132850309,
+          "percent_regression": 10.0117132850309,
+          "guardrail_threshold_fraction": 0.1,
+          "passes_threshold": false
+        },
+        {
+          "variable": "geopotential_500",
+          "lead_hours": 24,
+          "lead_days": 1,
+          "candidate_rmse": 287.56522108024734,
+          "incumbent_rmse": 245.90449676510394,
+          "relative_regression": 0.1694183102106469,
+          "percent_regression": 16.94183102106469,
+          "guardrail_threshold_fraction": 0.1,
+          "passes_threshold": false
+        }
+      ],
+      "worst_variable_lead_rmse_regression": {
+        "variable": "geopotential_500",
+        "lead_hours": 24,
+        "lead_days": 1,
+        "candidate_rmse": 287.56522108024734,
+        "incumbent_rmse": 245.90449676510394,
+        "relative_regression": 0.1694183102106469,
+        "percent_regression": 16.94183102106469,
+        "guardrail_threshold_fraction": 0.1,
+        "passes_threshold": false
+      }
+    },
+    "validation": null
+  },
+  "diagnostic_issues": {
+    "candidate_fast": [],
+    "candidate_iteration": [],
+    "candidate_validation": null,
+    "incumbent_iteration": [],
+    "incumbent_validation": []
+  },
+  "anomalies": [
+    "Candidate iteration runtime was long and chunk output was sparse during parts of the run, but the command made steady progress and exited 0."
+  ],
+  "measurement_lessons": [
+    "The pressure-tide candidate was numerically clean but materially worse on the fixed iteration primary score.",
+    "The largest guardrail damage was in early geopotential_500: day-1 RMSE regressed by 16.94183102106469%, and the day-1-to-5 mean regressed by 12.830770258222913%.",
+    "Mean sea-level pressure also failed guardrails: day-1-to-5 mean RMSE regressed by 8.481852632772549%, and the worst lead exceeded the 10% variable-lead threshold by a small margin.",
+    "Fast diagnostics were clean but did not predict iteration promotion; model-selection decisions should continue to rely on iteration before validation.",
+    "Exact model_name filtering remains necessary because metric artifacts contain both model and persistence rows."
+  ],
+  "scorer_observation": "Candidate measured worse than the cached incumbent on iteration and did not qualify for validation. The Scorer does not accept or reject candidates."
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "baroclinic-theta-variance-guard",
+  "history_path": ".logbook/history/2026-06-20_12-57-53_baroclinic-theta-variance-guard",
+  "source_artifacts": [],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_theta_var_guard.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_theta_var_guard.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_theta_var_guard.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_theta_var_guard.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-20_12-57-53_baroclinic-theta-variance-guard/proposal.md",
+    ".logbook/history/2026-06-20_12-57-53_baroclinic-theta-variance-guard/implementation.md",
+    ".logbook/history/2026-06-20_12-57-53_baroclinic-theta-variance-guard/scores.json",
+    ".logbook/history/2026-06-20_12-57-53_baroclinic-theta-variance-guard/scoring_notes.md",
+    ".logbook/history/2026-06-20_12-57-53_baroclinic-theta-variance-guard/decision.md"
+  ],
+  "notes": "Rejected after iteration delta -0.0000013237112340691581 versus the cached incumbent. Validation and golden were not run. Source/test changes were reverted; raw fast and iteration outputs remain under outputs/eval."
+}

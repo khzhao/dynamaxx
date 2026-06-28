@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "mass-weighted-theta-recentering",
+  "history_path": ".logbook/history/2026-06-21_06-24-25_mass-weighted-theta-recentering",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_mass_weighted.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_mass_weighted.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_mass_weighted.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_mass_weighted.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_06-24-25_mass-weighted-theta-recentering/proposal.md",
+    ".logbook/history/2026-06-21_06-24-25_mass-weighted-theta-recentering/implementation.md",
+    ".logbook/history/2026-06-21_06-24-25_mass-weighted-theta-recentering/scores.json",
+    ".logbook/history/2026-06-21_06-24-25_mass-weighted-theta-recentering/scoring_notes.md",
+    ".logbook/history/2026-06-21_06-24-25_mass-weighted-theta-recentering/decision.md"
+  ],
+  "notes": "Candidate rejected after candidate-only iteration scoring. Incumbent iteration metrics were reused from the valid leaderboard cache; no incumbent rerun was performed."
+}

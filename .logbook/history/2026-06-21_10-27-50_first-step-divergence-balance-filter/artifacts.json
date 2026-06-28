@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "first-step-divergence-balance-filter",
+  "history_path": ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter",
+  "source_artifacts": [
+    ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_first_step_div_filter.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_first_step_div_filter.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_first_step_div_filter.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_first_step_div_filter.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter/proposal.md",
+    ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter/implementation.md",
+    ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter/scores.json",
+    ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter/scoring_notes.md",
+    ".logbook/history/2026-06-21_10-27-50_first-step-divergence-balance-filter/decision.md"
+  ],
+  "notes": "Rejected candidate. Incumbent iteration metrics were reused from leaderboard cache; validation was skipped because iteration failed promotion."
+}

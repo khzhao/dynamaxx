@@ -1,0 +1,28 @@
+Candidate: high-precision-spectral-transform-core
+Model: dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec
+Baseline commit: ff40def55ac707e8915c840b856a0aaa3345b046
+
+Pre-scoring source status:
+- Candidate implementation is present in the working tree.
+- Exact diff saved to candidate.diff.
+- Tracked modified files:
+  src/dynamaxx/dycore/models/dinosaur/coordinates.py
+  src/dynamaxx/dycore/models/dinosaur/adapter.py
+  src/dynamaxx/dycore/models/dinosaur/__init__.py
+  src/dynamaxx/dycore/registry.py
+  tests/dycore/models/dinosaur/test_primitive_equations.py
+  tests/dycore/models/dinosaur/test_dependency.py
+  tests/dycore/test_registry.py
+- Pre-existing untracked gifs/ preserved.
+
+Pre-scoring checks:
+- python -m compileall -q src/dynamaxx/dycore/models/dinosaur src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur tests/dycore/test_registry.py: passed.
+- uv run ruff check touched source/test files: passed.
+- uv run ruff format --check touched source/test files: passed after formatting.
+- git diff --check: passed.
+- uv run pytest: 257 passed, 2 skipped in 311.70s.
+- uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec: exit 0; primary_score=-0.22382975498854574; diagnostics failed=false; issues=0; records=120.
+
+Incumbent cache:
+- Reuse cached incumbent iteration/validation metrics from leaderboard when comparing.
+- Do not rerun incumbent unless concrete cache invalidity is found.

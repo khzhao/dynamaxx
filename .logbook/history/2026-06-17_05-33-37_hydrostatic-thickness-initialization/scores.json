@@ -1,0 +1,217 @@
+{
+  "anomalies": [],
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init",
+  "commands": [
+    {
+      "command": "python - <<'PY' ... create_dycore_model registration check ... PY",
+      "exit_status": 0,
+      "summary": "Confirmed candidate and incumbent are registered and create with matching model.name values."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "summary": "116 passed, 2 skipped in 58.49s."
+    },
+    {
+      "command": "python - <<'PY' ... verify existing fast/incumbent artifacts ... PY",
+      "exit_status": 0,
+      "summary": "Verified compatible clean candidate fast artifact and clean incumbent iteration/validation artifacts with 60 exact-model rows and 60 persistence rows each."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init --workers 4",
+      "exit_status": 0,
+      "summary": "Completed 229/229 chunks, cached=0, failed=False, issues=0, records=120."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init --workers 4",
+      "exit_status": 0,
+      "summary": "Completed 46/46 chunks, cached=0, failed=False, issues=0, records=120."
+    }
+  ],
+  "fast": {
+    "artifact_reused": true,
+    "candidate_diagnostic_issue_count": 0,
+    "candidate_diagnostics_failed": false,
+    "candidate_filtered_model_record_count": 60,
+    "candidate_persistence_record_count": 60,
+    "candidate_primary_score": -1.1192003138561366
+  },
+  "gate_status": {
+    "iteration_promotion_gate_passed": true,
+    "validation_gate_evaluated": true,
+    "validation_gate_passed": true
+  },
+  "history_directory": ".logbook/history/2026-06-17_05-33-37_hydrostatic-thickness-initialization",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init",
+  "iteration": {
+    "artifact_paths": {
+      "candidate_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.csv",
+      "candidate_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.json",
+      "incumbent_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+      "incumbent_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.json"
+    },
+    "candidate_diagnostic_issue_count": 0,
+    "candidate_diagnostics_failed": false,
+    "candidate_filtered_model_record_count": 60,
+    "candidate_persistence_record_count": 60,
+    "candidate_primary_score": -1.1486642287781768,
+    "diagnostics_clean": true,
+    "early_leads_hours": [
+      24,
+      48,
+      72,
+      96,
+      120
+    ],
+    "early_mean_candidate_rmse": 445.40604205976103,
+    "early_mean_incumbent_rmse": 458.6032341089459,
+    "early_mean_regression_over_2pct": false,
+    "early_mean_relative_delta": -0.028776927565342354,
+    "incumbent_diagnostic_issue_count": 0,
+    "incumbent_diagnostics_failed": false,
+    "incumbent_filtered_model_record_count": 60,
+    "incumbent_persistence_record_count": 60,
+    "incumbent_primary_score": -1.2155220438349768,
+    "max_variable_lead_rmse_regression": {
+      "candidate_rmse": 3.903702289092957,
+      "channel_name": "2m_temperature",
+      "delta_rmse": 0.09705489075754148,
+      "incumbent_rmse": 3.8066473983354157,
+      "lead_hours": 24,
+      "relative_delta": 0.025496159901750286
+    },
+    "missing_or_extra_model_keys": [],
+    "passes_gate": true,
+    "positive_variable_lead_rmse_regressions": [
+      {
+        "candidate_rmse": 3.903702289092957,
+        "channel_name": "2m_temperature",
+        "delta_rmse": 0.09705489075754148,
+        "incumbent_rmse": 3.8066473983354157,
+        "lead_hours": 24,
+        "relative_delta": 0.025496159901750286
+      },
+      {
+        "candidate_rmse": 6.281614319890662,
+        "channel_name": "2m_temperature",
+        "delta_rmse": 0.08768061997790255,
+        "incumbent_rmse": 6.193933699912759,
+        "lead_hours": 48,
+        "relative_delta": 0.014155886101773664
+      },
+      {
+        "candidate_rmse": 7.958610120420202,
+        "channel_name": "2m_temperature",
+        "delta_rmse": 0.03941607506325262,
+        "incumbent_rmse": 7.919194045356949,
+        "lead_hours": 72,
+        "relative_delta": 0.004977283652540678
+      }
+    ],
+    "primary_delta": 0.0668578150568,
+    "primary_threshold": 0.002,
+    "protocol": "iteration",
+    "variable_lead_regressions_over_10pct_count": 0
+  },
+  "raw_artifact_paths": {
+    "fast_candidate_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.csv",
+    "fast_candidate_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.json",
+    "iteration_candidate_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.csv",
+    "iteration_candidate_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.json",
+    "iteration_incumbent_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "iteration_incumbent_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "validation_candidate_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.csv",
+    "validation_candidate_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.json",
+    "validation_incumbent_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "validation_incumbent_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.json"
+  },
+  "resource_notes": {
+    "cpu_count": 48,
+    "disk_available": "4.1T at pre-run check for repository, outputs, and logbook paths",
+    "gpu_dispatch": "iteration and validation both reported mode=gpu effective_workers=4 gpu_count=4 worker_devices=0:0,1:1,2:2,3:3",
+    "memory_available": "174GiB at pre-run check"
+  },
+  "role": "Scorer",
+  "schema_version": 1,
+  "scored_at": "2026-06-17T06:33:04.372085Z",
+  "validation": {
+    "artifact_paths": {
+      "candidate_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.csv",
+      "candidate_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init.json",
+      "incumbent_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+      "incumbent_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.json"
+    },
+    "candidate_diagnostic_issue_count": 0,
+    "candidate_diagnostics_failed": false,
+    "candidate_filtered_model_record_count": 60,
+    "candidate_persistence_record_count": 60,
+    "candidate_primary_score": -1.1354942896701432,
+    "diagnostics_clean": true,
+    "early_leads_hours": [
+      24,
+      48,
+      72,
+      96,
+      120
+    ],
+    "early_mean_candidate_rmse": 432.67700089676225,
+    "early_mean_incumbent_rmse": 445.98531206811447,
+    "early_mean_regression_over_2pct": false,
+    "early_mean_relative_delta": -0.029840245432386937,
+    "incumbent_diagnostic_issue_count": 0,
+    "incumbent_diagnostics_failed": false,
+    "incumbent_filtered_model_record_count": 60,
+    "incumbent_persistence_record_count": 60,
+    "incumbent_primary_score": -1.202899107828725,
+    "max_variable_lead_rmse_regression": {
+      "candidate_rmse": 3.91427473831496,
+      "channel_name": "2m_temperature",
+      "delta_rmse": 0.0839664319126685,
+      "incumbent_rmse": 3.8303083064022916,
+      "lead_hours": 24,
+      "relative_delta": 0.02192158573040194
+    },
+    "missing_or_extra_model_keys": [],
+    "passes_gate": true,
+    "positive_variable_lead_rmse_regressions": [
+      {
+        "candidate_rmse": 3.91427473831496,
+        "channel_name": "2m_temperature",
+        "delta_rmse": 0.0839664319126685,
+        "incumbent_rmse": 3.8303083064022916,
+        "lead_hours": 24,
+        "relative_delta": 0.02192158573040194
+      },
+      {
+        "candidate_rmse": 6.2989509161932284,
+        "channel_name": "2m_temperature",
+        "delta_rmse": 0.08014768848769105,
+        "incumbent_rmse": 6.218803227705537,
+        "lead_hours": 48,
+        "relative_delta": 0.012887960199580393
+      },
+      {
+        "candidate_rmse": 7.96560523644177,
+        "channel_name": "2m_temperature",
+        "delta_rmse": 0.03482660259140857,
+        "incumbent_rmse": 7.930778633850362,
+        "lead_hours": 72,
+        "relative_delta": 0.004391321987321741
+      },
+      {
+        "candidate_rmse": 270.49547985740475,
+        "channel_name": "geopotential_500",
+        "delta_rmse": 0.7610094917789638,
+        "incumbent_rmse": 269.7344703656258,
+        "lead_hours": 24,
+        "relative_delta": 0.0028213282890667012
+      }
+    ],
+    "primary_delta": 0.06740481815858179,
+    "primary_threshold": 0.001,
+    "protocol": "validation",
+    "variable_lead_regressions_over_10pct_count": 0
+  },
+  "validation_allowed": true,
+  "worker_count": 4
+}

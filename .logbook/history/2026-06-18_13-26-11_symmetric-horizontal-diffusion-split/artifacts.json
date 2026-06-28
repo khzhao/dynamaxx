@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "symmetric-horizontal-diffusion-split",
+  "history_path": ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "status": "candidate_change_reverted"
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "status": "candidate_change_reverted"
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "status": "candidate_change_reverted"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "status": "candidate_change_reverted"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "status": "candidate_change_reverted"
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "status": "candidate_change_reverted"
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split/proposal.md",
+    ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split/implementation.md",
+    ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split/scores.json",
+    ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split/scoring_notes.md",
+    ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split/decision.md",
+    ".logbook/history/2026-06-18_13-26-11_symmetric-horizontal-diffusion-split/artifacts.json"
+  ],
+  "notes": "Rejected because iteration primary delta was -0.000018114769485100268, below the required +0.002 promotion gate. Validation was not run. Candidate source and test changes were reverted and the leaderboard was not updated."
+}

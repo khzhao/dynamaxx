@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "lower-tropospheric-airmass-t2m-diagnostic",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "3992244f20b2a938fdd96f8904f3749f5505670d",
+    "protocols": ["fast", "iteration"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -k 'airmass_t2m or lower_tropospheric_airmass or bulk_richardson_2m_temperature_factory or default_dinosaur_configuration' tests/dycore/models/dinosaur/test_dependency.py -k 'airmass or registered' tests/dycore/test_registry.py -k 'airmass or bulk_richardson'",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "15 passed, 191 deselected"
+    },
+    {
+      "command": "uv run python -m compileall src/dynamaxx/dycore/models/dinosaur src/dynamaxx/dycore/registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "passed"
+    },
+    {
+      "command": "uv run ruff check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "All checks passed"
+    },
+    {
+      "command": "uv run ruff format --check",
+      "exit_status": 1,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Failed only for unrelated pre-existing files: src/dynamaxx/dycore/models/dinosaur/primitive_equations.py and src/dynamaxx/eval/device_dispatch.py"
+    },
+    {
+      "command": "uv run ruff format --check src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Six touched files already formatted"
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "passed"
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "272 passed, 2 skipped in 288.60s"
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "failed=False, issues=0, primary_score=-0.256516760212165"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "failed=False, issues=0, primary_score=-0.2527670042476971"
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_airmass.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.256516760212165,
+    "candidate_iteration": -0.2527670042476971,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.21299732605547173,
+    "incumbent_validation": -0.21274255459898536,
+    "iteration_delta": -0.03976967819222538,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "artifact_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+      "artifact_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+      "validation_checks": [
+        "requested incumbent matched leaderboard incumbent",
+        "artifact files existed and were readable",
+        "primary score was finite",
+        "candidate did not change evaluation protocol, target variables, lead range, data path, or eval code"
+      ],
+      "rerun_reason": null
+    },
+    "validation": {
+      "incumbent_metrics_reused": false,
+      "artifact_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+      "artifact_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+      "validation_checks": [],
+      "rerun_reason": "validation was not run because iteration did not promote"
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "2m_temperature",
+        "mean_rmse_delta": 0.16351594393167757
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "mean_rmse_delta": -0.000032870787907768315
+      },
+      {
+        "channel_name": "geopotential_500",
+        "mean_rmse_delta": 0.0002403437650627893
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "mean_rmse_delta": -0.00000007140697499963267
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 144,
+        "candidate_rmse": 7.372440925593178,
+        "incumbent_rmse": 6.685402941053729,
+        "rmse_delta": 0.6870379845394492,
+        "relative_rmse_delta": 0.10276687741893396,
+        "skill_delta": -0.20841356307148295
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 168,
+        "candidate_rmse": 7.616327204815895,
+        "incumbent_rmse": 6.933606238021069,
+        "rmse_delta": 0.6827209667948262,
+        "relative_rmse_delta": 0.0984654944855482,
+        "skill_delta": -0.2025452582365932
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 192,
+        "candidate_rmse": 7.784437124499908,
+        "incumbent_rmse": 7.108707952881769,
+        "rmse_delta": 0.6757291716181388,
+        "relative_rmse_delta": 0.09505653855764434,
+        "skill_delta": -0.1966236287848795
+      }
+    ],
+    "mean_skill_delta_by_variable": [
+      {
+        "channel_name": "2m_temperature",
+        "mean_skill_delta": -0.07953923723642987
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "mean_skill_delta": 0.000000017498686414689026
+      },
+      {
+        "channel_name": "geopotential_500",
+        "mean_skill_delta": -0.0000002778028228345164
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "mean_skill_delta": 0.0000001411561154666489
+      }
+    ]
+  }
+}

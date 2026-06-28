@@ -1,0 +1,484 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 4a37e09..c24a708 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -52,6 +52,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    land_sea_surface_wind_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+@@ -89,6 +90,7 @@ __all__ = [
+     "hybrid_coordinates",
+     "jax_numpy_utils",
+     "land_sea_surface_temperature_dinosaur_dycore_model",
++    "land_sea_surface_wind_dinosaur_dycore_model",
+     "layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "layer_coordinates",
+     "leapfrog_utils",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 4769707..8ed8f41 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -70,6 +70,7 @@ _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
+ _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
+ _LAND_SEA_MASK_CHANNEL = "land_sea_mask"
+ _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT = 0.5
++_LAND_SEA_SURFACE_WIND_OCEAN_LOW_DECAY_EXPONENT = 0.75
+ _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
+ _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
+ _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
+@@ -121,6 +122,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_stability_aware_near_surface_residual_decay: bool = False
+     use_scale_separated_near_surface_residual: bool = False
+     use_land_sea_surface_temperature_residual: bool = False
++    use_land_sea_surface_wind_residual: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+     apply_symmetric_exact_coriolis_rotation_split: bool = False
+@@ -175,7 +177,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
+         )
+         land_sea_fraction = None
+-        if self.use_land_sea_surface_temperature_residual:
++        if (
++            self.use_land_sea_surface_temperature_residual
++            or self.use_land_sea_surface_wind_residual
++        ):
+             land_sea_fraction = _load_land_sea_fraction_for_grid(
+                 longitude=forecast_input.longitude,
+                 latitude=forecast_input.latitude,
+@@ -229,8 +234,13 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         "horizontal_grid": grid.coords.horizontal,
+                         "latitude_reversed": grid.latitude_reversed,
+                     }
+-                    if self.use_land_sea_surface_temperature_residual:
++                    if (
++                        self.use_land_sea_surface_temperature_residual
++                        or self.use_land_sea_surface_wind_residual
++                    ):
+                         residual_kwargs["land_sea_fraction"] = land_sea_fraction
++                    if self.use_land_sea_surface_wind_residual:
++                        residual_kwargs["use_land_sea_surface_wind_residual"] = True
+                 trajectory_state = residual_correction(
+                     trajectory_state,
+                     initial_state=single_state,
+@@ -918,6 +928,22 @@ def land_sea_surface_temperature_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def land_sea_surface_wind_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the incumbent with land-sea-aware T2m and 10 m wind residual memory."""
++    return replace(
++        land_sea_surface_temperature_dinosaur_dycore_model(),
++        name=(
++            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++            "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind"
++        ),
++        use_land_sea_surface_wind_residual=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1343,6 +1369,7 @@ def _apply_scale_separated_near_surface_residual_correction(
+     horizontal_grid: spherical_harmonic.Grid | None = None,
+     latitude_reversed: bool = False,
+     land_sea_fraction: jax.Array | None = None,
++    use_land_sea_surface_wind_residual: bool = False,
+ ) -> WeatherState:
+     """Apply low- and high-wavenumber residual memory to near-surface outputs."""
+     incumbent_state = _apply_near_surface_residual_correction(
+@@ -1411,6 +1438,18 @@ def _apply_scale_separated_near_surface_residual_correction(
+                     land_sea_fraction=valid_land_sea_fraction,
+                 )
+             )
++        if (
++            channel == TEN_METER_U_WIND_VARIABLE
++            and use_land_sea_surface_wind_residual
++            and valid_land_sea_fraction is not None
++        ):
++            channel_high_mode_decay, channel_low_mode_decay = (
++                _land_sea_surface_wind_residual_decays(
++                    high_mode_decay=high_mode_decay,
++                    low_mode_decay=low_mode_decay,
++                    land_sea_fraction=valid_land_sea_fraction,
++                )
++            )
+ 
+         candidate_channel_values = corrected_values[:, output_index] + (
+             low_mode_residual[jnp.newaxis, ...] * channel_low_mode_decay
+@@ -1459,6 +1498,27 @@ def _land_sea_surface_temperature_residual_decays(
+     )
+ 
+ 
++def _land_sea_surface_wind_residual_decays(
++    *,
++    high_mode_decay: jax.Array,
++    low_mode_decay: jax.Array,
++    land_sea_fraction: jax.Array,
++) -> tuple[jax.Array, jax.Array]:
++    """Return 10 m u-wind decays with land incumbent and persistent ocean low modes."""
++    land_fraction = jnp.asarray(land_sea_fraction, dtype=high_mode_decay.dtype)
++    ocean_fraction = 1.0 - land_fraction
++    ocean_low_mode_decay = jnp.power(
++        jnp.clip(low_mode_decay, 0.0, 1.0),
++        _LAND_SEA_SURFACE_WIND_OCEAN_LOW_DECAY_EXPONENT,
++    )
++    land_fraction = land_fraction[jnp.newaxis, ...]
++    ocean_fraction = ocean_fraction[jnp.newaxis, ...]
++    return (
++        high_mode_decay,
++        land_fraction * low_mode_decay + ocean_fraction * ocean_low_mode_decay,
++    )
++
++
+ def _valid_land_sea_fraction_or_none(
+     land_sea_fraction: jax.Array | None,
+     spatial_shape: tuple[int, int],
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b14bcfc..d868232 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -161,6 +161,15 @@ def dinosaur_land_sea_surface_temperature_model() -> DycoreModel:
+     return land_sea_surface_temperature_dinosaur_dycore_model()
+ 
+ 
++def dinosaur_land_sea_surface_wind_model() -> DycoreModel:
++    """Return the land-sea T2m dycore with land-sea 10 m wind residual memory."""
++    from dynamaxx.dycore.models.dinosaur import (
++        land_sea_surface_wind_dinosaur_dycore_model,
++    )
++
++    return land_sea_surface_wind_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -228,6 +237,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface"
+     ): dinosaur_land_sea_surface_temperature_model,
++    (
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind"
++    ): dinosaur_land_sea_surface_wind_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index efd7bae..12ae78f 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -111,6 +111,13 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq_landsea_surface"
+ )
++assert (
++    dinosaur.land_sea_surface_wind_dinosaur_dycore_model().name
++    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++    "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -202,6 +209,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 1be478d..583beca 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -26,6 +26,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
+     _DRY_AIR_GAS_CONSTANT_SI,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
++    _LAND_SEA_SURFACE_WIND_OCEAN_LOW_DECAY_EXPONENT,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+     DEFAULT_INNER_STEP_SECONDS,
+@@ -46,6 +47,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _inner_steps_per_forecast_step,
+     _interp_sigma_to_pressure_by_time,
+     _land_sea_surface_temperature_residual_decays,
++    _land_sea_surface_wind_residual_decays,
+     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
+     _nondimensionalize_seconds,
+     _pressure_coordinates,
+@@ -70,6 +72,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    land_sea_surface_wind_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+@@ -519,6 +522,26 @@ def test_land_sea_surface_temperature_factory_preserves_incumbent_except_selecto
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_land_sea_surface_wind_factory_preserves_incumbent_except_selector():
++    """The candidate adds only land-sea wind residual memory to the incumbent."""
++    model = land_sea_surface_wind_dinosaur_dycore_model()
++    incumbent = land_sea_surface_temperature_dinosaur_dycore_model()
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind"
++    )
++    assert model.use_land_sea_surface_temperature_residual
++    assert model.use_land_sea_surface_wind_residual
++    assert not incumbent.use_land_sea_surface_wind_residual
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_land_sea_surface_wind_residual"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -1725,6 +1748,35 @@ def test_land_sea_surface_temperature_decay_blends_land_ocean_and_coast():
+     )
+ 
+ 
++def test_land_sea_surface_wind_decay_keeps_land_and_high_modes_bounded():
++    """Land keeps incumbent wind memory while ocean lengthens only low modes."""
++    high_mode_decay = jnp.asarray([[[0.25, 0.25, 0.25]]], dtype=jnp.float32)
++    low_mode_decay = jnp.asarray([[[0.36, 0.36, 0.36]]], dtype=jnp.float32)
++    land_sea_fraction = jnp.asarray([[1.0, 0.0, 0.25]], dtype=jnp.float32)
++
++    high_decay, low_decay = _land_sea_surface_wind_residual_decays(
++        high_mode_decay=high_mode_decay,
++        low_mode_decay=low_mode_decay,
++        land_sea_fraction=land_sea_fraction,
++    )
++
++    expected_low_ocean = 0.36**_LAND_SEA_SURFACE_WIND_OCEAN_LOW_DECAY_EXPONENT
++    np.testing.assert_allclose(
++        high_decay,
++        high_mode_decay,
++        rtol=0.0,
++        atol=0.0,
++    )
++    np.testing.assert_allclose(
++        low_decay,
++        [[[0.36, expected_low_ocean, 0.25 * 0.36 + 0.75 * expected_low_ocean]]],
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    assert float(low_decay[0, 0, 1]) > float(low_mode_decay[0, 0, 1])
++    assert float(low_decay[0, 0, 1]) < 1.0
++
++
+ def test_land_sea_fraction_validation_rejects_unsafe_masks():
+     """Invalid masks are rejected before they can alter residual memory."""
+     assert _valid_land_sea_fraction_or_none(None, (2, 2)) is None
+@@ -1849,6 +1901,107 @@ def test_land_sea_surface_temperature_correction_preserves_non_t2m_channels():
+     )
+ 
+ 
++def test_land_sea_surface_wind_correction_preserves_t2m_and_blends_wind():
++    """The wind selector changes only 10 m u-wind and blends by land fraction."""
++    raw_temperature = jnp.stack(
++        [
++            jnp.full((4, 3), 280.0, dtype=jnp.float32),
++            jnp.full((4, 3), 282.0, dtype=jnp.float32),
++        ]
++    )
++    raw_u_wind = jnp.stack(
++        [
++            jnp.full((4, 3), 1.0, dtype=jnp.float32),
++            jnp.full((4, 3), 1.5, dtype=jnp.float32),
++        ]
++    )
++    raw_pressure = jnp.stack(
++        [
++            jnp.full((4, 3), 100000.0, dtype=jnp.float32),
++            jnp.full((4, 3), 99900.0, dtype=jnp.float32),
++        ]
++    )
++    trajectory_state = WeatherState(
++        values=jnp.stack([raw_temperature, raw_u_wind, raw_pressure], axis=1),
++        variables=(
++            "2m_temperature",
++            "10m_u_component_of_wind",
++            "mean_sea_level_pressure",
++        ),
++    )
++    initial_temperature = jnp.full((4, 3), 284.0, dtype=jnp.float32)
++    initial_u_wind = jnp.full((4, 3), 4.0, dtype=jnp.float32)
++    initial_state = WeatherState(
++        values=jnp.stack([initial_temperature, initial_u_wind]),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++    grid = grid_metadata(
++        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
++        latitude=np.array([90.0, 0.0, -90.0]),
++        layer_count=2,
++        spectral_wavenumbers=None,
++    )
++    land_sea_fraction = jnp.asarray(
++        [
++            [1.0, 0.0, 0.25],
++            [1.0, 0.0, 0.25],
++            [1.0, 0.0, 0.25],
++            [1.0, 0.0, 0.25],
++        ],
++        dtype=jnp.float32,
++    )
++
++    accepted_land_sea_temperature = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 96),
++        decay_hours=48.0,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++        land_sea_fraction=land_sea_fraction,
++    )
++    corrected = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 96),
++        decay_hours=48.0,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++        land_sea_fraction=land_sea_fraction,
++        use_land_sea_surface_wind_residual=True,
++    )
++
++    incumbent_low_decay = np.exp(-1.0)
++    ocean_low_decay = (
++        incumbent_low_decay**_LAND_SEA_SURFACE_WIND_OCEAN_LOW_DECAY_EXPONENT
++    )
++    expected_decay = land_sea_fraction * incumbent_low_decay + (
++        1.0 - land_sea_fraction
++    ) * ocean_low_decay
++    expected_u_wind = raw_u_wind.at[0].set(initial_u_wind)
++    expected_u_wind = expected_u_wind.at[1].set(
++        raw_u_wind[1] + (initial_u_wind - raw_u_wind[0]) * expected_decay
++    )
++    np.testing.assert_allclose(
++        corrected.select(("2m_temperature",)).values,
++        accepted_land_sea_temperature.select(("2m_temperature",)).values,
++        rtol=0.0,
++        atol=0.0,
++    )
++    np.testing.assert_allclose(
++        corrected.select(("10m_u_component_of_wind",)).values[:, 0],
++        expected_u_wind,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    np.testing.assert_array_equal(
++        corrected.select(("mean_sea_level_pressure",)).values,
++        trajectory_state.select(("mean_sea_level_pressure",)).values,
++    )
++
++
+ def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
+     """Missing or unsafe masks leave the scale-separated incumbent unchanged."""
+     raw_temperature = jnp.stack(
+@@ -1886,6 +2039,17 @@ def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
+         horizontal_grid=grid.coords.horizontal,
+         latitude_reversed=grid.latitude_reversed,
+     )
++    missing_mask_fallback = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 24),
++        decay_hours=48.0,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++        use_land_sea_surface_wind_residual=True,
++    )
++    np.testing.assert_array_equal(missing_mask_fallback.values, incumbent.values)
+ 
+     for invalid_mask in (
+         jnp.ones((5, 3), dtype=jnp.float32),
+@@ -1901,6 +2065,7 @@ def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
+             horizontal_grid=grid.coords.horizontal,
+             latitude_reversed=grid.latitude_reversed,
+             land_sea_fraction=invalid_mask,
++            use_land_sea_surface_wind_residual=True,
+         )
+ 
+         np.testing.assert_array_equal(fallback.values, incumbent.values)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index bc2ef52..7da456a 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -46,6 +46,10 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind",
+     )
+ 
+ 
+@@ -508,6 +512,36 @@ def test_registry_creates_land_sea_surface_temperature_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_land_sea_surface_wind_candidate_model():
++    """The land-sea wind residual candidate is registered side by side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind"
++    )
++    assert model.use_land_sea_surface_temperature_residual
++    assert model.use_land_sea_surface_wind_residual
++    assert not incumbent.use_land_sea_surface_wind_residual
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_land_sea_surface_wind_residual"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "mass-centered-dse-anomaly-hsl",
+  "history_path": ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl",
+  "scored_at": "2026-06-26T14:56:24Z",
+  "role": "Scorer",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "worker_count": 4,
+  "validation_allowed_only_if_iteration_promotes": true,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "eval_code_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "current_head": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "leaderboard_eval_code_commit": "ff40def55ac707e8915c840b856a0aaa3345b046"
+  },
+  "pre_scoring_records": {
+    "full_pytest": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "summary": "261 passed, 2 skipped in 309.87s",
+      "source": "Orchestrator-provided pre-scoring record",
+      "rerun_by_scorer": false
+    },
+    "focused_pytest": {
+      "summary": "195 passed in 299.69s",
+      "source": "Orchestrator-provided pre-scoring record",
+      "rerun_by_scorer": false
+    },
+    "candidate_fast": {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter",
+      "exit_status": 0,
+      "source": "Orchestrator-provided pre-scoring record; artifact verified/read by Scorer",
+      "primary_score": -0.2237799449232893,
+      "diagnostics_failed": false,
+      "diagnostic_issue_count": 0,
+      "records": 120,
+      "rerun_by_scorer": false
+    },
+    "registry_check": {
+      "summary": "Candidate and incumbent registration already verified by Orchestrator with registry.dycore_model_names() and registry.create_dycore_model().",
+      "rerun_by_scorer": false
+    },
+    "git_diff_check": {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "source": "Orchestrator-provided pre-scoring record",
+      "rerun_by_scorer": false
+    }
+  },
+  "commands": [
+    {
+      "command": "sed -n '1,220p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "kind": "instruction_read"
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "kind": "instruction_read"
+    },
+    {
+      "command": "jq '.' .logbook/leaderboard.json",
+      "exit_status": 0,
+      "kind": "leaderboard_inspection"
+    },
+    {
+      "command": "jq '{model_name, case, primary_score, diagnostics, records_len: (.records|length), first_record: .records[0]}' outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json",
+      "exit_status": 0,
+      "kind": "candidate_fast_artifact_verification"
+    },
+    {
+      "command": "jq '{model_name, case, primary_score, diagnostics, records_len: (.records|length), first_record: .records[0]}' outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "exit_status": 0,
+      "kind": "incumbent_iteration_cache_verification"
+    },
+    {
+      "command": "git rev-parse HEAD && git diff --name-only && git diff --cached --name-only",
+      "exit_status": 0,
+      "kind": "eval_code_cache_compatibility_check"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter --workers 4",
+      "exit_status": 0,
+      "kind": "candidate_iteration",
+      "notes": "Ran candidate iteration only. The evaluator reported chunks=229 cached=0 pending=229 and wrote outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json."
+    },
+    {
+      "command": "jq '{model_name, primary_score, diagnostics, records_len:(.records|length), case_name:.case.name}' outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json",
+      "exit_status": 0,
+      "kind": "candidate_iteration_artifact_verification"
+    },
+    {
+      "command": "uv run python - <<'PY'\n# Loaded candidate and cached incumbent iteration JSON, filtered records by exact model_name, computed primary-score delta, diagnostics, early day 1-5 mean RMSE guardrails, and variable+lead RMSE guardrails.\nPY",
+      "exit_status": 0,
+      "kind": "guardrail_calculation",
+      "notes": "The full inline script used json.loads on the two iteration JSON artifacts, required 60 candidate and 60 incumbent model rows, compared matching (channel_name, lead_hours) keys, and printed the values recorded in guardrails."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter --workers 4",
+      "exit_status": "not_run",
+      "kind": "candidate_validation",
+      "notes": "Skipped because iteration primary delta was +0.000026881174071430314, below the +0.002 promotion threshold."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.2237799449232893,
+    "candidate_iteration": -0.21968357037076797,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2197104515448394,
+    "incumbent_validation": -0.21940899263836755,
+    "iteration_delta": 0.000026881174071430314,
+    "absolute_iteration_delta": 0.000026881174071430314,
+    "validation_delta": null,
+    "iteration_promotion_threshold": 0.002
+  },
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_validation": null,
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    }
+  },
+  "cache_reuse": {
+    "iteration": {
+      "status": "reused_leaderboard_incumbent_cache",
+      "recomputed": false,
+      "artifacts": {
+        "json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+        "csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+      },
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "leaderboard_protocols_include_iteration": true,
+        "current_head_matches_leaderboard_eval_code_commit": true,
+        "candidate_source_edits_do_not_invalidate_cache": true,
+        "json_exists_and_readable": true,
+        "csv_exists": true,
+        "primary_score_finite": true,
+        "model_name_matches": true,
+        "artifact_record_count": 120,
+        "incumbent_model_record_count_for_guardrails": 60,
+        "diagnostics_clean": true,
+        "data_path_compatible": true,
+        "target_variables_compatible": true,
+        "lead_days_compatible": true
+      },
+      "reason": "All reuse checks passed; no incumbent iteration rerun was performed."
+    },
+    "validation": {
+      "status": "not_used_because_candidate_validation_skipped",
+      "recomputed": false,
+      "artifacts": {
+        "json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+        "csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+      },
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "leaderboard_protocols_include_validation": true,
+        "current_head_matches_leaderboard_eval_code_commit": true,
+        "candidate_validation_needed_for_comparison": false
+      },
+      "reason": "Iteration did not meet the +0.002 primary-score promotion threshold, so candidate validation was not run and no validation comparison was performed."
+    }
+  },
+  "guardrails": {
+    "early_day_1_to_5_mean_rmse": {
+      "threshold": 0.02,
+      "passed": true,
+      "by_channel": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 4.291388152597762,
+          "incumbent_mean_rmse": 4.291454635917505,
+          "absolute_delta": -0.00006648331974279387,
+          "relative_delta": -0.000015492024356114358,
+          "relative_delta_percent": -0.0015492024356114358,
+          "violates_2_percent_guardrail": false
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 4.751258931006581,
+          "incumbent_mean_rmse": 4.751335465357272,
+          "absolute_delta": -0.00007653435069077119,
+          "relative_delta": -0.00001610796611790413,
+          "relative_delta_percent": -0.0016107966117904129,
+          "violates_2_percent_guardrail": false
+        },
+        {
+          "channel_name": "geopotential_500",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 592.5710365041493,
+          "incumbent_mean_rmse": 592.5709106473444,
+          "absolute_delta": 0.00012585680497068097,
+          "relative_delta": 0.00000021239112941469026,
+          "relative_delta_percent": 0.000021239112941469027,
+          "violates_2_percent_guardrail": false
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 771.0900101351124,
+          "incumbent_mean_rmse": 771.1150019948005,
+          "absolute_delta": -0.024991859688157092,
+          "relative_delta": -0.000032410029144168574,
+          "relative_delta_percent": -0.0032410029144168575,
+          "violates_2_percent_guardrail": false
+        }
+      ],
+      "worst_relative_regression": {
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 592.5710365041493,
+        "incumbent_mean_rmse": 592.5709106473444,
+        "absolute_delta": 0.00012585680497068097,
+        "relative_delta": 0.00000021239112941469026,
+        "relative_delta_percent": 0.000021239112941469027,
+        "violates_2_percent_guardrail": false
+      },
+      "violations": []
+    },
+    "variable_lead_rmse": {
+      "threshold": 0.10,
+      "passed": true,
+      "worst_variable_lead_rmse_regression": {
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "lead_day": 1.0,
+        "candidate_rmse": 245.96301616445243,
+        "incumbent_rmse": 245.96134960647697,
+        "absolute_delta": 0.0016665579754544524,
+        "relative_delta": 0.000006775690481942966,
+        "relative_delta_percent": 0.0006775690481942966,
+        "violates_10_percent_guardrail": false
+      },
+      "violations_count": 0,
+      "violations": []
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_run": false,
+    "validation_status": "skipped_iteration_delta_below_threshold",
+    "diagnostics_passed": true,
+    "early_day_1_to_5_mean_rmse_guardrail_passed": true,
+    "variable_lead_rmse_guardrail_passed": true
+  },
+  "anomalies": [
+    {
+      "type": "long_iteration_runtime",
+      "severity": "informational",
+      "description": "Candidate iteration completed successfully but ran from 229 uncached chunks with long quiet intervals between chunk batches. No restart, protocol change, or worker-count change was needed."
+    }
+  ],
+  "measurement_lessons": [
+    "The mass-centered DSE anomaly variant produced a tiny positive iteration primary-score delta but not enough to meet the fixed +0.002 validation threshold.",
+    "RMSE guardrails were clean and changes were very small, so the measured blocker is insufficient aggregate primary-score movement rather than instability, diagnostics, or localized RMSE regression."
+  ]
+}

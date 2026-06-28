@@ -1,0 +1,625 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index e719750..a6de11f 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -57,6 +57,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     stability_aware_surface_residual_dinosaur_dycore_model,
++    theta_hydrostatic_output_dinosaur_dycore_model,
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+@@ -104,6 +105,7 @@ __all__ = [
+     "sigma_coordinates",
+     "spherical_harmonic",
+     "stability_aware_surface_residual_dinosaur_dycore_model",
++    "theta_hydrostatic_output_dinosaur_dycore_model",
+     "theta_mean_recenter_dinosaur_dycore_model",
+     "theta_tendency_dinosaur_dycore_model",
+     "time_integration",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 9d58e73..81def0e 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -124,6 +124,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     )
+     apply_theta_layer_mean_recentering: bool = False
+     semi_implicit_offcentering: float = 0.0
++    reconstruct_theta_hydrostatic_pressure_output: bool = False
+     jit_forecast: bool = True
+ 
+     def forecast(self, forecast_input: ForecastInput) -> WeatherState:
+@@ -204,6 +205,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_surface_layer_richardson_10m_wind_diagnostic=(
+                     self.use_surface_layer_richardson_10m_wind_diagnostic
+                 ),
++                reconstruct_theta_hydrostatic_pressure_output=(
++                    self.reconstruct_theta_hydrostatic_pressure_output
++                ),
+             )
+             if self.apply_near_surface_residual_correction:
+                 residual_correction = (
+@@ -888,6 +892,18 @@ def analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def theta_hydrostatic_output_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the incumbent with coupled theta/hydrostatic pressure outputs."""
++    incumbent = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
++    return replace(
++        incumbent,
++        name=f"{incumbent.name}_theta_hydrostatic_output",
++        reconstruct_theta_hydrostatic_pressure_output=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1027,6 +1043,7 @@ def dinosaur_state_to_weather_state(
+     reference_temperature: np.ndarray,
+     output_variables: tuple[str, ...],
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
++    reconstruct_theta_hydrostatic_pressure_output: bool = False,
+ ) -> WeatherState:
+     """Convert a Dinosaur trajectory into packed WeatherState channels."""
+     temperature = (
+@@ -1073,6 +1090,18 @@ def dinosaur_state_to_weather_state(
+         cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
+         surface_pressure_hpa,
+     )
++    if reconstruct_theta_hydrostatic_pressure_output:
++        pressure_fields = _theta_hydrostatic_pressure_output_fields(
++            temperature=temperature,
++            specific_humidity=humidity,
++            incumbent_pressure_fields=pressure_fields,
++            pressure_levels_hpa=pressure_levels_hpa,
++            surface_pressure=surface_pressure,
++            surface_pressure_hpa=surface_pressure_hpa,
++            sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
++            physics_specs=physics_specs,
++            horizontal_shape=coords.horizontal.nodal_shape,
++        )
+ 
+     temperature = temperature / _unit_factor(physics_specs, "kelvin")
+     u_wind = u_wind / _unit_factor(physics_specs, "meter / second")
+@@ -1151,6 +1180,115 @@ def dinosaur_state_to_weather_state(
+     )
+ 
+ 
++def _theta_hydrostatic_pressure_output_fields(
++    *,
++    temperature: jax.Array,
++    specific_humidity: jax.Array | None,
++    incumbent_pressure_fields: dict[str, jax.Array],
++    pressure_levels_hpa: tuple[int, ...],
++    surface_pressure: jax.Array,
++    surface_pressure_hpa: jax.Array,
++    sigma_coords: sigma_coordinates.SigmaCoordinates,
++    physics_specs: Any,
++    horizontal_shape: tuple[int, int],
++) -> dict[str, jax.Array]:
++    """Reconstruct pressure-level temperature and geopotential from one column.
++
++    The pressure diagnostics use Dinosaur nondimensional pressure units for the
++    dry-theta conversion, while the existing sigma-to-pressure interpolation
++    helper keeps hPa coordinates for vertical indexing. If any column diagnostic
++    is nonfinite or nonpositive, that column keeps the incumbent pressure-field
++    values for both reconstructed variables.
++    """
++    sigma_centers = jnp.asarray(sigma_coords.centers, dtype=temperature.dtype)[
++        :, jnp.newaxis, jnp.newaxis
++    ]
++    pressure_factor = _unit_factor(physics_specs, "pascal")
++    requested_pressure = (
++        jnp.asarray(pressure_levels_hpa, dtype=temperature.dtype)
++        * jnp.asarray(100.0 * pressure_factor, dtype=temperature.dtype)
++    )[:, jnp.newaxis, jnp.newaxis]
++    reference_pressure = jnp.asarray(
++        100000.0 * pressure_factor,
++        dtype=temperature.dtype,
++    )
++    sigma_pressure = sigma_centers[jnp.newaxis, ...] * surface_pressure[:, jnp.newaxis]
++    pressure_is_valid = jnp.all(
++        jnp.isfinite(sigma_pressure) & (sigma_pressure > 0.0),
++        axis=1,
++    )
++    safe_surface_pressure_hpa = jnp.where(
++        jnp.isfinite(surface_pressure_hpa) & (surface_pressure_hpa > 0.0),
++        surface_pressure_hpa,
++        jnp.ones_like(surface_pressure_hpa) * 1000.0,
++    )
++
++    theta_on_sigma = primitive_equations.potential_temperature_from_temperature(
++        temperature,
++        sigma_pressure,
++        reference_pressure,
++        physics_specs.kappa,
++    )
++    theta_fields = _interp_sigma_to_pressure_by_time(
++        {TEMPERATURE_VARIABLE: theta_on_sigma},
++        _pressure_coordinates(pressure_levels_hpa),
++        sigma_coords,
++        safe_surface_pressure_hpa,
++    )
++    theta_on_pressure = theta_fields[TEMPERATURE_VARIABLE]
++    reconstructed_temperature = (
++        primitive_equations.temperature_from_potential_temperature(
++            theta_on_pressure,
++            requested_pressure[jnp.newaxis, ...],
++            reference_pressure,
++            physics_specs.kappa,
++        )
++    )
++    reconstructed_geopotential_on_sigma = primitive_equations.get_geopotential_on_sigma(
++        temperature,
++        specific_humidity=specific_humidity,
++        nodal_orography=jnp.zeros(horizontal_shape, dtype=temperature.dtype),
++        sigma=sigma_coords,
++        gravity_acceleration=physics_specs.g,
++        ideal_gas_constant=physics_specs.R,
++        water_vapor_gas_constant=physics_specs.R_vapor,
++    )
++    geopotential_fields = _interp_sigma_to_pressure_by_time(
++        {GEOPOTENTIAL_VARIABLE: reconstructed_geopotential_on_sigma},
++        _pressure_coordinates(pressure_levels_hpa),
++        sigma_coords,
++        safe_surface_pressure_hpa,
++    )
++    reconstructed_geopotential = geopotential_fields[GEOPOTENTIAL_VARIABLE]
++
++    finite_inputs = jnp.all(jnp.isfinite(temperature), axis=1) & pressure_is_valid
++    if specific_humidity is not None:
++        finite_inputs = finite_inputs & jnp.all(jnp.isfinite(specific_humidity), axis=1)
++    finite_reconstruction = (
++        finite_inputs
++        & jnp.all(jnp.isfinite(theta_on_sigma), axis=1)
++        & jnp.all(jnp.isfinite(theta_on_pressure), axis=1)
++        & jnp.all(jnp.isfinite(reconstructed_temperature), axis=1)
++        & jnp.all(jnp.isfinite(reconstructed_geopotential_on_sigma), axis=1)
++        & jnp.all(jnp.isfinite(reconstructed_geopotential), axis=1)
++        & jnp.all(jnp.isfinite(requested_pressure) & (requested_pressure > 0.0))
++    )
++    finite_reconstruction = finite_reconstruction[:, jnp.newaxis, ...]
++
++    pressure_fields = dict(incumbent_pressure_fields)
++    pressure_fields[TEMPERATURE_VARIABLE] = jnp.where(
++        finite_reconstruction,
++        reconstructed_temperature,
++        incumbent_pressure_fields[TEMPERATURE_VARIABLE],
++    )
++    pressure_fields[GEOPOTENTIAL_VARIABLE] = jnp.where(
++        finite_reconstruction,
++        reconstructed_geopotential,
++        incumbent_pressure_fields[GEOPOTENTIAL_VARIABLE],
++    )
++    return pressure_fields
++
++
+ def _surface_layer_richardson_10m_wind(
+     *,
+     temperature: jax.Array,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b10f158..07c39df 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -152,6 +152,15 @@ def dinosaur_analysis_offset_held_suarez_equilibrium_model() -> DycoreModel:
+     return analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
+ 
+ 
++def dinosaur_theta_hydrostatic_output_model() -> DycoreModel:
++    """Return the analysis-offset incumbent with theta/hydrostatic outputs."""
++    from dynamaxx.dycore.models.dinosaur import (
++        theta_hydrostatic_output_dinosaur_dycore_model,
++    )
++
++    return theta_hydrostatic_output_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -213,6 +222,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq"
+     ): dinosaur_analysis_offset_held_suarez_equilibrium_model,
++    (
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++    ): dinosaur_theta_hydrostatic_output_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 9339c84..441351c 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -104,6 +104,13 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq"
+ )
++assert (
++    dinosaur.theta_hydrostatic_output_dinosaur_dycore_model().name
++    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++    "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -191,6 +198,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -577,6 +588,38 @@ def test_dinosaur_analysis_offset_hs_eq_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_theta_hydrostatic_output_is_registered():
++    """The theta/hydrostatic output candidate is side-by-side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++    )
++    assert model.reconstruct_theta_hydrostatic_pressure_output
++    assert not incumbent.reconstruct_theta_hydrostatic_pressure_output
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "reconstruct_theta_hydrostatic_pressure_output",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 5540954..781210b 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -55,6 +55,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _stability_aware_near_surface_residual_decay_hours,
+     _surface_layer_richardson_10m_wind,
+     _symmetric_exact_coriolis_rotation_step,
++    _theta_hydrostatic_pressure_output_fields,
+     _theta_layer_mean_recenter_step_filter,
+     _TracerSafeHeldSuarezForcingSigma,
+     _unit_factor,
+@@ -73,6 +74,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     split_pressure_level_channel,
+     stability_aware_surface_residual_dinosaur_dycore_model,
++    theta_hydrostatic_output_dinosaur_dycore_model,
+     theta_mean_recenter_dinosaur_dycore_model,
+     supported_output_variables,
+     theta_tendency_dinosaur_dycore_model,
+@@ -495,6 +497,28 @@ def test_analysis_offset_hs_eq_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_theta_hydrostatic_output_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and pressure-output reconstruction."""
++    model = theta_hydrostatic_output_dinosaur_dycore_model()
++    incumbent = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++    )
++    assert model.reconstruct_theta_hydrostatic_pressure_output
++    assert not incumbent.reconstruct_theta_hydrostatic_pressure_output
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "reconstruct_theta_hydrostatic_pressure_output",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -1259,6 +1283,51 @@ def test_analysis_offset_hs_eq_candidate_forecast_is_finite(monkeypatch):
+     )
+ 
+ 
++def test_theta_hydrostatic_output_candidate_forecast_is_finite(monkeypatch):
++    """The theta/hydrostatic output candidate runs a non-JIT smoke forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    output_variables = (
++        "temperature_500",
++        "geopotential_500",
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "10m_v_component_of_wind",
++        "mean_sea_level_pressure",
++    )
++    model = replace(
++        theta_hydrostatic_output_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
+     """The residual candidate changes only selected near-surface diagnostics."""
+ 
+@@ -2635,6 +2704,164 @@ def test_dinosaur_state_to_weather_state_matches_direct_diagnostics():
+     np.testing.assert_allclose(actual.values, expected_values, rtol=1e-5, atol=1e-5)
+ 
+ 
++def test_theta_hydrostatic_pressure_output_keeps_isothermal_temperature():
++    """Theta pressure reconstruction returns exact T on matching sigma levels."""
++    sigma_coords = sigma_coordinates.SigmaCoordinates.equidistant(3)
++    physics_specs = units.SimUnits.from_si()
++    pressure_levels_hpa = (150, 450, 750)
++    surface_pressure_hpa = jnp.full((1, 2, 2), 900.0, dtype=jnp.float32)
++    pressure_factor = _unit_factor(physics_specs, "pascal")
++    surface_pressure = surface_pressure_hpa * 100.0 * pressure_factor
++    temperature = jnp.full((1, 3, 2, 2), 273.0, dtype=jnp.float32)
++    incumbent_pressure_fields = {
++        "temperature": jnp.full((1, 3, 2, 2), -1.0, dtype=jnp.float32),
++        "u_component_of_wind": jnp.zeros((1, 3, 2, 2), dtype=jnp.float32),
++        "v_component_of_wind": jnp.zeros((1, 3, 2, 2), dtype=jnp.float32),
++        "geopotential": jnp.zeros((1, 3, 2, 2), dtype=jnp.float32),
++    }
++
++    actual = _theta_hydrostatic_pressure_output_fields(
++        temperature=temperature,
++        specific_humidity=None,
++        incumbent_pressure_fields=incumbent_pressure_fields,
++        pressure_levels_hpa=pressure_levels_hpa,
++        surface_pressure=surface_pressure,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++        physics_specs=physics_specs,
++        horizontal_shape=(2, 2),
++    )
++
++    np.testing.assert_allclose(actual["temperature"], temperature, rtol=1e-6)
++    assert bool(jnp.isfinite(actual["geopotential"]).all())
++
++
++def test_theta_hydrostatic_output_reconstructs_finite_same_column_fields():
++    """The opt-in output selector changes only pressure T/Z diagnostics."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    state = weather_state_to_dinosaur_state(
++        WeatherState(
++            values=forecast_input.initial_state.values[0],
++            variables=forecast_input.initial_state.variables,
++        ),
++        coords=grid.coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=True,
++    )
++    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value]), state)
++    output_variables = (
++        "temperature_500",
++        "u_component_of_wind_500",
++        "v_component_of_wind_500",
++        "geopotential_500",
++        "specific_humidity_500",
++        "surface_pressure",
++        "mean_sea_level_pressure",
++        "2m_temperature",
++        "10m_u_component_of_wind",
++    )
++    common_kwargs = {
++        "trajectory": trajectory,
++        "coords": grid.coords,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "latitude_reversed": grid.latitude_reversed,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "output_variables": output_variables,
++    }
++
++    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
++    candidate = dinosaur_state_to_weather_state(
++        **common_kwargs,
++        reconstruct_theta_hydrostatic_pressure_output=True,
++    )
++
++    unchanged_variables = (
++        "u_component_of_wind_500",
++        "v_component_of_wind_500",
++        "specific_humidity_500",
++        "surface_pressure",
++        "mean_sea_level_pressure",
++        "2m_temperature",
++        "10m_u_component_of_wind",
++    )
++    np.testing.assert_array_equal(
++        candidate.select(unchanged_variables).values,
++        incumbent.select(unchanged_variables).values,
++    )
++    assert bool(jnp.isfinite(candidate.values).all())
++    assert bool(
++        jnp.any(
++            candidate.select(("temperature_500", "geopotential_500")).values
++            != incumbent.select(("temperature_500", "geopotential_500")).values
++        )
++    )
++
++
++def test_theta_hydrostatic_pressure_output_falls_back_for_invalid_pressure():
++    """Invalid pressure diagnostics retain incumbent pressure T/Z by column."""
++    sigma_coords = sigma_coordinates.SigmaCoordinates.equidistant(3)
++    physics_specs = units.SimUnits.from_si()
++    pressure_levels_hpa = (150, 450, 750)
++    pressure_factor = _unit_factor(physics_specs, "pascal")
++    surface_pressure_hpa = jnp.asarray(
++        [[[900.0, -10.0], [900.0, 900.0]]],
++        dtype=jnp.float32,
++    )
++    surface_pressure = surface_pressure_hpa * 100.0 * pressure_factor
++    temperature = jnp.full((1, 3, 2, 2), 280.0, dtype=jnp.float32)
++    incumbent_temperature = jnp.full((1, 3, 2, 2), 260.0, dtype=jnp.float32)
++    incumbent_geopotential = jnp.full((1, 3, 2, 2), 1234.0, dtype=jnp.float32)
++    incumbent_pressure_fields = {
++        "temperature": incumbent_temperature,
++        "u_component_of_wind": jnp.zeros((1, 3, 2, 2), dtype=jnp.float32),
++        "v_component_of_wind": jnp.zeros((1, 3, 2, 2), dtype=jnp.float32),
++        "geopotential": incumbent_geopotential,
++    }
++
++    actual = _theta_hydrostatic_pressure_output_fields(
++        temperature=temperature,
++        specific_humidity=None,
++        incumbent_pressure_fields=incumbent_pressure_fields,
++        pressure_levels_hpa=pressure_levels_hpa,
++        surface_pressure=surface_pressure,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++        physics_specs=physics_specs,
++        horizontal_shape=(2, 2),
++    )
++
++    np.testing.assert_array_equal(
++        actual["temperature"][:, :, 0, 1],
++        incumbent_temperature[:, :, 0, 1],
++    )
++    np.testing.assert_array_equal(
++        actual["geopotential"][:, :, 0, 1],
++        incumbent_geopotential[:, :, 0, 1],
++    )
++    assert bool(jnp.all(actual["temperature"][:, :, 0, 0] != incumbent_temperature[:, :, 0, 0]))
++    assert bool(jnp.isfinite(actual["temperature"]).all())
++    assert bool(jnp.isfinite(actual["geopotential"]).all())
++
++
+ def test_richardson_10m_wind_diagnostic_only_changes_raw_surface_wind():
+     """The opt-in diagnostic leaves non-10 m wind packed outputs unchanged."""
+     forecast_input = _forecast_input(
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 6c6f6c7..6d3d8f6 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -42,6 +42,10 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output",
+     )
+ 
+ 
+@@ -475,6 +479,38 @@ def test_registry_creates_analysis_offset_hs_eq_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_theta_hydrostatic_output_candidate_model():
++    """The theta/hydrostatic output candidate is registered side by side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_theta_hydrostatic_output"
++    )
++    assert model.reconstruct_theta_hydrostatic_pressure_output
++    assert not incumbent.reconstruct_theta_hydrostatic_pressure_output
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "reconstruct_theta_hydrostatic_pressure_output",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

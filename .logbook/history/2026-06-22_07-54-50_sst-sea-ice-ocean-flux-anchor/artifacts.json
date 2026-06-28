@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "sst-sea-ice-ocean-flux-anchor",
+  "history_path": ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor",
+  "source_artifacts": [
+    ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor/proposal.md",
+    ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor/implementation.md",
+    ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_obulk_sstice.json",
+    "outputs/eval/fast_dino_obulk_sstice.csv",
+    "outputs/eval/iteration_dino_obulk_sstice.json",
+    "outputs/eval/iteration_dino_obulk_sstice.csv",
+    "outputs/eval/runs/iteration_dino_obulk_sstice/manifest.json",
+    "outputs/eval/runs/iteration_dino_obulk_sstice/chunks/"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor/scores.json",
+    ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor/scoring_notes.md",
+    ".logbook/history/2026-06-22_07-54-50_sst-sea-ice-ocean-flux-anchor/decision.md"
+  ],
+  "notes": "Rejected because the candidate iteration primary delta was +0.0000030296370109317294, below the +0.002 promotion threshold. Incumbent iteration metrics were reused from leaderboard artifacts; no incumbent rerun was performed. Validation was not run."
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "cfl-blended-hsl-theta",
+  "history_path": ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta",
+  "source_artifacts": [
+    ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/proposal.md",
+    ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/implementation.md",
+    ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl_cflblend.json",
+    "outputs/eval/fast_dino_hsl_cflblend.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/scores.json",
+    ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/scoring_notes.md",
+    ".logbook/history/2026-06-22_17-36-00_cfl-blended-hsl-theta/decision.md"
+  ],
+  "notes": "Rejected because the candidate failed the fixed fast diagnostic gate with nonfinite forecast and metric records after a bounded square-root CFL-weight repair. Iteration and validation were not run. Incumbent metrics were not rerun and the leaderboard remains unchanged."
+}

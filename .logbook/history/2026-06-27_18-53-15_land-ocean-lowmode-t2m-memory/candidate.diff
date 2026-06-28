@@ -1,0 +1,657 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..55f5a02 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -53,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
++    land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+@@ -97,6 +98,7 @@ __all__ = [
+     "horizontal_interpolation",
+     "hybrid_coordinates",
+     "jax_numpy_utils",
++    "land_ocean_low_mode_t2m_memory_dinosaur_dycore_model",
+     "land_sea_surface_temperature_dinosaur_dycore_model",
+     "layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model",
+     "layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..37203d1 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -70,6 +70,10 @@ _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE = 20
+ _SCALE_SEPARATED_RESIDUAL_LOW_DECAY_HOURS = 96.0
+ _LAND_SEA_MASK_CHANNEL = "land_sea_mask"
+ _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT = 0.5
++_LAND_OCEAN_LOW_MODE_T2M_MEMORY_DECAY_HOURS = 360.0
++_LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_START_HOURS = 120.0
++_LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_FULL_HOURS = 240.0
++_LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN = 1.5
+ _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT = 1.0e-3
+ _OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS = 10_000.0
+ _OCEAN_BULK_SHF_MIN_EFOLDING_DAYS = 6.0
+@@ -135,6 +139,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_stability_aware_near_surface_residual_decay: bool = False
+     use_scale_separated_near_surface_residual: bool = False
+     use_land_sea_surface_temperature_residual: bool = False
++    use_land_ocean_low_mode_t2m_memory: bool = False
+     apply_ocean_bulk_sensible_heat_flux: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+@@ -190,6 +195,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         land_sea_fraction = None
+         if (
+             self.use_land_sea_surface_temperature_residual
++            or self.use_land_ocean_low_mode_t2m_memory
+             or self.apply_ocean_bulk_sensible_heat_flux
+         ):
+             land_sea_fraction = _load_land_sea_fraction_for_grid(
+@@ -288,6 +294,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     }
+                     if self.use_land_sea_surface_temperature_residual:
+                         residual_kwargs["land_sea_fraction"] = land_sea_fraction
++                    if self.use_land_ocean_low_mode_t2m_memory:
++                        residual_kwargs["land_sea_fraction"] = land_sea_fraction
++                        residual_kwargs["use_land_ocean_low_mode_t2m_memory"] = True
+                 trajectory_state = residual_correction(
+                     trajectory_state,
+                     initial_state=single_state,
+@@ -843,9 +852,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,8 +872,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -1368,6 +1375,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def land_ocean_low_mode_t2m_memory_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return vertical-DSE incumbent with late broad land/ocean T2m memory."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
++        use_land_ocean_low_mode_t2m_memory=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1800,6 +1818,7 @@ def _apply_scale_separated_near_surface_residual_correction(
+     horizontal_grid: spherical_harmonic.Grid | None = None,
+     latitude_reversed: bool = False,
+     land_sea_fraction: jax.Array | None = None,
++    use_land_ocean_low_mode_t2m_memory: bool = False,
+ ) -> WeatherState:
+     """Apply low- and high-wavenumber residual memory to near-surface outputs."""
+     incumbent_state = _apply_near_surface_residual_correction(
+@@ -1873,6 +1892,26 @@ def _apply_scale_separated_near_surface_residual_correction(
+             low_mode_residual[jnp.newaxis, ...] * channel_low_mode_decay
+             + high_mode_residual[jnp.newaxis, ...] * channel_high_mode_decay
+         )
++        if (
++            channel == TWO_METER_TEMPERATURE_VARIABLE
++            and use_land_ocean_low_mode_t2m_memory
++            and valid_land_sea_fraction is not None
++        ):
++            memory_correction, memory_is_valid = (
++                _land_ocean_low_mode_t2m_memory_correction(
++                    low_mode_residual,
++                    land_sea_fraction=valid_land_sea_fraction,
++                    horizontal_grid=horizontal_grid,
++                    latitude_reversed=latitude_reversed,
++                    lead_hours_array=lead_hours_array,
++                    incumbent_low_mode_decay=channel_low_mode_decay,
++                )
++            )
++            candidate_channel_values = jnp.where(
++                memory_is_valid,
++                candidate_channel_values + memory_correction,
++                candidate_channel_values,
++            )
+         candidate_channel_values = jnp.where(
+             lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
+             initial_channel[jnp.newaxis, ...],
+@@ -1891,6 +1930,118 @@ def _apply_scale_separated_near_surface_residual_correction(
+     )
+ 
+ 
++def _land_ocean_low_mode_t2m_memory_correction(
++    low_mode_residual: jax.Array,
++    *,
++    land_sea_fraction: jax.Array,
++    horizontal_grid: spherical_harmonic.Grid,
++    latitude_reversed: bool,
++    lead_hours_array: jax.Array,
++    incumbent_low_mode_decay: jax.Array,
++) -> tuple[jax.Array, jax.Array]:
++    """Return a capped late-lead broad land/ocean T2m memory correction."""
++    broad_residual, residual_is_valid = _land_ocean_low_mode_t2m_residual(
++        low_mode_residual,
++        land_sea_fraction=land_sea_fraction,
++        horizontal_grid=horizontal_grid,
++        latitude_reversed=latitude_reversed,
++    )
++    lead_hours = lead_hours_array[:, jnp.newaxis, jnp.newaxis]
++    ramp_fraction = jnp.clip(
++        (lead_hours - _LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_START_HOURS)
++        / (
++            _LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_FULL_HOURS
++            - _LAND_OCEAN_LOW_MODE_T2M_MEMORY_RAMP_START_HOURS
++        ),
++        0.0,
++        1.0,
++    )
++    ramp = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
++    memory_decay = jnp.exp(
++        -lead_hours
++        / jnp.asarray(
++            _LAND_OCEAN_LOW_MODE_T2M_MEMORY_DECAY_HOURS,
++            dtype=lead_hours.dtype,
++        )
++    )
++    extra_decay = jnp.maximum(memory_decay - incumbent_low_mode_decay, 0.0) * ramp
++    uncapped_correction = broad_residual[jnp.newaxis, ...] * extra_decay
++    correction = jnp.clip(
++        uncapped_correction,
++        -_LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
++        _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
++    )
++    correction_is_valid = (
++        residual_is_valid
++        & jnp.all(jnp.isfinite(extra_decay))
++        & jnp.all(jnp.isfinite(correction))
++        & jnp.all(extra_decay >= 0.0)
++        & jnp.all(extra_decay <= 1.0)
++    )
++    return correction, correction_is_valid
++
++
++def _land_ocean_low_mode_t2m_residual(
++    low_mode_residual: jax.Array,
++    *,
++    land_sea_fraction: jax.Array,
++    horizontal_grid: spherical_harmonic.Grid,
++    latitude_reversed: bool,
++) -> tuple[jax.Array, jax.Array]:
++    """Return land/ocean broad means of the low-mode T2m residual."""
++    residual = jnp.asarray(low_mode_residual)
++    land_fraction = jnp.asarray(land_sea_fraction, dtype=residual.dtype)
++    ocean_fraction = 1.0 - land_fraction
++    quadrature_weights = jnp.asarray(
++        horizontal_grid.quadrature_weights,
++        dtype=residual.dtype,
++    )
++    quadrature_weights = _from_dinosaur_latitude_order(
++        quadrature_weights,
++        latitude_reversed,
++    )
++    land_weights = quadrature_weights * land_fraction
++    ocean_weights = quadrature_weights * ocean_fraction
++    tiny_weight = jnp.asarray(jnp.finfo(residual.dtype).tiny, dtype=residual.dtype)
++    land_weight_sum = jnp.sum(land_weights)
++    ocean_weight_sum = jnp.sum(ocean_weights)
++    safe_land_weight_sum = jnp.where(
++        land_weight_sum > tiny_weight,
++        land_weight_sum,
++        jnp.ones_like(land_weight_sum),
++    )
++    safe_ocean_weight_sum = jnp.where(
++        ocean_weight_sum > tiny_weight,
++        ocean_weight_sum,
++        jnp.ones_like(ocean_weight_sum),
++    )
++    land_mean = jnp.where(
++        land_weight_sum > tiny_weight,
++        jnp.sum(residual * land_weights) / safe_land_weight_sum,
++        jnp.zeros_like(land_weight_sum),
++    )
++    ocean_mean = jnp.where(
++        ocean_weight_sum > tiny_weight,
++        jnp.sum(residual * ocean_weights) / safe_ocean_weight_sum,
++        jnp.zeros_like(ocean_weight_sum),
++    )
++    broad_residual = land_fraction * land_mean + ocean_fraction * ocean_mean
++    residual_is_valid = jnp.all(
++        jnp.asarray(
++            [
++                jnp.all(jnp.isfinite(residual)),
++                jnp.all(jnp.isfinite(land_fraction)),
++                jnp.all(jnp.isfinite(quadrature_weights)),
++                jnp.all(land_fraction >= 0.0),
++                jnp.all(land_fraction <= 1.0),
++                jnp.all(quadrature_weights >= 0.0),
++                jnp.all(jnp.isfinite(broad_residual)),
++            ]
++        )
++    )
++    return broad_residual, residual_is_valid
++
++
+ def _land_sea_surface_temperature_residual_decays(
+     *,
+     high_mode_decay: jax.Array,
+@@ -2559,9 +2710,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2735,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..2e2c9b9 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_model() -> DycoreModel:
++    """Return vertical-DSE incumbent with broad land/ocean T2m memory."""
++    from dynamaxx.dycore.models.dinosaur import (
++        land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
++    )
++
++    return land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,8 +311,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem": (
++        dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_model
+     ),
+ }
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..9d64844 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.land_ocean_low_mode_t2m_memory_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,26 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_land_ocean_low_mode_t2m_memory_is_registered():
++    """The broad T2m memory candidate is side-by-side with the ramp incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_t2m_lomem")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert not incumbent.use_land_ocean_low_mode_t2m_memory
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..8556396 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -25,6 +25,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER,
+     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
+     _DRY_AIR_GAS_CONSTANT_SI,
++    _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+@@ -48,6 +49,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _hydrostatic_temperature_from_geopotential_thickness,
+     _inner_steps_per_forecast_step,
+     _interp_sigma_to_pressure_by_time,
++    _land_ocean_low_mode_t2m_memory_correction,
+     _land_sea_surface_temperature_residual_decays,
+     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
+     _nondimensionalize_seconds,
+@@ -78,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
++    land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+@@ -174,6 +177,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.use_stability_aware_near_surface_residual_decay
+     assert not model.use_scale_separated_near_surface_residual
+     assert not model.use_land_sea_surface_temperature_residual
++    assert not model.use_land_ocean_low_mode_t2m_memory
+     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
+     assert not model.use_log_pressure_initialization
+     assert not model.apply_weak_held_suarez_relaxation
+@@ -655,6 +659,26 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_land_ocean_low_mode_t2m_memory_factory_preserves_ramp_except_selector():
++    """The candidate changes only name and the broad T2m memory selector."""
++    model = land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert not incumbent.use_land_ocean_low_mode_t2m_memory
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -1855,6 +1879,57 @@ def test_land_sea_surface_temperature_decay_blends_land_ocean_and_coast():
+     )
+ 
+ 
++def test_land_ocean_low_mode_t2m_memory_is_capped_and_late():
++    """Broad land/ocean memory is zero through day 5 and capped afterward."""
++    grid = grid_metadata(
++        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
++        latitude=np.array([90.0, 0.0, -90.0]),
++        layer_count=2,
++        spectral_wavenumbers=None,
++    )
++    low_mode_residual = jnp.asarray(
++        [
++            [4.0, 4.0, 4.0],
++            [4.0, 4.0, 4.0],
++            [-2.0, -2.0, -2.0],
++            [-2.0, -2.0, -2.0],
++        ],
++        dtype=jnp.float32,
++    )
++    land_sea_fraction = jnp.asarray(
++        [
++            [1.0, 1.0, 1.0],
++            [1.0, 1.0, 1.0],
++            [0.0, 0.0, 0.0],
++            [0.0, 0.0, 0.0],
++        ],
++        dtype=jnp.float32,
++    )
++    lead_hours = jnp.asarray([0.0, 120.0, 240.0], dtype=jnp.float32)
++    incumbent_decay = jnp.zeros((3, 4, 3), dtype=jnp.float32)
++
++    correction, correction_is_valid = _land_ocean_low_mode_t2m_memory_correction(
++        low_mode_residual,
++        land_sea_fraction=land_sea_fraction,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++        lead_hours_array=lead_hours,
++        incumbent_low_mode_decay=incumbent_decay,
++    )
++
++    assert bool(correction_is_valid)
++    np.testing.assert_array_equal(correction[0], 0.0)
++    np.testing.assert_array_equal(correction[1], 0.0)
++    np.testing.assert_allclose(
++        correction[2, :2],
++        _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
++    )
++    assert float(jnp.max(jnp.abs(correction))) <= (
++        _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN
++    )
++    assert float(jnp.min(correction[2, 2:])) < 0.0
++
++
+ def test_land_sea_fraction_validation_rejects_unsafe_masks():
+     """Invalid masks are rejected before they can alter residual memory."""
+     assert _valid_land_sea_fraction_or_none(None, (2, 2)) is None
+@@ -1979,6 +2054,91 @@ def test_land_sea_surface_temperature_correction_preserves_non_t2m_channels():
+     )
+ 
+ 
++def test_land_ocean_low_mode_t2m_memory_adds_only_late_temperature():
++    """The low-mode memory candidate preserves early leads and non-T2m outputs."""
++    raw_temperature = jnp.stack(
++        [
++            jnp.full((4, 3), 280.0, dtype=jnp.float32),
++            jnp.full((4, 3), 281.0, dtype=jnp.float32),
++            jnp.full((4, 3), 282.0, dtype=jnp.float32),
++        ]
++    )
++    raw_u_wind = jnp.stack(
++        [
++            jnp.full((4, 3), 1.0, dtype=jnp.float32),
++            jnp.full((4, 3), 1.5, dtype=jnp.float32),
++            jnp.full((4, 3), 2.0, dtype=jnp.float32),
++        ]
++    )
++    raw_pressure = jnp.stack(
++        [
++            jnp.full((4, 3), 100000.0, dtype=jnp.float32),
++            jnp.full((4, 3), 99900.0, dtype=jnp.float32),
++            jnp.full((4, 3), 99800.0, dtype=jnp.float32),
++        ]
++    )
++    trajectory_state = WeatherState(
++        values=jnp.stack([raw_temperature, raw_u_wind, raw_pressure], axis=1),
++        variables=(
++            "2m_temperature",
++            "10m_u_component_of_wind",
++            "mean_sea_level_pressure",
++        ),
++    )
++    initial_temperature = jnp.full((4, 3), 284.0, dtype=jnp.float32)
++    initial_u_wind = jnp.full((4, 3), 4.0, dtype=jnp.float32)
++    initial_state = WeatherState(
++        values=jnp.stack([initial_temperature, initial_u_wind]),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++    grid = grid_metadata(
++        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
++        latitude=np.array([90.0, 0.0, -90.0]),
++        layer_count=2,
++        spectral_wavenumbers=None,
++    )
++    land_sea_fraction = jnp.ones((4, 3), dtype=jnp.float32)
++
++    incumbent = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1, 2),
++        lead_hours=(0, 120, 240),
++        decay_hours=48.0,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++        land_sea_fraction=land_sea_fraction,
++    )
++    corrected = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1, 2),
++        lead_hours=(0, 120, 240),
++        decay_hours=48.0,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++        land_sea_fraction=land_sea_fraction,
++        use_land_ocean_low_mode_t2m_memory=True,
++    )
++
++    corrected_temperature = corrected.select(("2m_temperature",)).values[:, 0]
++    incumbent_temperature = incumbent.select(("2m_temperature",)).values[:, 0]
++    np.testing.assert_array_equal(corrected_temperature[0], initial_temperature)
++    np.testing.assert_allclose(corrected_temperature[1], incumbent_temperature[1])
++    assert float(jnp.min(corrected_temperature[2] - incumbent_temperature[2])) > 0.0
++    assert float(
++        jnp.max(jnp.abs(corrected_temperature[2] - incumbent_temperature[2]))
++    ) <= (_LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN + 1.0e-6)
++    np.testing.assert_array_equal(
++        corrected.select(("10m_u_component_of_wind",)).values,
++        incumbent.select(("10m_u_component_of_wind",)).values,
++    )
++    np.testing.assert_array_equal(
++        corrected.select(("mean_sea_level_pressure",)).values,
++        trajectory_state.select(("mean_sea_level_pressure",)).values,
++    )
++
++
+ def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
+     """Missing or unsafe masks leave the scale-separated incumbent unchanged."""
+     raw_temperature = jnp.stack(
+@@ -2031,6 +2191,7 @@ def test_land_sea_surface_temperature_invalid_mask_reproduces_incumbent():
+             horizontal_grid=grid.coords.horizontal,
+             latitude_reversed=grid.latitude_reversed,
+             land_sea_fraction=invalid_mask,
++            use_land_ocean_low_mode_t2m_memory=True,
+         )
+ 
+         np.testing.assert_array_equal(fallback.values, incumbent.values)
+@@ -3809,10 +3970,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -4866,10 +5026,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -6730,9 +6889,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..c26ef7d 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+     )
+ 
+ 
+@@ -660,6 +661,26 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_land_ocean_low_mode_t2m_memory_candidate_model():
++    """The broad T2m memory alias adds only the output-memory selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_t2m_lomem")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert not incumbent.use_land_ocean_low_mode_t2m_memory
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

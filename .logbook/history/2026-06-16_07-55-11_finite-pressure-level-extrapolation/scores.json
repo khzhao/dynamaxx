@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "finite-pressure-level-extrapolation",
+  "candidate_model_name": "dinosaur",
+  "incumbent_model_name": "dinosaur",
+  "scoring_context": {
+    "iteration": 2,
+    "comparison_type": "infrastructure_repair_same_canonical_model",
+    "model_selection_delta_thresholds_applied": false,
+    "validation_permission": "yes",
+    "worker_count": 4,
+    "registry_confirmed": true,
+    "notes": "Candidate and incumbent names both refer to the same repaired canonical dinosaur model. The iteration and validation artifacts are post-repair finite baselines, not separate model-selection candidate/incumbent comparisons."
+  },
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4beb6c221f8655f80b6530713ffc75697e9c654e",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "provided_test_records": [
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "exit_status": 0,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py tests/eval/test_runner.py",
+      "exit_status": 0,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    }
+  ],
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names, create_dycore_model; names=dycore_model_names(); print(names); model=create_dycore_model('dinosaur'); print(model.name)\"",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed registered model names were ('persistence', 'dinosaur') and create_dycore_model('dinosaur').name was dinosaur."
+    },
+    {
+      "command": "jq '{protocol, model_name, primary_score, diagnostics, records: (.records | length? // .record_count // null), started_at, finished_at, config, evaluation_fingerprint}' outputs/eval/fast_dinosaur.json",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified reusable post-repair fast JSON artifact for model=dinosaur: primary_score=-1.2882176100657747, failed=false, issues=0, records=120."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-16T07:56:32Z",
+      "finished_at": "2026-06-16T08:28:36Z",
+      "notes": "Ran from scratch with chunks=229, cached=0, pending=229 at start, GPU worker dispatch 0:0,1:1,2:2,3:3. Result failed=false, issues=0, records=120."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-16T08:28:36Z",
+      "finished_at": "2026-06-16T08:36:29Z",
+      "notes": "Ran from scratch with chunks=46, cached=0, pending=46 at start, GPU worker dispatch 0:0,1:1,2:2,3:3. Result failed=false, issues=0, records=120."
+    },
+    {
+      "command": "uv run python - <<'PY'\nimport csv\nimport json\nimport math\nfrom pathlib import Path\n\nfor stem in [\"fast_dinosaur\", \"iteration_dinosaur\", \"validation_dinosaur\"]:\n    json_path = Path(\"outputs/eval\") / f\"{stem}.json\"\n    csv_path = Path(\"outputs/eval\") / f\"{stem}.csv\"\n    data = json.loads(json_path.read_text())\n    issue_count = len(data[\"diagnostics\"][\"issues\"])\n    nonfinite_cells = 0\n    with csv_path.open(newline=\"\") as file_handle:\n        rows = list(csv.DictReader(file_handle))\n    for row in rows:\n        for column in (\"rmse\", \"mae\", \"bias\", \"skill_vs_persistence\"):\n            value = float(row[column])\n            if not math.isfinite(value):\n                nonfinite_cells += 1\n    print(f\"{stem}: model={data['model_name']} primary_score={data['primary_score']} failed={data['diagnostics']['failed']} issues={issue_count} json_records={len(data['records'])} csv_records={len(rows)} nonfinite_metric_cells={nonfinite_cells}\")\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed fast, iteration, and validation JSON/CSV artifacts each had 120 records and zero nonfinite rmse/mae/bias/skill_vs_persistence cells."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur.csv",
+    "candidate_validation_json": "outputs/eval/validation_dinosaur.json",
+    "candidate_validation_csv": "outputs/eval/validation_dinosaur.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur.csv"
+  },
+  "raw_run_directories": {
+    "candidate_iteration": "outputs/eval/runs/iteration_dinosaur",
+    "candidate_validation": "outputs/eval/runs/validation_dinosaur"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.2882176100657747,
+    "candidate_iteration": -1.3251884351511753,
+    "candidate_validation": -1.3128324262513928,
+    "incumbent_iteration": -1.3251884351511753,
+    "incumbent_validation": -1.3128324262513928,
+    "iteration_delta": 0.0,
+    "validation_delta": 0.0
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "by_protocol": {
+      "fast": {
+        "failed": false,
+        "issue_count": 0,
+        "record_count": 120
+      },
+      "iteration": {
+        "failed": false,
+        "issue_count": 0,
+        "record_count": 120
+      },
+      "validation": {
+        "failed": false,
+        "issue_count": 0,
+        "record_count": 120
+      }
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": null,
+    "infrastructure_finite_baseline_established": true,
+    "notes": "Validation acceptance gate is null because model-selection thresholds are not applied for this infrastructure repair."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": [],
+    "not_applicable_reason": "No separate candidate/incumbent model-selection comparison was performed; canonical dinosaur was repaired in place."
+  },
+  "anomalies": {
+    "cache_reuse": "Reused existing post-repair fast artifacts outputs/eval/fast_dinosaur.json and outputs/eval/fast_dinosaur.csv. Iteration and validation started with cached=0 and created fresh run directories.",
+    "resource_limits": "No CPU, RAM, GPU, disk, or wall-clock resource failure was observed.",
+    "failed_or_restarted_commands": "None.",
+    "nonfinite_or_unstable_outputs": "None observed. Artifact consistency check found zero nonfinite metric cells in fast, iteration, and validation CSV outputs."
+  }
+}

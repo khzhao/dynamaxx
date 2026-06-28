@@ -1,0 +1,476 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "distributed-ocean-heat-flux",
+  "candidate_model_name": "dino_hsl2_mass_dse_ocean_flux_taper",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "history_directory": ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux",
+  "scorer_role": "Scorer",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "protocols_requested": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "protocols_completed": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "candidate_created_model_name": "dino_hsl2_mass_dse_ocean_flux_taper",
+    "incumbent_created_model_name": "dino_hsl2_mass_dse",
+    "command": "python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model\nfor name in ['dino_hsl2_mass_dse', 'dino_hsl2_mass_dse_ocean_flux_taper']:\n    model = create_dycore_model(name)\n    print(f'{name}: registered, created name={model.name}, class={type(model).__name__}')\nPY",
+    "exit_status": 0
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "status": "reused_orchestrator_handoff",
+      "notes": "Not rerun by Scorer. Orchestrator reported full pytest gate passed: 244 passed, 2 skipped in 220.06s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_ocean_flux_taper",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-24T12:13:03Z",
+      "status": "verified_existing_candidate_artifact",
+      "notes": "Not rerun by Scorer. Existing handoff artifact was readable, finite, model-matched, diagnostics failed=False, issues=0, records=120."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_ocean_flux_taper --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-24T12:19:24Z",
+      "finished_at": "2026-06-24T15:01:50Z",
+      "status": "completed",
+      "notes": "Candidate iteration completed with failed=False, issues=0, records=120."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_ocean_flux_taper --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "status": "not_run",
+      "notes": "Skipped because candidate failed the iteration promotion gate."
+    }
+  ],
+  "resource_policy": {
+    "workers": 4,
+    "orchestrator_reported_resources": {
+      "cpu_count": 48,
+      "available_ram_gib": 171,
+      "gpu_count": 4,
+      "gpu_type": "NVIDIA L4",
+      "free_gpu_memory_gib_each_approx": 22.5,
+      "free_disk_tib": 4.1
+    },
+    "observed_iteration_run": {
+      "run_directory": "outputs/eval/runs/iteration_dino_hsl2_mass_dse_ocean_flux_taper",
+      "chunks_total": 229,
+      "chunks_completed": 229,
+      "worker_devices": "0:0,1:1,2:2,3:3",
+      "anomaly": null
+    }
+  },
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_ocean_flux_taper.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_ocean_flux_taper.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_ocean_flux_taper.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_ocean_flux_taper.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+    "candidate_iteration_run_directory": "outputs/eval/runs/iteration_dino_hsl2_mass_dse_ocean_flux_taper",
+    "candidate_diff": ".logbook/history/2026-06-24_12-01-01_distributed-ocean-heat-flux/candidate.diff"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.28201298547250314,
+    "candidate_iteration": -0.2801194788322577,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2616483974683927,
+    "incumbent_validation": -0.2600180396322455,
+    "iteration_delta": -0.018471081363864994,
+    "iteration_absolute_delta": 0.018471081363864994,
+    "validation_delta": null,
+    "validation_absolute_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_validation": null,
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "incumbent_validation": {
+      "failed": false,
+      "issue_count": 0
+    }
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "incumbent_rerun": false,
+      "json_path": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "csv_path": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "leaderboard_protocol_includes_iteration": true,
+        "data_path_matches": true,
+        "target_variables_match": true,
+        "lead_days_match": true,
+        "eval_code_commit_matches": true,
+        "artifact_exists_and_readable": true,
+        "model_name_matches": true,
+        "primary_score_finite": true,
+        "records_present": 120,
+        "guardrail_records_present": true,
+        "diagnostics_failed": false,
+        "diagnostic_issue_count": 0
+      },
+      "reason": "Leaderboard incumbent cache is valid under roles/PROTOCOL.md and roles/SCORER.md; candidate source edits do not invalidate the accepted incumbent cache."
+    },
+    "validation": {
+      "incumbent_metrics_reused": false,
+      "incumbent_rerun": false,
+      "json_path": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "csv_path": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "leaderboard_protocol_includes_validation": true,
+        "data_path_matches": true,
+        "target_variables_match": true,
+        "lead_days_match": true,
+        "eval_code_commit_matches": true,
+        "artifact_exists_and_readable": true,
+        "model_name_matches": true,
+        "primary_score_finite": true,
+        "records_present": 120,
+        "diagnostics_failed": false,
+        "diagnostic_issue_count": 0
+      },
+      "reason": "Validation cache was inspected but not used for candidate comparison because candidate iteration failed promotion and candidate validation was not run."
+    }
+  },
+  "gate_status": {
+    "unit_tests_passed": true,
+    "unit_tests_source": "orchestrator_handoff",
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_run": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_gate_checks": {
+      "candidate_diagnostics_clean": true,
+      "primary_delta_threshold": {
+        "passed": false,
+        "required_min_delta": 0.002,
+        "observed_delta": -0.018471081363864994
+      },
+      "mean_rmse_regression_leads_1_to_5_days_threshold": {
+        "passed": false,
+        "max_allowed_relative_regression": 0.02,
+        "violating_variables": [
+          "2m_temperature"
+        ]
+      },
+      "individual_rmse_regression_threshold": {
+        "passed": false,
+        "max_allowed_relative_regression": 0.1,
+        "violation_count": 26
+      }
+    },
+    "validation_skip_reason": "Candidate iteration primary score was lower than incumbent by -0.018471081363864994 and fixed RMSE guardrails also failed."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 4.563159392504433,
+        "incumbent_mean_rmse": 4.7783121266275375,
+        "relative_rmse_delta": -0.04502693177453771,
+        "relative_rmse_delta_percent": -4.5026931774537715,
+        "violates_2_percent_gate": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "candidate_mean_rmse": 3.855252214972279,
+        "incumbent_mean_rmse": 2.793822258428593,
+        "relative_rmse_delta": 0.37992035940779406,
+        "relative_rmse_delta_percent": 37.99203594077941,
+        "violates_2_percent_gate": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 740.3411465552169,
+        "incumbent_mean_rmse": 878.0844087723547,
+        "relative_rmse_delta": -0.15686790568314027,
+        "relative_rmse_delta_percent": -15.686790568314027,
+        "violates_2_percent_gate": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 800.065948463245,
+        "incumbent_mean_rmse": 817.7806710632052,
+        "relative_rmse_delta": -0.02166194827878369,
+        "relative_rmse_delta_percent": -2.166194827878369,
+        "violates_2_percent_gate": false
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 216,
+        "candidate_rmse": 5.787564717126637,
+        "incumbent_rmse": 5.358745769202679,
+        "relative_rmse_delta": 0.0800222601319191,
+        "relative_rmse_delta_percent": 8.00222601319191,
+        "violates_10_percent_gate": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 240,
+        "candidate_rmse": 7.787402060770928,
+        "incumbent_rmse": 3.5394388546715136,
+        "relative_rmse_delta": 1.2001798535077834,
+        "relative_rmse_delta_percent": 120.01798535077835,
+        "violates_10_percent_gate": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 216,
+        "candidate_rmse": 1146.5744176135968,
+        "incumbent_rmse": 1103.049670493141,
+        "relative_rmse_delta": 0.03945855593338517,
+        "relative_rmse_delta_percent": 3.945855593338517,
+        "violates_10_percent_gate": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 240,
+        "candidate_rmse": 1326.789241618952,
+        "incumbent_rmse": 986.7360607929672,
+        "relative_rmse_delta": 0.3446242560069296,
+        "relative_rmse_delta_percent": 34.46242560069296,
+        "violates_10_percent_gate": true
+      }
+    ],
+    "individual_rmse_regressions_gt_10_percent_count": 26,
+    "individual_rmse_regressions_gt_10_percent": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 240,
+        "candidate_rmse": 7.787402060770928,
+        "incumbent_rmse": 3.5394388546715136,
+        "relative_rmse_delta_percent": 120.01798535077835
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 264,
+        "candidate_rmse": 7.887239134714977,
+        "incumbent_rmse": 3.5862656804470525,
+        "relative_rmse_delta_percent": 119.92902471553025
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 312,
+        "candidate_rmse": 8.057753850732446,
+        "incumbent_rmse": 3.665269326821271,
+        "relative_rmse_delta_percent": 119.84070288555266
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 288,
+        "candidate_rmse": 7.975733621337805,
+        "incumbent_rmse": 3.6279727874348047,
+        "relative_rmse_delta_percent": 119.83995163803667
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 216,
+        "candidate_rmse": 7.663804035909724,
+        "incumbent_rmse": 3.490733294039216,
+        "relative_rmse_delta_percent": 119.54710917034114
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "candidate_rmse": 8.125723694359568,
+        "incumbent_rmse": 3.7043449237947907,
+        "relative_rmse_delta_percent": 119.35656267223209
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "candidate_rmse": 8.181284991677677,
+        "incumbent_rmse": 3.7478507160797436,
+        "relative_rmse_delta_percent": 118.2927125826215
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 192,
+        "candidate_rmse": 7.48781136407091,
+        "incumbent_rmse": 3.4366632050965933,
+        "relative_rmse_delta_percent": 117.88027854944988
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 168,
+        "candidate_rmse": 7.269089999357058,
+        "incumbent_rmse": 3.3707082851007755,
+        "relative_rmse_delta_percent": 115.65467505710689
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 144,
+        "candidate_rmse": 6.96584119613867,
+        "incumbent_rmse": 3.2965129068247356,
+        "relative_rmse_delta_percent": 111.30938640395927
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 120,
+        "candidate_rmse": 6.568195969920389,
+        "incumbent_rmse": 3.2119338695850366,
+        "relative_rmse_delta_percent": 104.49349944956874
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 96,
+        "candidate_rmse": 6.0145857249837755,
+        "incumbent_rmse": 3.100893881968243,
+        "relative_rmse_delta_percent": 93.96296532295756
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 72,
+        "candidate_rmse": 5.2210119581592656,
+        "incumbent_rmse": 2.938747230923407,
+        "relative_rmse_delta_percent": 77.66114428693925
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 48,
+        "candidate_rmse": 4.124633397493514,
+        "incumbent_rmse": 2.6665664118042818,
+        "relative_rmse_delta_percent": 54.679567673045824
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 240,
+        "candidate_rmse": 1326.789241618952,
+        "incumbent_rmse": 986.7360607929672,
+        "relative_rmse_delta_percent": 34.46242560069296
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 216,
+        "candidate_rmse": 1316.1951269729161,
+        "incumbent_rmse": 980.3323437713609,
+        "relative_rmse_delta_percent": 34.26009407273899
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 264,
+        "candidate_rmse": 1329.260729737857,
+        "incumbent_rmse": 991.8632992961732,
+        "relative_rmse_delta_percent": 34.01652532976079
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 288,
+        "candidate_rmse": 1327.460255529691,
+        "incumbent_rmse": 995.5557575005241,
+        "relative_rmse_delta_percent": 33.33861469120098
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 192,
+        "candidate_rmse": 1296.3883329265516,
+        "incumbent_rmse": 973.2191136190054,
+        "relative_rmse_delta_percent": 33.20621376884097
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 312,
+        "candidate_rmse": 1312.9811234168865,
+        "incumbent_rmse": 999.3721647679777,
+        "relative_rmse_delta_percent": 31.38059770973497
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 168,
+        "candidate_rmse": 1257.721614849654,
+        "incumbent_rmse": 963.1984782281984,
+        "relative_rmse_delta_percent": 30.577616480793285
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 24,
+        "candidate_rmse": 2.654983808781675,
+        "incumbent_rmse": 2.050969897861998,
+        "relative_rmse_delta_percent": 29.45015972927356
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 336,
+        "candidate_rmse": 1290.8223068340478,
+        "incumbent_rmse": 999.9467095603493,
+        "relative_rmse_delta_percent": 29.08910989882541
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "candidate_rmse": 1272.5063872045796,
+        "incumbent_rmse": 998.7536154451365,
+        "relative_rmse_delta_percent": 27.409439878466298
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 144,
+        "candidate_rmse": 1198.1079577381163,
+        "incumbent_rmse": 953.0460564240266,
+        "relative_rmse_delta_percent": 25.713542347953165
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 120,
+        "candidate_rmse": 1104.6846359265326,
+        "incumbent_rmse": 937.318746406913,
+        "relative_rmse_delta_percent": 17.855813741184047
+      }
+    ]
+  },
+  "anomalies": {
+    "resource_failures": [],
+    "failed_or_restarted_commands": [],
+    "nonfinite_or_unstable_outputs": [],
+    "measurement_anomalies": []
+  },
+  "lessons": [
+    "The candidate passed diagnostics but degraded the iteration primary score by -0.018471081363864994, so clean diagnostics alone did not indicate useful forecast skill.",
+    "The ocean flux taper produced severe 2m temperature RMSE regressions across every reported lead and substantial mean sea level pressure regressions at medium and long leads.",
+    "The existing fast artifact was already directionally negative relative to the incumbent score scale, and the full iteration run confirmed underperformance."
+  ]
+}

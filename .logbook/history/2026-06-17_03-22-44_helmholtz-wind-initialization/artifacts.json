@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "helmholtz-wind-initialization",
+  "history_path": ".logbook/history/2026-06-17_03-22-44_helmholtz-wind-initialization",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "description": "Rejected candidate added Helmholtz wind initialization flag, helper, and factory."
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "description": "Rejected candidate exported the side-by-side factory."
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "description": "Rejected candidate registered dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind."
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "description": "Rejected candidate added configuration, transform-path, and smoke-forecast tests."
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "description": "Rejected candidate added import and registry checks."
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "description": "Rejected candidate added registry construction checks."
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_helmholtz_wind.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-17_03-22-44_helmholtz-wind-initialization/proposal.md",
+    ".logbook/history/2026-06-17_03-22-44_helmholtz-wind-initialization/implementation.md",
+    ".logbook/history/2026-06-17_03-22-44_helmholtz-wind-initialization/scores.json",
+    ".logbook/history/2026-06-17_03-22-44_helmholtz-wind-initialization/scoring_notes.md",
+    ".logbook/history/2026-06-17_03-22-44_helmholtz-wind-initialization/decision.md"
+  ],
+  "notes": "Candidate rejected because iteration primary regressed by -0.34423230670441374 and RMSE guardrails failed. Golden was not run."
+}

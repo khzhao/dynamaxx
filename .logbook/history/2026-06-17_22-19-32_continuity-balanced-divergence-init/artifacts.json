@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "continuity-balanced-divergence-init",
+  "history_path": ".logbook/history/2026-06-17_22-19-32_continuity-balanced-divergence-init",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-17_22-19-32_continuity-balanced-divergence-init/proposal.md",
+      "description": "Immutable copy of the selected ready proposal."
+    },
+    {
+      "path": ".logbook/history/2026-06-17_22-19-32_continuity-balanced-divergence-init/implementation.md",
+      "description": "Implementation summary, changed files, local checks, repair notes, and rollback notes."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_continuity_balanced.json",
+      "description": "Candidate fast protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_continuity_balanced.csv",
+      "description": "Candidate fast protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_continuity_balanced.json",
+      "description": "Candidate iteration protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_continuity_balanced.csv",
+      "description": "Candidate iteration protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+      "description": "Reused incumbent iteration protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv",
+      "description": "Reused incumbent iteration protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+      "description": "Reusable incumbent validation protocol JSON metrics; candidate validation was not run."
+    },
+    {
+      "path": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv",
+      "description": "Reusable incumbent validation protocol CSV metrics; candidate validation was not run."
+    }
+  ],
+  "log_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-17_22-19-32_continuity-balanced-divergence-init/scores.json",
+      "description": "Structured score summary, commands, artifacts, diagnostics, and gate calculations."
+    },
+    {
+      "path": ".logbook/history/2026-06-17_22-19-32_continuity-balanced-divergence-init/scoring_notes.md",
+      "description": "Scorer notes, guardrails, anomalies, and measurement lessons."
+    },
+    {
+      "path": ".logbook/history/2026-06-17_22-19-32_continuity-balanced-divergence-init/decision.md",
+      "description": "Orchestrator rejection decision and cleanup record."
+    }
+  ],
+  "notes": "Candidate validation artifacts are absent because the iteration promotion gate did not pass. Golden was not run. Leaderboard was not updated."
+}

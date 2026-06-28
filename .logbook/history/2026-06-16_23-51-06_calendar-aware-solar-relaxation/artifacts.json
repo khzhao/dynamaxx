@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "calendar-aware-solar-relaxation",
+  "history_path": ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_seasonal.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_seasonal.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_seasonal.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_seasonal.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation/proposal.md",
+    ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation/implementation.md",
+    ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation/scores.json",
+    ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation/scoring_notes.md",
+    ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation/decision.md",
+    ".logbook/history/2026-06-16_23-51-06_calendar-aware-solar-relaxation/artifacts.json"
+  ],
+  "notes": "Rejected because fixed iteration primary delta was -0.040271379533892704 and 2m_temperature RMSE guardrails failed; validation was not run."
+}

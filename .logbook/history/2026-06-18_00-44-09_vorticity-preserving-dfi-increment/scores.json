@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "vorticity-preserving-dfi-increment",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init",
+  "history_directory": ".logbook/history/2026-06-18_00-44-09_vorticity-preserving-dfi-increment",
+  "worker_count": 4,
+  "validation_allowed_if_iteration_promotes": true,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "a7833574e9ade1a5271bd8cbef2fa1357465f5a8",
+    "protocols_run": [
+      "fast",
+      "iteration"
+    ],
+    "protocols_skipped": [
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "lead_hours": "24..360 every 24 hours"
+  },
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names; required=('dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi','dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init'); names=set(dycore_model_names()); missing=[name for name in required if name not in names]; print('registered=' + ','.join(name for name in required if name in names)); print('missing=' + ','.join(missing)); raise SystemExit(1 if missing else 0)\"",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed both candidate and incumbent model names are registered."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "130 passed, 2 skipped in 67.79s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate fast sanity run completed with failed=False, issues=0, records=120, primary_score=-1.1257291802745486."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate iteration completed with chunks=229, cached=0, failed=False, issues=0, records=120, primary_score=-1.1463108571625462."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "skipped": true,
+      "notes": "Not run because the iteration promotion gate did not pass."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_vort_preserving_dfi.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.1257291802745486,
+    "candidate_iteration": -1.1463108571625462,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.143975258592661,
+    "incumbent_validation": -1.1301883620649706,
+    "iteration_delta": -0.002335598569885189,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "candidate_validation": {
+      "failed": null,
+      "issue_count": null,
+      "skipped": true
+    },
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0
+    },
+    "incumbent_validation": {
+      "failed": false,
+      "issue_count": 0,
+      "used_for_gate": false
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_delta_threshold_passed": false,
+    "iteration_diagnostics_clean": true,
+    "iteration_early_day_1_to_5_mean_rmse_guardrail_passed": true,
+    "iteration_variable_lead_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_run": false,
+    "validation_primary_delta_threshold": 0.001,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": {
+      "threshold": 0.02,
+      "violation_count": 0,
+      "violations": [],
+      "summaries": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "candidate_mean_rmse": 8.683163722737216,
+          "incumbent_mean_rmse": 8.67161758555166,
+          "relative_delta": 0.0013314859738273732
+        },
+        {
+          "channel_name": "2m_temperature",
+          "candidate_mean_rmse": 7.359347844750698,
+          "incumbent_mean_rmse": 7.358666285692398,
+          "relative_delta": 0.00009261991668596536
+        },
+        {
+          "channel_name": "geopotential_500",
+          "candidate_mean_rmse": 748.1142711119124,
+          "incumbent_mean_rmse": 746.8278674886182,
+          "relative_delta": 0.0017224901202737009
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "candidate_mean_rmse": 1015.9525399915125,
+          "incumbent_mean_rmse": 1012.9263924182685,
+          "relative_delta": 0.0029875295933590174
+        }
+      ]
+    },
+    "max_rmse_regression_by_variable_and_lead": {
+      "threshold": 0.10,
+      "violation_count": 0,
+      "violations": [],
+      "worst_relative_regression": {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "candidate_rmse": 5.491232542038088,
+        "incumbent_rmse": 5.455615913305551,
+        "relative_delta": 0.006528434057403665
+      }
+    }
+  },
+  "cache_reuse": {
+    "candidate_fast": "Fresh run.",
+    "candidate_iteration": "Fresh run; evaluator reported cached=0 pending=229.",
+    "incumbent_iteration": "Reused compatible incumbent artifact supplied by Orchestrator.",
+    "incumbent_validation": "Compatible incumbent artifact was available, but validation gate was not reached.",
+    "candidate_validation": "Not run."
+  },
+  "anomalies": [
+    "An exploratory jq probe for a non-existent .metrics key exited with status 5; it was read-only and did not affect scoring.",
+    "Metric JSON records include both evaluated-model and persistence rows. Guardrail calculations were corrected to filter records by model_name before joining candidate and incumbent RMSE series."
+  ],
+  "lessons": [
+    "Guardrail scripts must filter evaluation records by model_name because raw JSON artifacts include persistence baseline records alongside evaluated-model records.",
+    "The vorticity-preserving DFI increment produced clean diagnostics and small RMSE guardrail movements, but its iteration primary score decreased relative to the incumbent, so validation was not run."
+  ]
+}

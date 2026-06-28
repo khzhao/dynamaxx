@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "recenter-before-wtg-filter-order",
+  "history_path": ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order",
+  "source_artifacts": [
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/proposal.md",
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/candidate.diff",
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/implementation.md",
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/resource_snapshot.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_precenter_wtg.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/scores.json",
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/scoring_notes.md",
+    ".logbook/history/2026-06-27_01-53-10_recenter-before-wtg-filter-order/decision.md"
+  ],
+  "notes": "Rejected candidate. Validation was skipped because iteration did not promote. Incumbent iteration artifacts were reused from the leaderboard cache; no incumbent rerun was performed."
+}

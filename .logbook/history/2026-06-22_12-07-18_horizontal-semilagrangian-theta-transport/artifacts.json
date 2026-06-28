@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "horizontal-semilagrangian-theta-transport",
+  "history_path": ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport",
+  "source_artifacts": [
+    ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport/proposal.md",
+    ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport/implementation.md",
+    ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl_theta.json",
+    "outputs/eval/fast_dino_hsl_theta.csv",
+    "outputs/eval/iteration_dino_hsl_theta.json",
+    "outputs/eval/iteration_dino_hsl_theta.csv",
+    "outputs/eval/validation_dino_hsl_theta.json",
+    "outputs/eval/validation_dino_hsl_theta.csv",
+    "outputs/eval/runs/iteration_dino_hsl_theta/manifest.json",
+    "outputs/eval/runs/iteration_dino_hsl_theta/chunks/",
+    "outputs/eval/runs/validation_dino_hsl_theta/manifest.json",
+    "outputs/eval/runs/validation_dino_hsl_theta/chunks/"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport/scores.json",
+    ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport/scoring_notes.md",
+    ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport/decision.md"
+  ],
+  "notes": "Accepted because the candidate improved iteration by +0.1070074439676863 and validation by +0.10295803136629866 over cached incumbent artifacts, with clean diagnostics and no fixed guardrail failures. Incumbent iteration and validation metrics were reused from leaderboard artifacts; no incumbent rerun was performed. Candidate source was committed as 34d20a0afd7133cba41c595072b5c14c8e42a88f."
+}

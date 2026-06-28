@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "momentum-only-sl-vertical-advection",
+  "history_path": ".logbook/history/2026-06-28_06-42-52_momentum-only-sl-vertical-advection",
+  "source_artifacts": [
+    ".logbook/history/2026-06-28_06-42-52_momentum-only-sl-vertical-advection/proposal.md",
+    ".logbook/history/2026-06-28_06-42-52_momentum-only-sl-vertical-advection/implementation.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_momslva.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_momslva.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_momslva.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_momslva.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-28_06-42-52_momentum-only-sl-vertical-advection/scores.json",
+    ".logbook/history/2026-06-28_06-42-52_momentum-only-sl-vertical-advection/scoring_notes.md",
+    ".logbook/history/2026-06-28_06-42-52_momentum-only-sl-vertical-advection/decision.md"
+  ],
+  "notes": "Rejected after fixed iteration failed with non-finite forecasts. Incumbent iteration and validation scores were reused from valid leaderboard cache; no incumbent rerun was performed."
+}

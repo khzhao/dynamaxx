@@ -1,0 +1,291 @@
+{
+  "anomalies": [
+    "Candidate fast and iteration runs completed normally with clean diagnostics. The fast run had a long quiet startup before the single chunk completed; iteration likewise had a long initial compile/dispatch phase but then progressed steadily.",
+    "Candidate validation was intentionally skipped because the iteration primary delta was negative and therefore below the +0.002 promotion gate."
+  ],
+  "artifacts": {
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl_picard.csv",
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl_picard.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl_picard.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl_picard.json",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dino_hsl_picard",
+    "candidate_validation_csv": null,
+    "candidate_validation_json": null,
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_theta.json"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+      "json": "outputs/eval/iteration_dino_hsl2_theta.json",
+      "notes": "Leaderboard incumbent metrics reused. Candidate source edits did not invalidate the accepted incumbent cache under roles/SCORER.md.",
+      "recomputed": false,
+      "reused": true,
+      "validation_checks": {
+        "candidate_source_edits_ignored_for_cache_invalidation": true,
+        "current_head_matches_leaderboard_eval_code_commit": true,
+        "data_path_compatible": true,
+        "iteration_artifact_model_name_matches": true,
+        "iteration_artifact_readable": true,
+        "iteration_guardrail_records_present": true,
+        "iteration_primary_score_finite": true,
+        "iteration_protocol_in_fingerprint": true,
+        "lead_days_match_iteration_artifact": true,
+        "lead_days_match_validation_artifact": true,
+        "no_eval_code_or_lockfile_changes_in_worktree": true,
+        "requested_incumbent_matches_leaderboard": true,
+        "target_variables_match_iteration_artifact": true,
+        "target_variables_match_validation_artifact": true,
+        "validation_artifact_model_name_matches": true,
+        "validation_artifact_readable": true,
+        "validation_guardrail_records_present": true,
+        "validation_primary_score_finite": true,
+        "validation_protocol_in_fingerprint": true
+      }
+    },
+    "validation": {
+      "csv": "outputs/eval/validation_dino_hsl2_theta.csv",
+      "json": "outputs/eval/validation_dino_hsl2_theta.json",
+      "notes": "Validation incumbent cache checked and available, but candidate validation was not run because iteration did not promote.",
+      "recomputed": false,
+      "reused": true,
+      "validation_checks": {
+        "candidate_source_edits_ignored_for_cache_invalidation": true,
+        "current_head_matches_leaderboard_eval_code_commit": true,
+        "data_path_compatible": true,
+        "iteration_artifact_model_name_matches": true,
+        "iteration_artifact_readable": true,
+        "iteration_guardrail_records_present": true,
+        "iteration_primary_score_finite": true,
+        "iteration_protocol_in_fingerprint": true,
+        "lead_days_match_iteration_artifact": true,
+        "lead_days_match_validation_artifact": true,
+        "no_eval_code_or_lockfile_changes_in_worktree": true,
+        "requested_incumbent_matches_leaderboard": true,
+        "target_variables_match_iteration_artifact": true,
+        "target_variables_match_validation_artifact": true,
+        "validation_artifact_model_name_matches": true,
+        "validation_artifact_readable": true,
+        "validation_guardrail_records_present": true,
+        "validation_primary_score_finite": true,
+        "validation_protocol_in_fingerprint": true
+      }
+    }
+  },
+  "candidate_model_name": "dino_hsl_picard",
+  "commands": [
+    {
+      "command": "sed -n '1,240p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "notes": "Read required protocol instructions."
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "notes": "Read required scorer instructions."
+    },
+    {
+      "command": "python - <<'PY' ... import registry and instantiate dino_hsl_picard and dino_hsl2_theta ... PY",
+      "exit_status": 0,
+      "notes": "Confirmed candidate and incumbent registry entries instantiate DinosaurPrimitiveEquationsDycoreModel."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl_picard",
+      "exit_status": 0,
+      "notes": "Candidate fast only. Completed 1/1 chunks, failed=False, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl_picard --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration only. Completed 229/229 chunks, failed=False, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl_picard --workers 4",
+      "exit_status": null,
+      "notes": "Skipped because iteration primary delta did not meet the +0.002 promotion gate.",
+      "skipped": true
+    }
+  ],
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "incumbent_validation_cached": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    }
+  },
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+    "lead_days": "1..15",
+    "protocols": [
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ]
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_diagnostics_clean": true,
+    "iteration_guardrails_clean": true,
+    "iteration_primary_delta_passed": false,
+    "iteration_promotes_to_validation": false,
+    "validation_run": false,
+    "validation_supports_acceptance_by_default_gates": null
+  },
+  "gate_thresholds": {
+    "early_day_1_to_5_mean_rmse_regression_maximum": 0.02,
+    "iteration_primary_delta_minimum": 0.002,
+    "validation_primary_delta_minimum": 0.001,
+    "worst_variable_lead_rmse_regression_maximum": 0.1
+  },
+  "golden_prohibited": true,
+  "history_directory": ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure",
+  "incumbent_model_name": "dino_hsl2_theta",
+  "leaderboard_incumbent_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+  "leaderboard_path": ".logbook/leaderboard.json",
+  "lessons": [
+    "Model-specific guardrail comparisons must filter out persistence rows because evaluation artifacts include both model and persistence baseline rows.",
+    "The Picard departure correction was essentially neutral to slightly negative against dino_hsl2_theta on iteration primary score, while RMSE guardrails remained clean."
+  ],
+  "model_name": "dino_hsl_picard",
+  "primary_scores": {
+    "candidate_fast": -0.3155223766814108,
+    "candidate_iteration": -0.31286871436185787,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.31282890543336245,
+    "incumbent_validation": -0.3072374345999185,
+    "iteration_delta_candidate_minus_incumbent": -3.9808928495421725e-05,
+    "validation_delta_candidate_minus_incumbent": null
+  },
+  "prohibited_commands_not_run": [
+    "uv run dynamaxx-eval golden --model dino_hsl_picard",
+    "uv run dynamaxx-eval iteration --model dino_hsl2_theta --workers 4",
+    "uv run dynamaxx-eval validation --model dino_hsl2_theta --workers 4"
+  ],
+  "regressions": {
+    "iteration": {
+      "candidate_model_record_count": 60,
+      "early_mean_guardrail_violation_count": 0,
+      "early_mean_guardrail_violations": [],
+      "incumbent_model_record_count": 60,
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "absolute_regression": 0.0001103547077487832,
+          "candidate_mean_rmse": 4.456723199372067,
+          "channel_name": "10m_u_component_of_wind",
+          "incumbent_mean_rmse": 4.456612844664318,
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "passes_2_percent_guardrail": true,
+          "relative_regression": 2.476201357291007e-05
+        },
+        {
+          "absolute_regression": -5.845964728923292e-05,
+          "candidate_mean_rmse": 4.822720981015117,
+          "channel_name": "2m_temperature",
+          "incumbent_mean_rmse": 4.822779440662406,
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "passes_2_percent_guardrail": true,
+          "relative_regression": -1.212156765792373e-05
+        },
+        {
+          "absolute_regression": 0.03272035624331693,
+          "candidate_mean_rmse": 613.8837458692572,
+          "channel_name": "geopotential_500",
+          "incumbent_mean_rmse": 613.8510255130138,
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "passes_2_percent_guardrail": true,
+          "relative_regression": 5.330341545975514e-05
+        },
+        {
+          "absolute_regression": 0.028315066632330854,
+          "candidate_mean_rmse": 814.9745686778344,
+          "channel_name": "mean_sea_level_pressure",
+          "incumbent_mean_rmse": 814.9462536112021,
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "passes_2_percent_guardrail": true,
+          "relative_regression": 3.474470433707831e-05
+        }
+      ],
+      "passes_guardrails": true,
+      "per_variable_lead_guardrail_violation_count": 0,
+      "per_variable_lead_guardrail_violations": [],
+      "persistence_rows_excluded": true,
+      "worst_rmse_regression_by_variable_and_lead": {
+        "absolute_regression": 0.1488164647632857,
+        "candidate_rmse": 1412.9225500819641,
+        "channel_name": "mean_sea_level_pressure",
+        "incumbent_rmse": 1412.7737336172008,
+        "lead_hours": 360,
+        "passes_10_percent_guardrail": true,
+        "relative_regression": 0.00010533637568576736
+      }
+    },
+    "validation": null
+  },
+  "resource_record": {
+    "available_ram": "about 172 GiB",
+    "cpu_count": 48,
+    "free_disk": "about 4139 GiB",
+    "gpus": "4 NVIDIA L4, about 22566 MiB free each",
+    "rationale": "Conservative under resource policy; provided by Orchestrator.",
+    "selected_workers": 4
+  },
+  "role": "Scorer",
+  "schema_version": 1,
+  "scored_at": "2026-06-23T00:34:27Z",
+  "test_record": {
+    "focused_pytest_selection": "20 passed, 143 deselected",
+    "full_pytest": "229 passed, 2 skipped in 187.72s",
+    "git_diff_check": "passed",
+    "ruff_changed_files": "passed",
+    "source": "Orchestrator-provided local test record; not rerun by Scorer."
+  },
+  "validation_allowed": true,
+  "worker_count": 4
+}

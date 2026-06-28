@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dse-consistent-horizontal-diffusion",
+  "history_path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion/proposal.md",
+      "description": "Selected ready proposal copied into immutable history."
+    },
+    {
+      "path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion/implementation.md",
+      "description": "Implementer record with changed files, local tests, fast sanity result, limitations, and rollback notes."
+    },
+    {
+      "path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion/candidate.diff",
+      "description": "Saved source/test diff for the rejected candidate."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dino_mass_dse_diff.json",
+      "description": "Candidate fast metrics JSON."
+    },
+    {
+      "path": "outputs/eval/fast_dino_mass_dse_diff.csv",
+      "description": "Candidate fast metrics CSV."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_mass_dse_diff.json",
+      "description": "Candidate iteration metrics JSON."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_mass_dse_diff.csv",
+      "description": "Candidate iteration metrics CSV."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "description": "Cached incumbent iteration metrics JSON reused from leaderboard."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "description": "Cached incumbent iteration metrics CSV reused from leaderboard."
+    },
+    {
+      "path": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "description": "Cached incumbent validation metrics JSON available but not used because candidate validation was gated off."
+    },
+    {
+      "path": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "description": "Cached incumbent validation metrics CSV available but not used because candidate validation was gated off."
+    }
+  ],
+  "log_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion/scores.json",
+      "description": "Scorer measurements, gate status, cache reuse record, and regression summaries."
+    },
+    {
+      "path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion/scoring_notes.md",
+      "description": "Human-readable scoring notes and lessons."
+    },
+    {
+      "path": ".logbook/history/2026-06-24_22-16-42_dse-consistent-horizontal-diffusion/decision.md",
+      "description": "Orchestrator rejection decision and cleanup plan."
+    }
+  ],
+  "notes": "Rejected after candidate iteration improved by only +0.000013173619332895736, below the +0.002 promotion threshold. Validation and golden were not run."
+}

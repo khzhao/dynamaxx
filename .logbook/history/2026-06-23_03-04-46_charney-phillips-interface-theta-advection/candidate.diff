@@ -1,0 +1,684 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 1effc9e..cdf4530 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -45,6 +45,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+     DinosaurPrimitiveEquationsDycoreModel,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    charney_phillips_theta_vertical_transport_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+     default_dinosaur_dycore_model,
+@@ -78,6 +79,7 @@ __all__ = [
+     "DinosaurPrimitiveEquationsDycoreModel",
+     "analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model",
+     "associated_legendre",
++    "charney_phillips_theta_vertical_transport_dinosaur_dycore_model",
+     "coordinate_systems",
+     "coriolis_split_dinosaur_dycore_model",
+     "coriolis_strang_split_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7d87761..7e46194 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -135,6 +135,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     apply_theta_layer_mean_recentering: bool = False
+     use_horizontal_semilagrangian_theta_transport: bool = False
+     use_midpoint_semilagrangian_theta_departure: bool = False
++    use_charney_phillips_theta_vertical_transport: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -346,6 +347,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_midpoint_semilagrangian_theta_departure=(
+                     self.use_midpoint_semilagrangian_theta_departure
+                 ),
++                use_charney_phillips_theta_vertical_transport=(
++                    self.use_charney_phillips_theta_vertical_transport
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1072,6 +1076,17 @@ def midpoint_semilagrangian_theta_departure_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def charney_phillips_theta_vertical_transport_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return HSL2 theta with interface theta vertical transport."""
++    return replace(
++        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
++        name="dino_hsl2_theta_cpvert",
++        use_charney_phillips_theta_vertical_transport=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2237,6 +2252,7 @@ def _primitive_equation(
+     ),
+     use_horizontal_semilagrangian_theta_transport: bool = False,
+     use_midpoint_semilagrangian_theta_departure: bool = False,
++    use_charney_phillips_theta_vertical_transport: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2254,6 +2270,9 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_charney_phillips_theta_vertical_transport=(
++                use_charney_phillips_theta_vertical_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2272,6 +2291,9 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
++        use_charney_phillips_theta_vertical_transport=(
++            use_charney_phillips_theta_vertical_transport
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 6327433..cb987e9 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -50,6 +50,8 @@ TEMPERATURE_TENDENCY_FORMULATIONS = (
+ )
+ HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL = 0.5
+ HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT = 1.0e-6
++CHARNEY_PHILLIPS_THETA_VERTICAL_TENDENCY_MAX_RATIO = 2.0
++CHARNEY_PHILLIPS_THETA_VERTICAL_TENDENCY_ABSOLUTE_FLOOR = 1.0e-12
+ 
+ OrographyInitFn = Callable[..., Array]
+ 
+@@ -889,6 +891,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_charney_phillips_theta_vertical_transport: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1514,6 +1520,83 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             accepted_first_order_horizontal_tendency,
+         )
+ 
++    @jax.named_call
++    def charney_phillips_theta_vertical_transport(
++        self,
++        sigma_dot_full: Array,
++        theta_anomaly: Array,
++        incumbent_vertical_tendency: Array,
++    ) -> Array:
++        """Return interface-sampled theta vertical advection with finite fallback."""
++        sigma_coords = self.coords.vertical
++        dtype = theta_anomaly.dtype
++        log_sigma_centers = jnp.log(jnp.asarray(sigma_coords.centers, dtype=dtype))
++        log_sigma_interfaces = jnp.log(
++            jnp.asarray(sigma_coords.internal_boundaries, dtype=dtype)
++        )
++        log_sigma_interface_targets = jnp.broadcast_to(
++            log_sigma_interfaces[:, np.newaxis, np.newaxis],
++            sigma_dot_full.shape,
++        )
++        interpolate_to_interfaces = vertical_interpolation.vectorize_vertical_interpolation(
++            vertical_interpolation.linear_interp_with_nearest_extrap
++        )
++        theta_interface = interpolate_to_interfaces(
++            log_sigma_interface_targets,
++            log_sigma_centers,
++            theta_anomaly,
++        )
++        layer_thickness = jnp.asarray(sigma_coords.layer_thickness, dtype=dtype)[
++            :, np.newaxis, np.newaxis
++        ]
++        column_mean_theta = (
++            jnp.sum(theta_anomaly * layer_thickness, axis=0, keepdims=True)
++            / jnp.sum(layer_thickness, axis=0, keepdims=True)
++        )
++        internal_flux = sigma_dot_full * (theta_interface - column_mean_theta)
++        flux_padding = [(0, 0)] * internal_flux.ndim
++        flux_padding[-3] = (1, 1)
++        padded_flux = jnp.pad(internal_flux, flux_padding)
++        flux_divergence = (
++            lax.slice_in_dim(padded_flux, 1, None, axis=-3)
++            - lax.slice_in_dim(padded_flux, 0, -1, axis=-3)
++        ) / layer_thickness
++        candidate_vertical_tendency = -flux_divergence
++        tendency_limit = jnp.asarray(
++            CHARNEY_PHILLIPS_THETA_VERTICAL_TENDENCY_MAX_RATIO,
++            dtype=dtype,
++        ) * jnp.maximum(
++            jnp.abs(incumbent_vertical_tendency),
++            jnp.asarray(
++                CHARNEY_PHILLIPS_THETA_VERTICAL_TENDENCY_ABSOLUTE_FLOOR,
++                dtype=dtype,
++            ),
++        )
++        bounded_vertical_tendency = jnp.where(
++            jnp.abs(candidate_vertical_tendency) <= tendency_limit,
++            candidate_vertical_tendency,
++            incumbent_vertical_tendency,
++        )
++        finite_candidate = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(theta_interface)),
++                    jnp.all(jnp.isfinite(internal_flux)),
++                    jnp.all(jnp.isfinite(flux_divergence)),
++                    jnp.all(jnp.isfinite(layer_thickness)),
++                    jnp.all(layer_thickness > 0),
++                    jnp.all(jnp.isfinite(candidate_vertical_tendency)),
++                    jnp.all(jnp.isfinite(tendency_limit)),
++                    jnp.all(jnp.isfinite(bounded_vertical_tendency)),
++                ]
++            )
++        )
++        return jnp.where(
++            finite_candidate,
++            bounded_vertical_tendency,
++            incumbent_vertical_tendency,
++        )
++
+     @jax.named_call
+     def temperature_tendency_potential_temperature_form(
+         self,
+@@ -1544,10 +1627,18 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         else:
+             dtheta_dt_horizontal_nodal = incumbent_dtheta_dt_horizontal_nodal
+         if self.include_vertical_advection:
+-            dtheta_dt_vertical = self._vertical_tendency(
++            incumbent_dtheta_dt_vertical = self._vertical_tendency(
+                 aux_state.sigma_dot_full,
+                 theta_anomaly,
+             )
++            if self.use_charney_phillips_theta_vertical_transport:
++                dtheta_dt_vertical = self.charney_phillips_theta_vertical_transport(
++                    aux_state.sigma_dot_full,
++                    theta_anomaly,
++                    incumbent_dtheta_dt_vertical,
++                )
++            else:
++                dtheta_dt_vertical = incumbent_dtheta_dt_vertical
+         else:
+             dtheta_dt_vertical = 0
+         dtheta_dt_nodal = dtheta_dt_horizontal_nodal + dtheta_dt_vertical
+@@ -3000,6 +3091,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_charney_phillips_theta_vertical_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3020,6 +3112,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_charney_phillips_theta_vertical_transport=(
++                use_charney_phillips_theta_vertical_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3050,6 +3145,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_charney_phillips_theta_vertical_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3070,6 +3166,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_charney_phillips_theta_vertical_transport=(
++                use_charney_phillips_theta_vertical_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3097,6 +3196,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_charney_phillips_theta_vertical_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3120,6 +3220,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_charney_phillips_theta_vertical_transport=(
++                use_charney_phillips_theta_vertical_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 6ec50ce..a2c0a71 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -188,6 +188,15 @@ def dino_hsl2_theta_model() -> DycoreModel:
+     return midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_theta_cpvert_model() -> DycoreModel:
++    """Return HSL2 theta with interface theta vertical transport."""
++    from dynamaxx.dycore.models.dinosaur import (
++        charney_phillips_theta_vertical_transport_dinosaur_dycore_model,
++    )
++
++    return charney_phillips_theta_vertical_transport_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -263,6 +272,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     ): dinosaur_ocean_bulk_sensible_heat_flux_model,
+     "dino_hsl_theta": dino_hsl_theta_model,
+     "dino_hsl2_theta": dino_hsl2_theta_model,
++    "dino_hsl2_theta_cpvert": dino_hsl2_theta_cpvert_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 3bd5a3c..2a243fb 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -124,6 +124,9 @@ assert dinosaur.horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(
+ assert dinosaur.midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().name == (
+     "dino_hsl2_theta"
+ )
++assert dinosaur.charney_phillips_theta_vertical_transport_dinosaur_dycore_model().name == (
++    "dino_hsl2_theta_cpvert"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -221,6 +224,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
++        "dino_hsl2_theta_cpvert",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -665,6 +669,23 @@ def test_dinosaur_ocean_bulk_shf_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_hsl2_theta_cpvert_is_registered():
++    """The CP-vertical theta candidate is side-by-side with HSL2 theta."""
++    model = create_dycore_model("dino_hsl2_theta_cpvert")
++    incumbent = create_dycore_model("dino_hsl2_theta")
++
++    assert model.name == "dino_hsl2_theta_cpvert"
++    assert model.use_charney_phillips_theta_vertical_transport
++    assert not incumbent.use_charney_phillips_theta_vertical_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_charney_phillips_theta_vertical_transport",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index fc5fe53..758aad6 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -67,6 +67,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _unit_factor,
+     _valid_land_sea_fraction_or_none,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    charney_phillips_theta_vertical_transport_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+@@ -576,6 +577,26 @@ def test_hsl2_theta_factory_preserves_hsl_theta_except_midpoint_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_hsl2_theta_cpvert_factory_preserves_hsl2_except_vertical_selector():
++    """The CP-vertical candidate changes only name and theta vertical selector."""
++    model = charney_phillips_theta_vertical_transport_dinosaur_dycore_model()
++    incumbent = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_theta_cpvert"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_charney_phillips_theta_vertical_transport
++    assert not incumbent.use_charney_phillips_theta_vertical_transport
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_charney_phillips_theta_vertical_transport",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4476,6 +4497,145 @@ def test_hsl2_theta_nonfinite_midpoint_wind_falls_back_to_first_order(monkeypatc
+     np.testing.assert_array_equal(actual_tendency, expected_tendency)
+ 
+ 
++def test_cpvert_constant_theta_has_zero_vertical_tendency():
++    """Interface theta transport has no source for constant vertical theta."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_charney_phillips_theta_vertical_transport=True,
++    )
++    theta_anomaly = jnp.full(coords.nodal_shape, 7.5, dtype=jnp.float32)
++    sigma_dot_full = jnp.linspace(
++        -0.4,
++        0.6,
++        num=coords.vertical.layers - 1,
++        dtype=jnp.float32,
++    )[:, jnp.newaxis, jnp.newaxis]
++    sigma_dot_full = jnp.broadcast_to(
++        sigma_dot_full,
++        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
++    )
++    incumbent_tendency = equation._vertical_tendency(sigma_dot_full, theta_anomaly)
++
++    candidate_tendency = equation.charney_phillips_theta_vertical_transport(
++        sigma_dot_full,
++        theta_anomaly,
++        incumbent_tendency,
++    )
++
++    np.testing.assert_allclose(candidate_tendency, 0.0, atol=1.0e-7)
++    np.testing.assert_allclose(incumbent_tendency, 0.0, atol=1.0e-7)
++
++
++def test_cpvert_padded_boundary_flux_has_no_constant_theta_source():
++    """Zero physical boundary fluxes do not create a constant-theta source."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_charney_phillips_theta_vertical_transport=True,
++    )
++    theta_anomaly = jnp.full(coords.nodal_shape, -3.25, dtype=jnp.float32)
++    sigma_dot_full = jnp.ones(
++        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
++        dtype=jnp.float32,
++    )
++    incumbent_tendency = jnp.full_like(theta_anomaly, 99.0)
++
++    candidate_tendency = equation.charney_phillips_theta_vertical_transport(
++        sigma_dot_full,
++        theta_anomaly,
++        incumbent_tendency,
++    )
++
++    np.testing.assert_allclose(candidate_tendency, 0.0, atol=1.0e-7)
++
++
++def test_cpvert_nonfinite_reconstruction_falls_back_to_incumbent_vertical_tendency():
++    """Invalid interface theta diagnostics select the accepted centered stencil."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_charney_phillips_theta_vertical_transport=True,
++    )
++    theta_anomaly = jnp.arange(
++        np.prod(coords.nodal_shape),
++        dtype=jnp.float32,
++    ).reshape(coords.nodal_shape)
++    theta_anomaly = theta_anomaly.at[1, 0, 0].set(jnp.nan)
++    sigma_dot_full = jnp.full(
++        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
++        0.125,
++        dtype=jnp.float32,
++    )
++    accepted_incumbent_tendency = jnp.arange(
++        np.prod(coords.nodal_shape),
++        dtype=jnp.float32,
++    ).reshape(coords.nodal_shape)
++
++    candidate_tendency = equation.charney_phillips_theta_vertical_transport(
++        sigma_dot_full,
++        theta_anomaly,
++        accepted_incumbent_tendency,
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, accepted_incumbent_tendency)
++
++
++def test_cpvert_excessive_interface_tendency_falls_back_to_incumbent_bound():
++    """Overlarge finite interface tendencies use the accepted centered stencil."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_charney_phillips_theta_vertical_transport=True,
++    )
++    theta_anomaly = jnp.arange(
++        np.prod(coords.nodal_shape),
++        dtype=jnp.float32,
++    ).reshape(coords.nodal_shape)
++    sigma_dot_full = jnp.full(
++        (coords.vertical.layers - 1,) + coords.horizontal.nodal_shape,
++        1.0e6,
++        dtype=jnp.float32,
++    )
++    accepted_incumbent_tendency = jnp.zeros_like(theta_anomaly)
++
++    candidate_tendency = equation.charney_phillips_theta_vertical_transport(
++        sigma_dot_full,
++        theta_anomaly,
++        accepted_incumbent_tendency,
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, accepted_incumbent_tendency)
++
++
+ def test_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
+     """The selector only changes the thermodynamic theta transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -4557,6 +4717,48 @@ def test_hsl2_theta_leaves_non_theta_explicit_tendencies_unchanged():
+     assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+ 
+ 
++def test_cpvert_leaves_non_theta_explicit_tendencies_unchanged():
++    """Interface theta vertical transport changes only thermal theta transport."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_charney_phillips_theta_vertical_transport=True,
++    )
++
++    incumbent_tendency = incumbent_equation.explicit_terms(state)
++    candidate_tendency = candidate_equation.explicit_terms(state)
++
++    np.testing.assert_array_equal(
++        candidate_tendency.vorticity, incumbent_tendency.vorticity
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.divergence, incumbent_tendency.divergence
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.log_surface_pressure,
++        incumbent_tendency.log_surface_pressure,
++    )
++    assert candidate_tendency.tracers == incumbent_tendency.tracers == {}
++    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
++
++
+ def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
+     """The opt-in flux changes only the lowest-layer temperature tendency."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -4885,6 +5087,64 @@ def test_hsl2_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_cpvert_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The CP-vertical candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        charney_phillips_theta_vertical_transport_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_theta_cpvert"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_charney_phillips_theta_vertical_transport
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 5d58870..d72e8e2 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -52,6 +52,7 @@ def test_registry_lists_default_dycore_models():
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
++        "dino_hsl2_theta_cpvert",
+     )
+ 
+ 
+@@ -580,6 +581,28 @@ def test_registry_creates_hsl2_theta_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_hsl2_theta_cpvert_candidate_model():
++    """The CP-vertical alias adds only the theta vertical selector."""
++    model = create_dycore_model("dino_hsl2_theta_cpvert")
++    incumbent = create_dycore_model("dino_hsl2_theta")
++
++    assert model.name == "dino_hsl2_theta_cpvert"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_charney_phillips_theta_vertical_transport
++    assert incumbent.use_horizontal_semilagrangian_theta_transport
++    assert incumbent.use_midpoint_semilagrangian_theta_departure
++    assert not incumbent.use_charney_phillips_theta_vertical_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_charney_phillips_theta_vertical_transport",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

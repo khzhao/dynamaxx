@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "theta-consistent-held-suarez-forcing",
+  "history_path": ".logbook/history/2026-06-18_22-27-09_theta-consistent-held-suarez-forcing",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_hs.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_hs.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_hs.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_hs.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-18_22-27-09_theta-consistent-held-suarez-forcing/proposal.md",
+    ".logbook/history/2026-06-18_22-27-09_theta-consistent-held-suarez-forcing/implementation.md",
+    ".logbook/history/2026-06-18_22-27-09_theta-consistent-held-suarez-forcing/scores.json",
+    ".logbook/history/2026-06-18_22-27-09_theta-consistent-held-suarez-forcing/scoring_notes.md",
+    ".logbook/history/2026-06-18_22-27-09_theta-consistent-held-suarez-forcing/decision.md"
+  ],
+  "notes": "Rejected after iteration delta +0.000008267650489002243 versus the theta-tendency incumbent, below the +0.002 promotion threshold. Validation and golden were not run. Candidate source and test changes were reverted; leaderboard was not updated."
+}

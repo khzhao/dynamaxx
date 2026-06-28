@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "standard-atmosphere-reference-profile",
+  "history_path": ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_ref_profile.json",
+    "outputs/eval/fast_dinosaur_dfi_ref_profile.csv",
+    "outputs/eval/iteration_dinosaur_dfi_ref_profile.json",
+    "outputs/eval/iteration_dinosaur_dfi_ref_profile.csv",
+    "outputs/eval/iteration_dinosaur_dfi.json",
+    "outputs/eval/iteration_dinosaur_dfi.csv",
+    "outputs/eval/validation_dinosaur_dfi.json",
+    "outputs/eval/validation_dinosaur_dfi.csv",
+    "outputs/eval/runs/iteration_dinosaur_dfi_ref_profile"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile/proposal.md",
+    ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile/implementation.md",
+    ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile/scores.json",
+    ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile/scoring_notes.md",
+    ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile/decision.md",
+    ".logbook/history/2026-06-16_11-09-50_standard-atmosphere-reference-profile/artifacts.json"
+  ],
+  "notes": "Rejected model-selection candidate. Source/test changes were reverted; raw fast and iteration artifacts were preserved."
+}

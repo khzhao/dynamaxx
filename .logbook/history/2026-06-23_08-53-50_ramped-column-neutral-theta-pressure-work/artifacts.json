@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "ramped-column-neutral-theta-pressure-work",
+  "history_path": ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work",
+  "source_artifacts": [
+    ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work/proposal.md",
+    ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work/implementation.md",
+    ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_theta_pw_ramp.json",
+    "outputs/eval/fast_dino_hsl2_theta_pw_ramp.csv",
+    "outputs/eval/iteration_dino_hsl2_theta_pw_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_theta_pw_ramp.csv",
+    "outputs/eval/iteration_dino_hsl2_theta.json",
+    "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "outputs/eval/validation_dino_hsl2_theta.json",
+    "outputs/eval/validation_dino_hsl2_theta.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work/scores.json",
+    ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work/scoring_notes.md",
+    ".logbook/history/2026-06-23_08-53-50_ramped-column-neutral-theta-pressure-work/decision.md"
+  ],
+  "notes": "Rejected at iteration because primary delta -0.0000000685846273662527 was below +0.002; diagnostics and guardrails passed; validation and golden were not run; cached incumbent artifacts were reused."
+}

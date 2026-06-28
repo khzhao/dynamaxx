@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "bounded-log-pressure-init-extrapolation",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "a7833574e9ade1a5271bd8cbef2fa1357465f5a8",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names; names=set(dycore_model_names()); requested={'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap','dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init'}; missing=sorted(requested-names); print('registered=' + ','.join(sorted(requested))); print('missing=' + ','.join(missing)); raise SystemExit(1 if missing else 0)\"",
+      "exit_status": 0,
+      "started_at": "2026-06-17T15:54:43Z",
+      "finished_at": "2026-06-17T15:54:43Z",
+      "notes": "Confirmed candidate and incumbent model names are registered through the package registry."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": "2026-06-17T15:54:43Z",
+      "finished_at": "2026-06-17T15:56:02Z",
+      "notes": "128 passed, 2 skipped in 63.69s."
+    },
+    {
+      "command": "uv run python - <<'PY' ... verify existing fast artifact ... PY",
+      "exit_status": 0,
+      "started_at": "2026-06-17T15:56:02Z",
+      "finished_at": "2026-06-17T15:56:02Z",
+      "notes": "Reused candidate fast artifact per Orchestrator instruction; model_name matched exactly, failed=False, issue_count=0, candidate_rows=60, persistence_rows=60."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-17T15:56:07Z",
+      "finished_at": "2026-06-17T16:41:32Z",
+      "notes": "Candidate iteration completed with failed=False, issues=0, records=120, primary_score=-1.144930302953247."
+    },
+    {
+      "command": "uv run python - <<'PY' ... exact model-name iteration comparison ... PY",
+      "exit_status": 0,
+      "started_at": "2026-06-17T16:41:32Z",
+      "finished_at": "2026-06-17T16:41:32Z",
+      "notes": "Compared candidate and incumbent iteration artifacts using exact model-name filtering; validation was not run because the iteration primary gate did not pass."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_extrap.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.120810250964844,
+    "candidate_iteration": -1.144930302953247,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.143975258592661,
+    "incumbent_validation": null,
+    "iteration_delta": -0.000955044360586,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 749.5613323393917,
+        "incumbent_mean_rmse": 746.8278674886182,
+        "absolute_change": 2.733464850773544,
+        "relative_change": 0.003660100231618,
+        "threshold": 0.02,
+        "gate_violation": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 1014.4763810708337,
+        "incumbent_mean_rmse": 1012.9263924182685,
+        "absolute_change": 1.549988652565162,
+        "relative_change": 0.00153020857603,
+        "threshold": 0.02,
+        "gate_violation": false
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 168,
+        "candidate_rmse": 1999.2339199561357,
+        "incumbent_rmse": 1979.2306024453237,
+        "absolute_change": 20.00331751081194,
+        "relative_change": 0.01010661288588505,
+        "threshold": 0.1,
+        "gate_violation": false
+      }
+    ]
+  }
+}

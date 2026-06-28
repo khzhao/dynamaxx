@@ -1,0 +1,594 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d3b94b2..8aec237 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -52,6 +52,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
++    hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+@@ -91,6 +92,7 @@ __all__ = [
+     "fourier",
+     "held_suarez",
+     "horizontal_semilagrangian_theta_transport_dinosaur_dycore_model",
++    "hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model",
+     "hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "horizontal_interpolation",
+     "hybrid_coordinates",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index a9c9ddb..8383387 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -137,6 +137,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_midpoint_semilagrangian_theta_departure: bool = False
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
++    use_hydrostatic_inverted_mass_dse_hsl_transport: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -354,6 +355,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mass_weighted_dse_hsl_transport=(
+                     self.use_layer_mass_weighted_dse_hsl_transport
+                 ),
++                use_hydrostatic_inverted_mass_dse_hsl_transport=(
++                    self.use_hydrostatic_inverted_mass_dse_hsl_transport
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1102,6 +1106,17 @@ def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return mass-DSE HSL with hydrostatically inverted thermal conversion."""
++    return replace(
++        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
++        name="dino_mass_dse_hydroinv",
++        use_hydrostatic_inverted_mass_dse_hsl_transport=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2269,6 +2284,7 @@ def _primitive_equation(
+     use_midpoint_semilagrangian_theta_departure: bool = False,
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
++    use_hydrostatic_inverted_mass_dse_hsl_transport: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2292,6 +2308,9 @@ def _primitive_equation(
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_hydrostatic_inverted_mass_dse_hsl_transport=(
++                use_hydrostatic_inverted_mass_dse_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2316,6 +2335,9 @@ def _primitive_equation(
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
++        use_hydrostatic_inverted_mass_dse_hsl_transport=(
++            use_hydrostatic_inverted_mass_dse_hsl_transport
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 848b142..018e0f9 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -897,6 +897,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_hydrostatic_inverted_mass_dse_hsl_transport: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -931,6 +935,41 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             sharding=sharding,
+         )
+ 
++    def _hydrostatic_inverted_mass_dse_horizontal_temperature_tendency(
++        self,
++        layer_mass_dse_dt_horizontal_nodal: Array,
++    ) -> tuple[Array, Array]:
++        """Convert horizontal mass-DSE tendency with the sigma hydrostatic operator."""
++        dtype = layer_mass_dse_dt_horizontal_nodal.dtype
++        geopotential_weights = get_geopotential_weights_sigma(
++            self.coords.vertical,
++            self.physics_specs.R,
++        )
++        hydrostatic_dse_operator = jnp.asarray(geopotential_weights, dtype=dtype)
++        hydrostatic_dse_operator = hydrostatic_dse_operator + (
++            jnp.asarray(self.physics_specs.Cp, dtype=dtype)
++            * jnp.eye(self.coords.vertical.layers, dtype=dtype)
++        )
++        rhs_shape = layer_mass_dse_dt_horizontal_nodal.shape
++        rhs_columns = jnp.reshape(
++            layer_mass_dse_dt_horizontal_nodal,
++            (self.coords.vertical.layers, -1),
++        )
++        temperature_tendency_columns = jnp.linalg.solve(
++            hydrostatic_dse_operator,
++            rhs_columns,
++        )
++        temperature_tendency = jnp.reshape(temperature_tendency_columns, rhs_shape)
++        finite_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(hydrostatic_dse_operator)),
++                    jnp.all(jnp.isfinite(temperature_tendency)),
++                ]
++            )
++        )
++        return temperature_tendency, finite_diagnostics
++
+     @jax.named_call
+     def divergence_tendency_due_to_humidity(
+         self,
+@@ -1736,7 +1775,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                 ]
+             )
+         )
+-        return jnp.where(
++        accepted_mass_dse_temperature_tendency = jnp.where(
+             (
+                 finite_theta_diagnostics
+                 & finite_dse_diagnostics
+@@ -1745,6 +1784,43 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             mass_dse_temperature_tendency,
+             incumbent_dse_temperature_tendency,
+         )
++        if not self.use_hydrostatic_inverted_mass_dse_hsl_transport:
++            return accepted_mass_dse_temperature_tendency
++
++        (
++            dT_dt_horizontal_hydrostatic_mass_dse_nodal,
++            finite_hydrostatic_mass_dse_solve,
++        ) = self._hydrostatic_inverted_mass_dse_horizontal_temperature_tendency(
++            layer_mass_dse_dt_horizontal_nodal
++        )
++        hydrostatic_mass_dse_temperature_tendency = self.coords.horizontal.to_modal(
++            dT_dt_horizontal_hydrostatic_mass_dse_nodal
++            + temperature_vertical_nodal
++            + dT_dt_adiabatic
++        )
++        finite_hydrostatic_mass_dse_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    finite_hydrostatic_mass_dse_solve,
++                    jnp.all(
++                        jnp.isfinite(
++                            dT_dt_horizontal_hydrostatic_mass_dse_nodal,
++                        )
++                    ),
++                    jnp.all(jnp.isfinite(hydrostatic_mass_dse_temperature_tendency)),
++                ]
++            )
++        )
++        return jnp.where(
++            (
++                finite_theta_diagnostics
++                & finite_dse_diagnostics
++                & finite_mass_dse_diagnostics
++                & finite_hydrostatic_mass_dse_diagnostics
++            ),
++            hydrostatic_mass_dse_temperature_tendency,
++            accepted_mass_dse_temperature_tendency,
++        )
+ 
+     @jax.named_call
+     def temperature_tendency(
+@@ -3170,6 +3246,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_hydrostatic_inverted_mass_dse_hsl_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3196,6 +3273,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_hydrostatic_inverted_mass_dse_hsl_transport=(
++                use_hydrostatic_inverted_mass_dse_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3228,6 +3308,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_hydrostatic_inverted_mass_dse_hsl_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3254,6 +3335,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_hydrostatic_inverted_mass_dse_hsl_transport=(
++                use_hydrostatic_inverted_mass_dse_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3283,6 +3367,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_hydrostatic_inverted_mass_dse_hsl_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3312,6 +3397,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_hydrostatic_inverted_mass_dse_hsl_transport=(
++                use_hydrostatic_inverted_mass_dse_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 1d7cbc9..3979ab8 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -206,6 +206,15 @@ def dino_hsl2_mass_dse_model() -> DycoreModel:
+     return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+ 
+ 
++def dino_mass_dse_hydroinv_model() -> DycoreModel:
++    """Return mass-DSE HSL with hydrostatically inverted thermal conversion."""
++    from dynamaxx.dycore.models.dinosaur import (
++        hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model,
++    )
++
++    return hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -283,6 +292,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta": dino_hsl2_theta_model,
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
++    "dino_mass_dse_hydroinv": dino_mass_dse_hydroinv_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index aa6c347..8b5f981 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -130,6 +130,10 @@ assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name ==
+ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse"
+ )
++assert (
++    dinosaur.hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model().name
++    == "dino_mass_dse_hydroinv"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -229,6 +233,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_hydroinv",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -709,6 +714,28 @@ def test_dinosaur_layer_mass_dse_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_hydrostatic_inverted_mass_dse_is_registered():
++    """The hydroinv candidate is side-by-side with the mass-DSE incumbent."""
++    model = create_dycore_model("dino_mass_dse_hydroinv")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_hydroinv"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_hydrostatic_inverted_mass_dse_hsl_transport
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_hydrostatic_inverted_mass_dse_hsl_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hydrostatic_inverted_mass_dse_hsl_transport",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 9ee521a..0b48f45 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -74,6 +74,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
++    hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+@@ -613,6 +614,28 @@ def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_hydrostatic_inverted_mass_dse_factory_preserves_mass_dse_except_selector():
++    """The hydroinv candidate changes only name and conversion selector."""
++    model = hydrostatic_inverted_mass_dse_hsl_transport_dinosaur_dycore_model()
++    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
++
++    assert model.name == "dino_mass_dse_hydroinv"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_hydrostatic_inverted_mass_dse_hsl_transport
++    assert not incumbent.use_hydrostatic_inverted_mass_dse_hsl_transport
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hydrostatic_inverted_mass_dse_hsl_transport",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4912,6 +4935,177 @@ def test_layer_mass_dse_invalid_pressure_thickness_falls_back_to_dse_hsl(
+     np.testing.assert_array_equal(actual_tendency, expected_tendency)
+ 
+ 
++def test_hydrostatic_inverted_mass_dse_zero_tendency_solves_to_zero():
++    """Zero horizontal mass-DSE tendency remains zero after hydrostatic inversion."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++    )
++    zero_tendency = jnp.zeros(coords.nodal_shape, dtype=jnp.float32)
++
++    actual, finite_diagnostics = (
++        equation._hydrostatic_inverted_mass_dse_horizontal_temperature_tendency(
++            zero_tendency,
++        )
++    )
++
++    assert bool(finite_diagnostics)
++    np.testing.assert_array_equal(actual, zero_tendency)
++
++
++def test_hydrostatic_inverted_mass_dse_matches_dense_column_solve():
++    """Hydrostatic DSE inversion solves the dense sigma operator per column."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++    )
++    longitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[0],
++        dtype=jnp.float32,
++    )[:, jnp.newaxis]
++    latitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[1],
++        dtype=jnp.float32,
++    )[jnp.newaxis, :]
++    layer_values = jnp.linspace(
++        -3.0,
++        5.0,
++        coords.vertical.layers,
++        dtype=jnp.float32,
++    )
++    layer_mass_dse_tendency = (
++        layer_values[:, jnp.newaxis, jnp.newaxis]
++        * (1.0 + 0.05 * longitude_pattern - 0.03 * latitude_pattern)[
++            jnp.newaxis,
++            :,
++            :,
++        ]
++    )
++
++    actual, finite_diagnostics = (
++        equation._hydrostatic_inverted_mass_dse_horizontal_temperature_tendency(
++            layer_mass_dse_tendency,
++        )
++    )
++
++    geopotential_weights = primitive_equations.get_geopotential_weights_sigma(
++        coords.vertical,
++        physics_specs.R,
++    )
++    hydrostatic_dse_operator = jnp.asarray(
++        geopotential_weights,
++        dtype=layer_mass_dse_tendency.dtype,
++    ) + physics_specs.Cp * jnp.eye(
++        coords.vertical.layers,
++        dtype=layer_mass_dse_tendency.dtype,
++    )
++    expected = jnp.reshape(
++        jnp.linalg.solve(
++            hydrostatic_dse_operator,
++            jnp.reshape(
++                layer_mass_dse_tendency,
++                (coords.vertical.layers, -1),
++            ),
++        ),
++        layer_mass_dse_tendency.shape,
++    )
++    assert bool(finite_diagnostics)
++    np.testing.assert_allclose(actual, expected, rtol=1.0e-6, atol=1.0e-6)
++
++
++def test_hydrostatic_inverted_mass_dse_nonfinite_solve_falls_back_to_mass_dse(
++    monkeypatch,
++):
++    """Invalid hydrostatic solve diagnostics reproduce accepted mass-DSE tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    longitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[0],
++        dtype=jnp.float32,
++    )[:, jnp.newaxis]
++    latitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[1],
++        dtype=jnp.float32,
++    )[jnp.newaxis, :]
++    full_temperature = jnp.stack(
++        [
++            260.0 + 0.4 * longitude_pattern + 0.1 * latitude_pattern,
++            280.0 - 0.2 * longitude_pattern + 0.3 * latitude_pattern,
++        ],
++        axis=0,
++    )
++    nonuniform_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=coords.horizontal.to_modal(
++            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
++        ),
++        log_surface_pressure=state.log_surface_pressure,
++        tracers={},
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    accepted_mass_dse_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++    )
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_hydrostatic_inverted_mass_dse_hsl_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        nonuniform_state,
++        coords,
++    )
++    expected_tendency = (
++        accepted_mass_dse_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            aux_state,
++        )
++    )
++
++    def nonfinite_hydrostatic_solve(layer_mass_dse_dt_horizontal_nodal):
++        return (
++            jnp.full_like(layer_mass_dse_dt_horizontal_nodal, jnp.nan),
++            jnp.asarray(False),
++        )
++
++    monkeypatch.setattr(
++        candidate_equation,
++        "_hydrostatic_inverted_mass_dse_horizontal_temperature_tendency",
++        nonfinite_hydrostatic_solve,
++    )
++
++    actual_tendency = candidate_equation.temperature_tendency_potential_temperature_form(
++        nonuniform_state,
++        aux_state,
++    )
++
++    np.testing.assert_array_equal(actual_tendency, expected_tendency)
++
++
+ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     """DSE-HSL changes only the horizontal thermal transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 091dbd0..97bfddb 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -54,6 +54,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_hydroinv",
+     )
+ 
+ 
+@@ -620,6 +621,30 @@ def test_registry_creates_layer_mass_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_hydrostatic_inverted_mass_dse_candidate_model():
++    """The hydroinv alias adds only the hydrostatic mass-DSE conversion."""
++    model = create_dycore_model("dino_mass_dse_hydroinv")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_hydroinv"
++    assert len(model.name) < 32
++    assert model.output_variables == incumbent.output_variables
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_hydrostatic_inverted_mass_dse_hsl_transport
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_hydrostatic_inverted_mass_dse_hsl_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hydrostatic_inverted_mass_dse_hsl_transport",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

@@ -1,0 +1,817 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..2ff82a5 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -58,6 +58,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
++    moisture_convergence_gated_wtg_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+@@ -104,6 +105,7 @@ __all__ = [
+     "leapfrog_utils",
+     "log_pressure_initialization_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
++    "moisture_convergence_gated_wtg_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
+     "pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model",
+     "primitive_equations",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..261c254 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -88,6 +88,13 @@ _TROPICAL_WTG_LOW_MODE_CUTOFF = 8.0
+ _TROPICAL_WTG_LOW_MODE_TAPER_ZERO = 16.0
+ _TROPICAL_WTG_RELAXATION_TIMESCALE_DAYS = 5.0
+ _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.25
++_MOISTURE_CONVERGENCE_WTG_SIGMA_ZERO_TOP = 0.60
++_MOISTURE_CONVERGENCE_WTG_SIGMA_FULL_TOP = 0.75
++_MOISTURE_CONVERGENCE_WTG_SIGMA_FULL_BOTTOM = 0.90
++_MOISTURE_CONVERGENCE_WTG_SIGMA_ZERO_BOTTOM = 0.98
++_MOISTURE_CONVERGENCE_WTG_PROXY_EPSILON = 1.0e-12
++_MOISTURE_CONVERGENCE_WTG_BASE_MULTIPLIER = 0.6
++_MOISTURE_CONVERGENCE_WTG_CONVERGENCE_MULTIPLIER = 0.8
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -149,6 +156,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
++    use_moisture_convergence_gated_wtg: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -459,6 +467,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        use_moisture_convergence_gate=(
++                            self.use_moisture_convergence_gated_wtg
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -789,6 +800,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    use_moisture_convergence_gate: bool = False,
+ ) -> Any:
+     """Return a rollout-only weak tropical free-tropospheric mass-DSE filter."""
+     orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+@@ -843,9 +855,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -856,16 +867,50 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         low_mode_mass_dse_anomaly = coords.horizontal.to_nodal(
+             coords.horizontal.to_modal(mass_dse_anomaly) * low_mode_mask
+         )
++        step_mask = mask
++        step_tropical_weights = tropical_weights
++        step_safe_tropical_weight_sum = safe_tropical_weight_sum
++        step_mask_weight_sum = mask_weight_sum
++        step_safe_mask_weight_sum = safe_mask_weight_sum
++        if (
++            use_moisture_convergence_gate
++            and SPECIFIC_HUMIDITY_VARIABLE in aux_state.tracers
++        ):
++            horizontal_envelope = _moisture_convergence_gated_wtg_horizontal_envelope(
++                latitude_envelope=latitude_envelope,
++                quadrature_weights=quadrature_weights,
++                vertical_coords=coords.vertical,
++                divergence=aux_state.divergence,
++                specific_humidity=aux_state.tracers[SPECIFIC_HUMIDITY_VARIABLE],
++            )
++            step_mask = sigma_envelope[:, jnp.newaxis, jnp.newaxis] * (
++                horizontal_envelope
++            )
++            step_tropical_weights = horizontal_envelope * quadrature_weights
++            step_tropical_weight_sum = jnp.sum(step_tropical_weights)
++            step_mask_weight_sum = jnp.sum(
++                step_mask * quadrature_weights[jnp.newaxis, ...],
++                axis=(-2, -1),
++            )
++            step_safe_tropical_weight_sum = jnp.where(
++                step_tropical_weight_sum > tiny_weight,
++                step_tropical_weight_sum,
++                jnp.ones_like(step_tropical_weight_sum),
++            )
++            step_safe_mask_weight_sum = jnp.where(
++                step_mask_weight_sum > tiny_weight,
++                step_mask_weight_sum,
++                jnp.ones_like(step_mask_weight_sum),
++            )
+         tropical_layer_mean = (
+             jnp.sum(
+-                low_mode_mass_dse_anomaly * tropical_weights,
++                low_mode_mass_dse_anomaly * step_tropical_weights,
+                 axis=(-2, -1),
+             )
+-            / safe_tropical_weight_sum
++            / step_safe_tropical_weight_sum
+         )
+-        masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++        masked_mass_dse_anomaly = step_mask * (
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -881,13 +926,13 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+                 clipped_temperature_increment * quadrature_weights,
+                 axis=(-2, -1),
+             )
+-            / safe_mask_weight_sum
++            / step_safe_mask_weight_sum
+         )
+         temperature_increment = clipped_temperature_increment - (
+-            mask * layer_heat_offset[:, jnp.newaxis, jnp.newaxis]
++            step_mask * layer_heat_offset[:, jnp.newaxis, jnp.newaxis]
+         )
+         temperature_increment = jnp.where(
+-            mask_weight_sum[:, jnp.newaxis, jnp.newaxis] > tiny_weight,
++            step_mask_weight_sum[:, jnp.newaxis, jnp.newaxis] > tiny_weight,
+             temperature_increment,
+             jnp.zeros_like(temperature_increment),
+         )
+@@ -899,7 +944,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+                 [
+                     jnp.all(jnp.isfinite(latitude_envelope)),
+                     jnp.all(jnp.isfinite(sigma_envelope)),
+-                    jnp.all(jnp.isfinite(mask)),
++                    jnp.all(jnp.isfinite(step_mask)),
+                     jnp.all(jnp.isfinite(low_mode_mask)),
+                     jnp.all(valid_layer_pressure_thickness),
+                     jnp.all(jnp.isfinite(dry_static_energy_anomaly)),
+@@ -981,6 +1026,118 @@ def _tropical_wtg_sigma_envelope(
+     )
+ 
+ 
++def _moisture_convergence_wtg_sigma_envelope(
++    vertical_coords: sigma_coordinates.SigmaCoordinates,
++) -> jax.Array:
++    """Return the lower-tropospheric sigma support for the WTG gate."""
++    sigma = jnp.asarray(vertical_coords.centers)
++    upper_fraction = jnp.clip(
++        (sigma - _MOISTURE_CONVERGENCE_WTG_SIGMA_ZERO_TOP)
++        / (
++            _MOISTURE_CONVERGENCE_WTG_SIGMA_FULL_TOP
++            - _MOISTURE_CONVERGENCE_WTG_SIGMA_ZERO_TOP
++        ),
++        0.0,
++        1.0,
++    )
++    lower_fraction = jnp.clip(
++        (_MOISTURE_CONVERGENCE_WTG_SIGMA_ZERO_BOTTOM - sigma)
++        / (
++            _MOISTURE_CONVERGENCE_WTG_SIGMA_ZERO_BOTTOM
++            - _MOISTURE_CONVERGENCE_WTG_SIGMA_FULL_BOTTOM
++        ),
++        0.0,
++        1.0,
++    )
++    upper_taper = 0.5 * (1.0 - jnp.cos(jnp.pi * upper_fraction))
++    lower_taper = 0.5 * (1.0 - jnp.cos(jnp.pi * lower_fraction))
++    return jnp.where(
++        (sigma >= _MOISTURE_CONVERGENCE_WTG_SIGMA_FULL_TOP)
++        & (sigma <= _MOISTURE_CONVERGENCE_WTG_SIGMA_FULL_BOTTOM),
++        1.0,
++        upper_taper * lower_taper,
++    )
++
++
++def _moisture_convergence_gated_wtg_horizontal_envelope(
++    *,
++    latitude_envelope: jax.Array,
++    quadrature_weights: jax.Array,
++    vertical_coords: sigma_coordinates.SigmaCoordinates,
++    divergence: jax.Array,
++    specific_humidity: jax.Array,
++) -> jax.Array:
++    """Return WTG horizontal weights modulated by low-level moist convergence."""
++    dtype = latitude_envelope.dtype
++    divergence = jnp.asarray(divergence, dtype=dtype)
++    specific_humidity = jnp.asarray(specific_humidity, dtype=dtype)
++    quadrature_weights = jnp.asarray(quadrature_weights, dtype=dtype)
++    tropical_weights = latitude_envelope * quadrature_weights
++    tropical_weight_sum = jnp.sum(tropical_weights)
++    tiny_weight = jnp.asarray(jnp.finfo(dtype).tiny, dtype=dtype)
++    safe_tropical_weight_sum = jnp.where(
++        tropical_weight_sum > tiny_weight,
++        tropical_weight_sum,
++        jnp.ones_like(tropical_weight_sum),
++    )
++
++    sigma_envelope = _moisture_convergence_wtg_sigma_envelope(vertical_coords).astype(
++        dtype
++    )
++    layer_thickness = jnp.asarray(vertical_coords.layer_thickness, dtype=dtype)
++    vertical_weights = sigma_envelope * layer_thickness
++    vertical_weight_sum = jnp.sum(vertical_weights)
++
++    nonnegative_humidity = jnp.maximum(specific_humidity, 0.0)
++    convergence = jnp.maximum(-divergence, 0.0)
++    proxy = jnp.sum(
++        nonnegative_humidity
++        * convergence
++        * vertical_weights[:, jnp.newaxis, jnp.newaxis],
++        axis=0,
++    )
++    proxy_mean = jnp.sum(jnp.abs(proxy) * tropical_weights) / safe_tropical_weight_sum
++    proxy_epsilon = jnp.asarray(
++        _MOISTURE_CONVERGENCE_WTG_PROXY_EPSILON,
++        dtype=dtype,
++    )
++    normalized_proxy = proxy / (proxy_mean + proxy_epsilon)
++    raw_multiplier = _MOISTURE_CONVERGENCE_WTG_BASE_MULTIPLIER + (
++        _MOISTURE_CONVERGENCE_WTG_CONVERGENCE_MULTIPLIER
++        * normalized_proxy
++        / (1.0 + normalized_proxy)
++    )
++    multiplier_mean = (
++        jnp.sum(raw_multiplier * tropical_weights) / safe_tropical_weight_sum
++    )
++    safe_multiplier_mean = jnp.where(
++        multiplier_mean > tiny_weight,
++        multiplier_mean,
++        jnp.ones_like(multiplier_mean),
++    )
++    multiplier = raw_multiplier / safe_multiplier_mean
++    gate_is_usable = jnp.all(
++        jnp.asarray(
++            [
++                tropical_weight_sum > tiny_weight,
++                vertical_weight_sum > tiny_weight,
++                proxy_mean > proxy_epsilon,
++                jnp.all(jnp.isfinite(divergence)),
++                jnp.all(jnp.isfinite(specific_humidity)),
++                jnp.all(jnp.isfinite(proxy)),
++                jnp.all(jnp.isfinite(raw_multiplier)),
++                jnp.all(jnp.isfinite(multiplier)),
++                multiplier_mean > tiny_weight,
++            ]
++        )
++    )
++    return jnp.where(
++        gate_is_usable,
++        latitude_envelope * multiplier,
++        latitude_envelope,
++    )
++
++
+ def _tropical_wtg_low_mode_mask(
+     horizontal_grid: spherical_harmonic.Grid,
+ ) -> jax.Array:
+@@ -1368,6 +1525,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def moisture_convergence_gated_wtg_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return vertical-DSE WTG with opt-in moisture-convergence WTG gating."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_mfcgate",
++        use_moisture_convergence_gated_wtg=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2559,9 +2727,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2752,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..b72c03f 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_mfcgate_model() -> DycoreModel:
++    """Return vertical-DSE WTG with moisture-convergence-gated support."""
++    from dynamaxx.dycore.models.dinosaur import (
++        moisture_convergence_gated_wtg_dinosaur_dycore_model,
++    )
++
++    return moisture_convergence_gated_wtg_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,9 +311,8 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
+-    ),
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_mfcgate": (dino_hsl2_mass_dse_wtg_vdse_mfcgate_model),
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..486af6b 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.moisture_convergence_gated_wtg_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_mfcgate"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_mfcgate",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,26 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_moisture_convergence_gated_wtg_is_registered():
++    """The MFC-gated WTG candidate is side-by-side with the ramp incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_mfcgate")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_mfcgate"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_moisture_convergence_gated_wtg
++    assert not incumbent.use_moisture_convergence_gated_wtg
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_moisture_convergence_gated_wtg"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..fa3e87b 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -83,6 +83,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
++    moisture_convergence_gated_wtg_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+@@ -655,6 +656,26 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_moisture_convergence_gated_wtg_factory_preserves_vdse_except_selector():
++    """The candidate changes only name and the moisture-convergence selector."""
++    model = moisture_convergence_gated_wtg_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_mfcgate"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_moisture_convergence_gated_wtg
++    assert not incumbent.use_moisture_convergence_gated_wtg
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_moisture_convergence_gated_wtg"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3809,10 +3830,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -3861,6 +3881,231 @@ def test_tropical_wtg_mass_dse_filter_falls_back_for_nonfinite_dse():
+     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+ 
+ 
++def test_tropical_wtg_mfc_gate_matches_incumbent_without_humidity():
++    """The opt-in WTG gate exactly falls back when humidity is absent."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    prev_state = _primitive_equation_state(
++        vorticity=prev_state.vorticity,
++        divergence=prev_state.divergence,
++        temperature_variation=prev_state.temperature_variation,
++        log_surface_pressure=prev_state.log_surface_pressure,
++        tracers={},
++        sim_time=prev_state.sim_time,
++    )
++    next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers={},
++        sim_time=next_state.sim_time,
++    )
++    incumbent_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++    )
++    gated_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_moisture_convergence_gate=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    gated = gated_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(
++        gated.temperature_variation, incumbent.temperature_variation
++    )
++    np.testing.assert_array_equal(gated.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(gated.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        gated.log_surface_pressure, incumbent.log_surface_pressure
++    )
++    assert gated.tracers == incumbent.tracers == {}
++    np.testing.assert_array_equal(gated.sim_time, incumbent.sim_time)
++
++
++def test_tropical_wtg_mfc_gate_matches_incumbent_for_nonfinite_humidity():
++    """The opt-in WTG gate exactly falls back when humidity is nonfinite."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    humidity = (
++        next_state.tracers["specific_humidity"]
++        .at[coords.vertical.layers - 1, 0, 0]
++        .set(jnp.nan)
++    )
++    prev_state = _primitive_equation_state(
++        vorticity=prev_state.vorticity,
++        divergence=prev_state.divergence,
++        temperature_variation=prev_state.temperature_variation,
++        log_surface_pressure=prev_state.log_surface_pressure,
++        tracers={"specific_humidity": humidity},
++        sim_time=prev_state.sim_time,
++    )
++    next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers={"specific_humidity": humidity},
++        sim_time=next_state.sim_time,
++    )
++    incumbent_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++    )
++    gated_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_moisture_convergence_gate=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    gated = gated_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(
++        gated.temperature_variation, incumbent.temperature_variation
++    )
++    np.testing.assert_array_equal(gated.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(gated.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        gated.log_surface_pressure, incumbent.log_surface_pressure
++    )
++    assert gated.tracers.keys() == incumbent.tracers.keys()
++    for tracer_name, tracer_value in gated.tracers.items():
++        np.testing.assert_array_equal(tracer_value, incumbent.tracers[tracer_name])
++    np.testing.assert_array_equal(gated.sim_time, incumbent.sim_time)
++
++
++def test_tropical_wtg_mfc_gate_matches_incumbent_for_degenerate_proxy():
++    """The opt-in WTG gate exactly falls back for finite but unusable proxy."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    incumbent_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++    )
++    gated_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_moisture_convergence_gate=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    gated = gated_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(
++        gated.temperature_variation, incumbent.temperature_variation
++    )
++    np.testing.assert_array_equal(gated.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(gated.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        gated.log_surface_pressure, incumbent.log_surface_pressure
++    )
++    assert gated.tracers.keys() == incumbent.tracers.keys()
++    for tracer_name, tracer_value in gated.tracers.items():
++        np.testing.assert_array_equal(tracer_value, incumbent.tracers[tracer_name])
++    np.testing.assert_array_equal(gated.sim_time, incumbent.sim_time)
++
++
++def test_tropical_wtg_mfc_gate_modulates_temperature_only_and_is_neutral():
++    """Finite low-level moist convergence changes only heat-neutral WTG weights."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    longitude, sin_latitude = coords.horizontal.nodal_mesh
++    tropical_shape = 1.0 - sin_latitude**2
++    lower_humidity = 0.012 * tropical_shape * (1.0 + 0.25 * jnp.cos(longitude))
++    lower_convergence = tropical_shape * (1.0 + 0.75 * jnp.cos(longitude))
++    divergence_nodal = coords.horizontal.to_nodal(next_state.divergence)
++    divergence_nodal = divergence_nodal.at[coords.vertical.layers - 1].set(
++        -0.08 * lower_convergence
++    )
++    humidity_nodal = coords.horizontal.to_nodal(next_state.tracers["specific_humidity"])
++    humidity_nodal = humidity_nodal.at[coords.vertical.layers - 1].set(lower_humidity)
++    divergence = coords.horizontal.to_modal(divergence_nodal)
++    humidity = coords.horizontal.to_modal(humidity_nodal)
++    next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers={"specific_humidity": humidity},
++        sim_time=next_state.sim_time,
++    )
++    prev_state = _primitive_equation_state(
++        vorticity=prev_state.vorticity,
++        divergence=divergence,
++        temperature_variation=prev_state.temperature_variation,
++        log_surface_pressure=prev_state.log_surface_pressure,
++        tracers={"specific_humidity": humidity},
++        sim_time=prev_state.sim_time,
++    )
++    incumbent_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++    )
++    gated_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_moisture_convergence_gate=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    gated = gated_filter(prev_state, next_state)
++
++    incumbent_delta = coords.horizontal.to_nodal(
++        incumbent.temperature_variation - next_state.temperature_variation
++    )
++    gated_delta = coords.horizontal.to_nodal(
++        gated.temperature_variation - next_state.temperature_variation
++    )
++    assert float(jnp.max(jnp.abs(gated_delta - incumbent_delta))) > 1.0e-8
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    layer_mean_delta = jnp.sum(
++        gated_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
++    np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
++    np.testing.assert_array_equal(gated.vorticity, next_state.vorticity)
++    np.testing.assert_array_equal(gated.divergence, next_state.divergence)
++    np.testing.assert_array_equal(
++        gated.log_surface_pressure,
++        next_state.log_surface_pressure,
++    )
++    assert gated.tracers.keys() == next_state.tracers.keys()
++    for tracer_name, tracer_value in gated.tracers.items():
++        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
++    np.testing.assert_array_equal(gated.sim_time, next_state.sim_time)
++
++
+ def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
+     """Weak HS composition combines one primitive equation with fixed forcing."""
+     compose_calls = []
+@@ -4866,10 +5111,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -5817,6 +6061,69 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_moisture_convergence_gated_wtg_non_jit_forecast_smoke_is_finite(
++    monkeypatch,
++):
++    """The moisture-convergence-gated WTG candidate runs a finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        moisture_convergence_gated_wtg_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_mfcgate"
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_moisture_convergence_gated_wtg
++    assert not model.use_humidity_in_dynamics
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6730,9 +7037,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..74499dd 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_mfcgate",
+     )
+ 
+ 
+@@ -660,6 +661,26 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_moisture_convergence_gated_wtg_candidate_model():
++    """The MFC-gated alias adds only the opt-in WTG support selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_mfcgate")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_mfcgate"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_moisture_convergence_gated_wtg
++    assert not incumbent.use_moisture_convergence_gated_wtg
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_moisture_convergence_gated_wtg"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

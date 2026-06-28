@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hydrostatic-layer-mean-temperature-init",
+  "history_path": ".logbook/history/2026-06-17_06-42-58_hydrostatic-layer-mean-temperature-init",
+  "source_artifacts": [
+    {
+      "type": "git_commit",
+      "path": "a7833574e9ade1a5271bd8cbef2fa1357465f5a8"
+    },
+    {
+      "type": "source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py"
+    },
+    {
+      "type": "source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py"
+    },
+    {
+      "type": "source_file",
+      "path": "src/dynamaxx/dycore/registry.py"
+    },
+    {
+      "type": "test_file",
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py"
+    },
+    {
+      "type": "test_file",
+      "path": "tests/dycore/models/dinosaur/test_dependency.py"
+    },
+    {
+      "type": "test_file",
+      "path": "tests/dycore/test_registry.py"
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "protocol": "fast",
+      "format": "json",
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json"
+    },
+    {
+      "protocol": "fast",
+      "format": "csv",
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv"
+    },
+    {
+      "protocol": "iteration",
+      "format": "json",
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json"
+    },
+    {
+      "protocol": "iteration",
+      "format": "csv",
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv"
+    },
+    {
+      "protocol": "validation",
+      "format": "json",
+      "path": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json"
+    },
+    {
+      "protocol": "validation",
+      "format": "csv",
+      "path": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv"
+    }
+  ],
+  "log_artifacts": [
+    {
+      "type": "proposal",
+      "path": ".logbook/history/2026-06-17_06-42-58_hydrostatic-layer-mean-temperature-init/proposal.md"
+    },
+    {
+      "type": "implementation",
+      "path": ".logbook/history/2026-06-17_06-42-58_hydrostatic-layer-mean-temperature-init/implementation.md"
+    },
+    {
+      "type": "scores",
+      "path": ".logbook/history/2026-06-17_06-42-58_hydrostatic-layer-mean-temperature-init/scores.json"
+    },
+    {
+      "type": "scoring_notes",
+      "path": ".logbook/history/2026-06-17_06-42-58_hydrostatic-layer-mean-temperature-init/scoring_notes.md"
+    },
+    {
+      "type": "decision",
+      "path": ".logbook/history/2026-06-17_06-42-58_hydrostatic-layer-mean-temperature-init/decision.md"
+    }
+  ],
+  "notes": "Accepted candidate; source changes committed and leaderboard updated to the layer-mean hydrostatic initialization model."
+}

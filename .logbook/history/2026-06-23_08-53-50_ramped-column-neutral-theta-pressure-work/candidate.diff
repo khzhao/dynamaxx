@@ -1,0 +1,944 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 1effc9e..3d9027a 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -57,6 +57,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    ramped_theta_pressure_work_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+@@ -99,6 +100,7 @@ __all__ = [
+     "log_pressure_initialization_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
++    "ramped_theta_pressure_work_dinosaur_dycore_model",
+     "primitive_equations",
+     "primitive_equations_states",
+     "pytree_utils",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7d87761..389df32 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -135,6 +135,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     apply_theta_layer_mean_recentering: bool = False
+     use_horizontal_semilagrangian_theta_transport: bool = False
+     use_midpoint_semilagrangian_theta_departure: bool = False
++    use_ramped_theta_pressure_work: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -346,6 +347,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_midpoint_semilagrangian_theta_departure=(
+                     self.use_midpoint_semilagrangian_theta_departure
+                 ),
++                use_ramped_theta_pressure_work=self.use_ramped_theta_pressure_work,
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1072,6 +1074,17 @@ def midpoint_semilagrangian_theta_departure_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def ramped_theta_pressure_work_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return HSL2 theta with ramped column-neutral pressure-work increments."""
++    return replace(
++        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
++        name="dino_hsl2_theta_pw_ramp",
++        use_ramped_theta_pressure_work=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2237,6 +2250,7 @@ def _primitive_equation(
+     ),
+     use_horizontal_semilagrangian_theta_transport: bool = False,
+     use_midpoint_semilagrangian_theta_departure: bool = False,
++    use_ramped_theta_pressure_work: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2254,6 +2268,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_ramped_theta_pressure_work=use_ramped_theta_pressure_work,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2272,6 +2287,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
++        use_ramped_theta_pressure_work=use_ramped_theta_pressure_work,
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 6327433..3675fd3 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -50,6 +50,10 @@ TEMPERATURE_TENDENCY_FORMULATIONS = (
+ )
+ HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL = 0.5
+ HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT = 1.0e-6
++THETA_PRESSURE_WORK_RAMP_START_HOURS = 24.0
++THETA_PRESSURE_WORK_RAMP_END_HOURS = 72.0
++THETA_PRESSURE_WORK_MAX_RAMP = 0.25
++THETA_PRESSURE_WORK_INCREMENT_CAP_K_PER_DAY = 10.0
+ 
+ OrographyInitFn = Callable[..., Array]
+ 
+@@ -889,6 +893,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_ramped_theta_pressure_work: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1210,6 +1218,158 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         )
+         return theta_anomaly, pressure
+ 
++    def _nondimensionalize_time_hours(self, hours: float) -> float:
++        """Convert SI hours to the model's nondimensional time units."""
++        unit_registry = scales.units
++        return float(
++            self.physics_specs.nondimensionalize(
++                unit_registry.Quantity(float(hours), "hour")
++            )
++        )
++
++    def _temperature_tendency_cap_per_day(self) -> float:
++        """Return the fixed pressure-work increment cap in model tendency units."""
++        unit_registry = scales.units
++        temperature_cap = self.physics_specs.nondimensionalize(
++            unit_registry.Quantity(
++                THETA_PRESSURE_WORK_INCREMENT_CAP_K_PER_DAY,
++                "kelvin",
++            )
++        )
++        day = self.physics_specs.nondimensionalize(unit_registry.Quantity(1.0, "day"))
++        return float(temperature_cap / day)
++
++    @jax.named_call
++    def theta_pressure_work_ramp(self, state: State) -> Array:
++        """Return the fixed spin-up ramp for constrained theta pressure work."""
++        if state.sim_time is None:
++            return jnp.asarray(0.0)
++        sim_time = jnp.asarray(state.sim_time)
++        ramp_start = jnp.asarray(
++            self._nondimensionalize_time_hours(THETA_PRESSURE_WORK_RAMP_START_HOURS),
++            dtype=sim_time.dtype,
++        )
++        ramp_end = jnp.asarray(
++            self._nondimensionalize_time_hours(THETA_PRESSURE_WORK_RAMP_END_HOURS),
++            dtype=sim_time.dtype,
++        )
++        ramp_fraction = jnp.clip(
++            (sim_time - ramp_start) / (ramp_end - ramp_start),
++            0.0,
++            1.0,
++        )
++        smoothstep = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
++        ramp = jnp.asarray(THETA_PRESSURE_WORK_MAX_RAMP, dtype=sim_time.dtype)
++        return jnp.where(
++            sim_time <= ramp_start,
++            jnp.asarray(0.0, dtype=sim_time.dtype),
++            jnp.where(sim_time >= ramp_end, ramp, ramp * smoothstep),
++        )
++
++    @jax.named_call
++    def nodal_sigma_center_log_pressure_tendency(
++        self,
++        aux_state: DiagnosticStateSigma,
++    ) -> Array:
++        """Diagnose same-step dlog(p)/dt on sigma centers."""
++        sigma_centers = jnp.asarray(
++            self.coords.vertical.centers[:, np.newaxis, np.newaxis],
++            dtype=aux_state.u_dot_grad_log_sp.dtype,
++        )
++        boundary_padding = [(1, 1), (0, 0), (0, 0)]
++        sigma_dot_boundaries = jnp.pad(aux_state.sigma_dot_full, boundary_padding)
++        sigma_dot_centers = 0.5 * (
++            sigma_dot_boundaries[:-1] + sigma_dot_boundaries[1:]
++        )
++        return self.nodal_log_pressure_tendency(aux_state) + (
++            sigma_dot_centers / sigma_centers
++        )
++
++    @jax.named_call
++    def nodal_hydrostatic_theta_pressure_work(
++        self,
++        pressure: Array,
++        aux_state: DiagnosticStateSigma,
++    ) -> Array:
++        """Return theta/Exner pressure-work conversion on sigma centers."""
++        del pressure
++        full_temperature = aux_state.temperature_variation + self.T_ref
++        dlog_pressure_dt = self.nodal_sigma_center_log_pressure_tendency(aux_state)
++        return self.physics_specs.kappa * full_temperature * dlog_pressure_dt
++
++    @jax.named_call
++    def column_neutral_temperature_increment(
++        self,
++        increment: Array,
++        pressure: Array,
++    ) -> Array:
++        """Remove the pressure/sigma-layer weighted column mean per grid point."""
++        layer_thickness = jnp.asarray(
++            self.coords.vertical.layer_thickness[:, np.newaxis, np.newaxis],
++            dtype=increment.dtype,
++        )
++        column_weights = pressure * layer_thickness
++        column_mean = jnp.sum(increment * column_weights, axis=0, keepdims=True) / (
++            jnp.sum(column_weights, axis=0, keepdims=True)
++        )
++        return increment - column_mean
++
++    @jax.named_call
++    def ramped_column_neutral_theta_pressure_work_increment(
++        self,
++        state: State,
++        pressure: Array,
++        aux_state: DiagnosticStateSigma,
++        incumbent_adiabatic_tendency: Array,
++    ) -> tuple[Array, Array]:
++        """Return the guarded added theta pressure-work increment and validity."""
++        ramp = self.theta_pressure_work_ramp(state)
++        pressure_work_tendency = self.nodal_hydrostatic_theta_pressure_work(
++            pressure,
++            aux_state,
++        )
++        raw_increment = pressure_work_tendency - incumbent_adiabatic_tendency
++        increment_cap = jnp.asarray(
++            self._temperature_tendency_cap_per_day(),
++            dtype=raw_increment.dtype,
++        )
++        clipped_increment = jnp.clip(raw_increment, -increment_cap, increment_cap)
++        projected_increment = self.column_neutral_temperature_increment(
++            clipped_increment,
++            pressure,
++        )
++        projected_column_max = jnp.max(
++            jnp.abs(projected_increment),
++            axis=0,
++            keepdims=True,
++        )
++        minimum_denominator = jnp.asarray(
++            jnp.finfo(projected_increment.dtype).tiny,
++            dtype=projected_increment.dtype,
++        )
++        bounded_projected_increment = projected_increment * jnp.minimum(
++            1.0,
++            increment_cap / jnp.maximum(projected_column_max, minimum_denominator),
++        )
++        added_increment = ramp.astype(raw_increment.dtype) * bounded_projected_increment
++        finite_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(pressure)),
++                    jnp.all(pressure > 0),
++                    jnp.all(jnp.isfinite(aux_state.sigma_dot_full)),
++                    jnp.all(jnp.isfinite(ramp)),
++                    jnp.all(jnp.isfinite(raw_increment)),
++                    jnp.all(jnp.isfinite(clipped_increment)),
++                    jnp.all(jnp.isfinite(projected_increment)),
++                    jnp.all(jnp.isfinite(bounded_projected_increment)),
++                    jnp.all(jnp.isfinite(added_increment)),
++                    jnp.all(jnp.isfinite(pressure_work_tendency)),
++                ]
++            )
++        )
++        return added_increment, finite_diagnostics
++
+     @jax.named_call
+     def temperature_tendency_temperature_form(
+         self,
+@@ -1557,9 +1717,11 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             self._potential_temperature_reference_pressure,
+             self.physics_specs.kappa,
+         )
+-        dT_dt_adiabatic = self.nodal_temperature_adiabatic_tendency(aux_state)
+-        candidate_temperature_tendency = self.coords.horizontal.to_modal(
+-            temperature_transport_nodal + dT_dt_adiabatic
++        incumbent_dT_dt_adiabatic = self.nodal_temperature_adiabatic_tendency(
++            aux_state
++        )
++        incumbent_theta_temperature_tendency = self.coords.horizontal.to_modal(
++            temperature_transport_nodal + incumbent_dT_dt_adiabatic
+         )
+         finite_diagnostics = jnp.all(
+             jnp.asarray(
+@@ -1568,13 +1730,48 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                     jnp.all(pressure > 0),
+                     jnp.all(jnp.isfinite(theta_anomaly)),
+                     jnp.all(jnp.isfinite(temperature_transport_nodal)),
+-                    jnp.all(jnp.isfinite(candidate_temperature_tendency)),
++                    jnp.all(jnp.isfinite(incumbent_dT_dt_adiabatic)),
++                    jnp.all(jnp.isfinite(incumbent_theta_temperature_tendency)),
+                 ]
+             )
+         )
++        if self.use_ramped_theta_pressure_work:
++            if state.sim_time is None:
++                return jnp.where(
++                    finite_diagnostics,
++                    incumbent_theta_temperature_tendency,
++                    incumbent_temperature_tendency,
++                )
++            added_increment, finite_pressure_work_diagnostics = (
++                self.ramped_column_neutral_theta_pressure_work_increment(
++                    state,
++                    pressure,
++                    aux_state,
++                    incumbent_dT_dt_adiabatic,
++                )
++            )
++            candidate_temperature_tendency = self.coords.horizontal.to_modal(
++                temperature_transport_nodal
++                + incumbent_dT_dt_adiabatic
++                + added_increment
++            )
++            finite_candidate_temperature_tendency = (
++                finite_diagnostics
++                & finite_pressure_work_diagnostics
++                & jnp.all(jnp.isfinite(candidate_temperature_tendency))
++            )
++            return jnp.where(
++                finite_candidate_temperature_tendency,
++                candidate_temperature_tendency,
++                jnp.where(
++                    finite_diagnostics,
++                    incumbent_theta_temperature_tendency,
++                    incumbent_temperature_tendency,
++                ),
++            )
+         return jnp.where(
+             finite_diagnostics,
+-            candidate_temperature_tendency,
++            incumbent_theta_temperature_tendency,
+             incumbent_temperature_tendency,
+         )
+ 
+@@ -3000,6 +3197,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_ramped_theta_pressure_work: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3020,6 +3218,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_ramped_theta_pressure_work=use_ramped_theta_pressure_work,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3050,6 +3249,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_ramped_theta_pressure_work: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3070,6 +3270,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_ramped_theta_pressure_work=use_ramped_theta_pressure_work,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3097,6 +3298,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_ramped_theta_pressure_work: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3120,6 +3322,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_ramped_theta_pressure_work=use_ramped_theta_pressure_work,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 6ec50ce..75c9289 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -188,6 +188,15 @@ def dino_hsl2_theta_model() -> DycoreModel:
+     return midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_theta_pressure_work_ramp_model() -> DycoreModel:
++    """Return HSL2 theta with ramped column-neutral theta pressure work."""
++    from dynamaxx.dycore.models.dinosaur import (
++        ramped_theta_pressure_work_dinosaur_dycore_model,
++    )
++
++    return ramped_theta_pressure_work_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -263,6 +272,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     ): dinosaur_ocean_bulk_sensible_heat_flux_model,
+     "dino_hsl_theta": dino_hsl_theta_model,
+     "dino_hsl2_theta": dino_hsl2_theta_model,
++    "dino_hsl2_theta_pw_ramp": dino_hsl2_theta_pressure_work_ramp_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 3bd5a3c..93c9494 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -124,6 +124,9 @@ assert dinosaur.horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(
+ assert dinosaur.midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().name == (
+     "dino_hsl2_theta"
+ )
++assert dinosaur.ramped_theta_pressure_work_dinosaur_dycore_model().name == (
++    "dino_hsl2_theta_pw_ramp"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -221,6 +224,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
++        "dino_hsl2_theta_pw_ramp",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -665,6 +669,25 @@ def test_dinosaur_ocean_bulk_shf_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_hsl2_theta_pw_ramp_is_registered():
++    """The ramped pressure-work candidate is side-by-side with HSL2 theta."""
++    model = create_dycore_model("dino_hsl2_theta_pw_ramp")
++    incumbent = create_dycore_model("dino_hsl2_theta")
++
++    assert model.name == "dino_hsl2_theta_pw_ramp"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_ramped_theta_pressure_work
++    assert incumbent.use_horizontal_semilagrangian_theta_transport
++    assert incumbent.use_midpoint_semilagrangian_theta_departure
++    assert not incumbent.use_ramped_theta_pressure_work
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_ramped_theta_pressure_work"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index fc5fe53..8f73dcd 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -80,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    ramped_theta_pressure_work_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+@@ -175,6 +176,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.apply_symmetric_exact_coriolis_rotation_split
+     assert not model.apply_theta_layer_mean_recentering
+     assert not model.use_midpoint_semilagrangian_theta_departure
++    assert not model.use_ramped_theta_pressure_work
+     assert model.semi_implicit_offcentering == 0.0
+     assert (
+         model.temperature_tendency_formulation
+@@ -576,6 +578,23 @@ def test_hsl2_theta_factory_preserves_hsl_theta_except_midpoint_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_hsl2_theta_pw_ramp_factory_preserves_hsl2_theta_except_selector():
++    """The candidate changes only name and the ramped pressure-work selector."""
++    model = ramped_theta_pressure_work_dinosaur_dycore_model()
++    incumbent = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_theta_pw_ramp"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_ramped_theta_pressure_work
++    assert not incumbent.use_ramped_theta_pressure_work
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_ramped_theta_pressure_work"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4476,6 +4495,278 @@ def test_hsl2_theta_nonfinite_midpoint_wind_falls_back_to_first_order(monkeypatc
+     np.testing.assert_array_equal(actual_tendency, expected_tendency)
+ 
+ 
++def test_hsl2_theta_pw_ramp_uses_fixed_time_window():
++    """The pressure-work increment is zero through 24 h and capped after 72 h."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_horizontal_semilagrangian_theta_transport=True,
++        use_midpoint_semilagrangian_theta_departure=True,
++        use_ramped_theta_pressure_work=True,
++        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    )
++
++    def ramp_at_hour(hour: float) -> jax.Array:
++        return equation.theta_pressure_work_ramp(
++            _primitive_equation_state(
++                vorticity=state.vorticity,
++                divergence=state.divergence,
++                temperature_variation=state.temperature_variation,
++                log_surface_pressure=state.log_surface_pressure,
++                tracers=state.tracers,
++                sim_time=jnp.asarray(
++                    _nondimensionalize_seconds(physics_specs, hour * 3600.0),
++                    dtype=jnp.float32,
++                ),
++            )
++        )
++
++    assert float(ramp_at_hour(0.0)) == 0.0
++    assert float(ramp_at_hour(24.0)) == 0.0
++    np.testing.assert_allclose(
++        ramp_at_hour(48.0),
++        0.5 * primitive_equations.THETA_PRESSURE_WORK_MAX_RAMP,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    np.testing.assert_allclose(
++        ramp_at_hour(72.0),
++        primitive_equations.THETA_PRESSURE_WORK_MAX_RAMP,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    np.testing.assert_allclose(
++        ramp_at_hour(96.0),
++        primitive_equations.THETA_PRESSURE_WORK_MAX_RAMP,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    assert float(equation.theta_pressure_work_ramp(state)) == 0.0
++
++
++def test_hsl2_theta_pw_ramp_added_increment_is_column_neutral(monkeypatch):
++    """The applied increment has near-zero pressure/sigma weighted column mean."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    active_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(
++            _nondimensionalize_seconds(physics_specs, 96.0 * 3600.0),
++            dtype=jnp.float32,
++        ),
++    )
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_horizontal_semilagrangian_theta_transport=True,
++        use_midpoint_semilagrangian_theta_departure=True,
++        use_ramped_theta_pressure_work=True,
++        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    )
++    pressure_work_pattern = jnp.stack(
++        [
++            jnp.full(coords.horizontal.nodal_shape, 0.01, dtype=jnp.float32),
++            jnp.full(coords.horizontal.nodal_shape, -0.03, dtype=jnp.float32),
++        ],
++        axis=0,
++    )
++
++    def synthetic_pressure_work(pressure, aux_state):
++        del pressure, aux_state
++        return pressure_work_pattern
++
++    monkeypatch.setattr(
++        equation,
++        "nodal_hydrostatic_theta_pressure_work",
++        synthetic_pressure_work,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        active_state,
++        coords,
++    )
++    pressure = equation.nodal_pressure_sigma(active_state)
++    added_increment, finite_diagnostics = (
++        equation.ramped_column_neutral_theta_pressure_work_increment(
++            active_state,
++            pressure,
++            aux_state,
++            incumbent_adiabatic_tendency=jnp.zeros_like(pressure_work_pattern),
++        )
++    )
++    layer_thickness = coords.vertical.layer_thickness[:, np.newaxis, np.newaxis]
++    column_weights = pressure * layer_thickness
++    weighted_column_mean = jnp.sum(
++        added_increment * column_weights,
++        axis=0,
++    ) / jnp.sum(column_weights, axis=0)
++
++    assert bool(finite_diagnostics)
++    assert float(jnp.max(jnp.abs(added_increment))) > 0.0
++    np.testing.assert_allclose(weighted_column_mean, 0.0, rtol=1e-6, atol=1e-8)
++
++
++def test_hsl2_theta_pw_ramp_nonfinite_diagnostics_fall_back_to_incumbent(
++    monkeypatch,
++):
++    """A nonfinite pressure-work diagnostic returns the accepted theta tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    active_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(
++            _nondimensionalize_seconds(physics_specs, 96.0 * 3600.0),
++            dtype=jnp.float32,
++        ),
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_ramped_theta_pressure_work=True,
++    )
++
++    def nonfinite_pressure_work(pressure, aux_state):
++        del pressure, aux_state
++        return jnp.full(coords.nodal_shape, jnp.nan, dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        candidate_equation,
++        "nodal_hydrostatic_theta_pressure_work",
++        nonfinite_pressure_work,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        active_state,
++        coords,
++    )
++
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            active_state,
++            aux_state,
++        )
++    )
++    candidate_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            active_state,
++            aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
++
++
++def test_hsl2_theta_pw_ramp_nonpositive_pressure_falls_back_to_incumbent(
++    monkeypatch,
++):
++    """A nonpositive sigma-pressure diagnostic returns the accepted theta tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    active_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(
++            _nondimensionalize_seconds(physics_specs, 96.0 * 3600.0),
++            dtype=jnp.float32,
++        ),
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_ramped_theta_pressure_work=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        active_state,
++        coords,
++    )
++
++    def nonpositive_pressure(state):
++        del state
++        return -jnp.ones(coords.nodal_shape, dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        incumbent_equation,
++        "nodal_pressure_sigma",
++        nonpositive_pressure,
++    )
++    monkeypatch.setattr(
++        candidate_equation,
++        "nodal_pressure_sigma",
++        nonpositive_pressure,
++    )
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            active_state,
++            aux_state,
++        )
++    )
++    candidate_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            active_state,
++            aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
++
++
+ def test_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
+     """The selector only changes the thermodynamic theta transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -4557,6 +4848,60 @@ def test_hsl2_theta_leaves_non_theta_explicit_tendencies_unchanged():
+     assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+ 
+ 
++def test_hsl2_theta_pw_ramp_changes_only_temperature_explicit_tendency():
++    """The pressure-work selector leaves non-temperature tendencies unchanged."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    active_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(
++            _nondimensionalize_seconds(physics_specs, 96.0 * 3600.0),
++            dtype=jnp.float32,
++        ),
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_ramped_theta_pressure_work=True,
++    )
++
++    incumbent_tendency = incumbent_equation.explicit_terms(active_state)
++    candidate_tendency = candidate_equation.explicit_terms(active_state)
++
++    np.testing.assert_array_equal(
++        candidate_tendency.vorticity, incumbent_tendency.vorticity
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.divergence, incumbent_tendency.divergence
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.log_surface_pressure,
++        incumbent_tendency.log_surface_pressure,
++    )
++    assert candidate_tendency.tracers == incumbent_tendency.tracers == {}
++    np.testing.assert_array_equal(candidate_tendency.sim_time, incumbent_tendency.sim_time)
++    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
++
++
+ def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
+     """The opt-in flux changes only the lowest-layer temperature tendency."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -4885,6 +5230,64 @@ def test_hsl2_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_hsl2_theta_pw_ramp_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The ramped pressure-work candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        ramped_theta_pressure_work_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_theta_pw_ramp"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_ramped_theta_pressure_work
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 5d58870..2e1a9c7 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -52,6 +52,7 @@ def test_registry_lists_default_dycore_models():
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
++        "dino_hsl2_theta_pw_ramp",
+     )
+ 
+ 
+@@ -580,6 +581,25 @@ def test_registry_creates_hsl2_theta_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_hsl2_theta_pw_ramp_candidate_model():
++    """The ramped pressure-work alias adds only its selector."""
++    model = create_dycore_model("dino_hsl2_theta_pw_ramp")
++    incumbent = create_dycore_model("dino_hsl2_theta")
++
++    assert model.name == "dino_hsl2_theta_pw_ramp"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_ramped_theta_pressure_work
++    assert incumbent.use_horizontal_semilagrangian_theta_transport
++    assert incumbent.use_midpoint_semilagrangian_theta_departure
++    assert not incumbent.use_ramped_theta_pressure_work
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_ramped_theta_pressure_work"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

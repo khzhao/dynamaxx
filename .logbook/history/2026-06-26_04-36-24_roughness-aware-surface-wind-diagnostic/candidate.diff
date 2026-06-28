@@ -1,0 +1,778 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..b5cc0e8 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -61,6 +61,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
++    roughness_aware_10m_wind_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     stability_aware_surface_residual_dinosaur_dycore_model,
+@@ -111,6 +112,7 @@ __all__ = [
+     "pytree_utils",
+     "radiation",
+     "richardson_10m_wind_diagnostic_dinosaur_dycore_model",
++    "roughness_aware_10m_wind_dinosaur_dycore_model",
+     "scales",
+     "scale_separated_surface_residual_dinosaur_dycore_model",
+     "semi_implicit_offcenter_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..3d9cb27 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -78,6 +78,12 @@ _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
+ _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
+ _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
+ _SURFACE_LAYER_REFERENCE_HEIGHT_METERS = 10.0
++_ROUGHNESS_AWARE_10M_WIND_OCEAN_Z0_METERS = 2.0e-4
++_ROUGHNESS_AWARE_10M_WIND_REFERENCE_Z0_METERS = 1.0e-2
++_ROUGHNESS_AWARE_10M_WIND_LAND_Z0_METERS = 1.0e-1
++_ROUGHNESS_AWARE_10M_WIND_TRANSFER_HEIGHT_METERS = 100.0
++_ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT = 0.90
++_ROUGHNESS_AWARE_10M_WIND_MAX_ADJUSTMENT = 1.08
+ _TROPICAL_WTG_FULL_LATITUDE_DEGREES = 12.0
+ _TROPICAL_WTG_ZERO_LATITUDE_DEGREES = 27.0
+ _TROPICAL_WTG_SIGMA_ZERO_TOP = 0.20
+@@ -137,6 +143,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_land_sea_surface_temperature_residual: bool = False
+     apply_ocean_bulk_sensible_heat_flux: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
++    use_roughness_aware_surface_layer_10m_wind_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+     apply_symmetric_exact_coriolis_rotation_split: bool = False
+     temperature_tendency_formulation: str = (
+@@ -188,26 +195,42 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             self.inner_step_seconds,
+         )
+         land_sea_fraction = None
+-        if (
++        valid_land_sea_fraction = None
++        needs_land_sea_fraction = (
+             self.use_land_sea_surface_temperature_residual
+             or self.apply_ocean_bulk_sensible_heat_flux
+-        ):
++            or self.use_roughness_aware_surface_layer_10m_wind_diagnostic
++        )
++        if needs_land_sea_fraction:
+             land_sea_fraction = _load_land_sea_fraction_for_grid(
+                 longitude=forecast_input.longitude,
+                 latitude=forecast_input.latitude,
+                 initial_time=forecast_input.initial_times[0],
+             )
+-        ocean_bulk_shf_ocean_weight = None
+-        if self.apply_ocean_bulk_sensible_heat_flux:
+             valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
+                 land_sea_fraction,
+                 (forecast_input.longitude.size, forecast_input.latitude.size),
+             )
++        ocean_bulk_shf_ocean_weight = None
++        if self.apply_ocean_bulk_sensible_heat_flux:
+             if valid_land_sea_fraction is not None:
+                 ocean_bulk_shf_ocean_weight = 1.0 - _to_dinosaur_latitude_order(
+                     valid_land_sea_fraction,
+                     grid.latitude_reversed,
+                 )
++        surface_layer_roughness_10m_wind_adjustment = None
++        if (
++            self.use_roughness_aware_surface_layer_10m_wind_diagnostic
++            and valid_land_sea_fraction is not None
++        ):
++            surface_layer_roughness_10m_wind_adjustment = (
++                _roughness_aware_10m_wind_adjustment(
++                    _to_dinosaur_latitude_order(
++                        valid_land_sea_fraction,
++                        grid.latitude_reversed,
++                    )
++                )
++            )
+ 
+         trajectory_fn = self._trajectory_function(
+             coords=grid.coords,
+@@ -273,6 +296,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_surface_layer_richardson_10m_wind_diagnostic=(
+                     self.use_surface_layer_richardson_10m_wind_diagnostic
+                 ),
++                surface_layer_roughness_10m_wind_adjustment=(
++                    surface_layer_roughness_10m_wind_adjustment
++                ),
+             )
+             if self.apply_near_surface_residual_correction:
+                 residual_correction = (
+@@ -843,9 +869,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,8 +889,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -1368,6 +1392,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def roughness_aware_10m_wind_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the pressure-ramped incumbent with roughness-aware 10 m wind."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_z0_10m",
++        use_roughness_aware_surface_layer_10m_wind_diagnostic=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1513,6 +1548,7 @@ def dinosaur_state_to_weather_state(
+     reference_temperature: np.ndarray,
+     output_variables: tuple[str, ...],
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
++    surface_layer_roughness_10m_wind_adjustment: jax.Array | None = None,
+ ) -> WeatherState:
+     """Convert a Dinosaur trajectory into packed WeatherState channels."""
+     temperature = (
+@@ -1592,6 +1628,7 @@ def dinosaur_state_to_weather_state(
+             v_wind=v_wind,
+             surface_pressure_hpa=surface_pressure_hpa,
+             sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
++            roughness_transfer_adjustment=(surface_layer_roughness_10m_wind_adjustment),
+         )
+ 
+     level_to_index = {
+@@ -1644,6 +1681,7 @@ def _surface_layer_richardson_10m_wind(
+     v_wind: jax.Array,
+     surface_pressure_hpa: jax.Array,
+     sigma_coords: sigma_coordinates.SigmaCoordinates,
++    roughness_transfer_adjustment: jax.Array | None = None,
+ ) -> tuple[jax.Array, jax.Array]:
+     """Diagnose 10 m wind by bounded Richardson scaling of the lowest wind."""
+     lowest_u_wind = u_wind[:, -1]
+@@ -1703,6 +1741,11 @@ def _surface_layer_richardson_10m_wind(
+         jnp.maximum(-richardson_number, 0.0), 1.0
+     )
+     wind_factor = neutral_factor * stable_damping + unstable_mixing
++    if roughness_transfer_adjustment is not None:
++        wind_factor = wind_factor * jnp.asarray(
++            roughness_transfer_adjustment,
++            dtype=wind_factor.dtype,
++        )
+     wind_factor = jnp.clip(
+         wind_factor,
+         _SURFACE_LAYER_WIND_MIN_FACTOR,
+@@ -1728,6 +1771,43 @@ def _surface_layer_richardson_10m_wind(
+     return lowest_u_wind * wind_factor, lowest_v_wind * wind_factor
+ 
+ 
++def _roughness_aware_10m_wind_adjustment(
++    land_sea_fraction: jax.Array,
++) -> jax.Array:
++    """Return a bounded neutral log-law adjustment from a land-fraction proxy.
++
++    The fixed roughness lengths order open water as smoothest, land as roughest,
++    and blend coastlines geometrically to avoid discontinuities.
++    """
++    land_fraction = jnp.clip(
++        jnp.asarray(land_sea_fraction, dtype=jnp.float32), 0.0, 1.0
++    )
++    log_ocean_z0 = jnp.log(_ROUGHNESS_AWARE_10M_WIND_OCEAN_Z0_METERS)
++    log_land_z0 = jnp.log(_ROUGHNESS_AWARE_10M_WIND_LAND_Z0_METERS)
++    effective_z0 = jnp.exp(
++        (1.0 - land_fraction) * log_ocean_z0 + land_fraction * log_land_z0
++    )
++    reference_z0 = jnp.asarray(
++        _ROUGHNESS_AWARE_10M_WIND_REFERENCE_Z0_METERS,
++        dtype=effective_z0.dtype,
++    )
++
++    transfer_height = _ROUGHNESS_AWARE_10M_WIND_TRANSFER_HEIGHT_METERS
++    reference_height = _SURFACE_LAYER_REFERENCE_HEIGHT_METERS
++    roughness_transfer = jnp.log(reference_height / effective_z0) / jnp.log(
++        transfer_height / effective_z0
++    )
++    reference_transfer = jnp.log(reference_height / reference_z0) / jnp.log(
++        transfer_height / reference_z0
++    )
++    adjustment = roughness_transfer / reference_transfer
++    return jnp.clip(
++        adjustment,
++        _ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT,
++        _ROUGHNESS_AWARE_10M_WIND_MAX_ADJUSTMENT,
++    )
++
++
+ def _apply_near_surface_residual_correction(
+     trajectory_state: WeatherState,
+     *,
+@@ -2559,9 +2639,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2664,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..b96fdf7 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_z0_10m_model() -> DycoreModel:
++    """Return pressure-ramped WTG with roughness-aware 10 m wind output."""
++    from dynamaxx.dycore.models.dinosaur import (
++        roughness_aware_10m_wind_dinosaur_dycore_model,
++    )
++
++    return roughness_aware_10m_wind_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,9 +311,8 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
+-    ),
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_z0_10m": (dino_hsl2_mass_dse_wtg_vdse_z0_10m_model),
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..0147196 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.roughness_aware_10m_wind_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_z0_10m"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_z0_10m",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,24 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_roughness_aware_10m_wind_is_registered():
++    """The roughness candidate is side-by-side with the current incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_z0_10m")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_z0_10m"
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    assert not incumbent.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_roughness_aware_surface_layer_10m_wind_diagnostic",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..4359f86 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -27,6 +27,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _DRY_AIR_GAS_CONSTANT_SI,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++    _ROUGHNESS_AWARE_10M_WIND_MAX_ADJUSTMENT,
++    _ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+     _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+@@ -57,6 +59,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _primitive_equation,
+     _primitive_equation_state,
+     _reference_temperature,
++    _roughness_aware_10m_wind_adjustment,
+     _scale_separated_residual_low_mode_mask,
+     _split_near_surface_residual_by_scale,
+     _stability_aware_near_surface_residual_decay_hours,
+@@ -86,6 +89,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
++    roughness_aware_10m_wind_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     split_pressure_level_channel,
+@@ -655,6 +659,24 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_roughness_aware_10m_wind_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the roughness wind selector."""
++    model = roughness_aware_10m_wind_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_z0_10m"
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    assert not incumbent.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_roughness_aware_surface_layer_10m_wind_diagnostic",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3178,6 +3200,184 @@ def test_richardson_10m_wind_diagnostic_only_changes_raw_surface_wind():
+     )
+ 
+ 
++def test_roughness_aware_10m_wind_adjustment_orders_ocean_coast_land():
++    """The fixed roughness proxy damps land most and open water least."""
++    land_sea_fraction = jnp.asarray([[0.0, 0.5, 1.0]], dtype=jnp.float32)
++
++    adjustment = _roughness_aware_10m_wind_adjustment(land_sea_fraction)
++
++    ocean_adjustment = float(adjustment[0, 0])
++    coast_adjustment = float(adjustment[0, 1])
++    land_adjustment = float(adjustment[0, 2])
++    assert ocean_adjustment > coast_adjustment > land_adjustment
++    assert (
++        float(jnp.min(adjustment)) >= _ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT - 1.0e-6
++    )
++    assert (
++        float(jnp.max(adjustment)) <= _ROUGHNESS_AWARE_10M_WIND_MAX_ADJUSTMENT + 1.0e-6
++    )
++
++
++def test_roughness_aware_10m_wind_adjustment_scales_wind_components():
++    """A bounded roughness adjustment scales both diagnosed wind components."""
++    sigma_coords = sigma_coordinates.SigmaCoordinates.equidistant(2)
++    temperature = jnp.asarray(
++        [[[[220.0]], [[340.0]]]],
++        dtype=jnp.float32,
++    )
++    u_wind = jnp.asarray(
++        [[[[20.0]], [[10.0]]]],
++        dtype=jnp.float32,
++    )
++    v_wind = jnp.asarray(
++        [[[[10.0]], [[5.0]]]],
++        dtype=jnp.float32,
++    )
++    surface_pressure_hpa = jnp.asarray([[[1000.0]]], dtype=jnp.float32)
++    roughness_adjustment = jnp.asarray(
++        [[_ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT]],
++        dtype=jnp.float32,
++    )
++
++    incumbent_u_wind, incumbent_v_wind = _surface_layer_richardson_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++    )
++    candidate_u_wind, candidate_v_wind = _surface_layer_richardson_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++        roughness_transfer_adjustment=roughness_adjustment,
++    )
++
++    np.testing.assert_allclose(
++        candidate_u_wind,
++        incumbent_u_wind * _ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT,
++    )
++    np.testing.assert_allclose(
++        candidate_v_wind,
++        incumbent_v_wind * _ROUGHNESS_AWARE_10M_WIND_MIN_ADJUSTMENT,
++    )
++
++
++def test_roughness_aware_10m_wind_only_changes_surface_wind_channels():
++    """The roughness factor is limited to requested 10 m wind outputs."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    state = weather_state_to_dinosaur_state(
++        WeatherState(
++            values=forecast_input.initial_state.values[0],
++            variables=forecast_input.initial_state.variables,
++        ),
++        coords=grid.coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=True,
++    )
++    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value, value]), state)
++    output_variables = (
++        "temperature_500",
++        "u_component_of_wind_500",
++        "v_component_of_wind_500",
++        "geopotential_500",
++        "specific_humidity_500",
++        "surface_pressure",
++        "mean_sea_level_pressure",
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "10m_v_component_of_wind",
++    )
++    common_kwargs = {
++        "trajectory": trajectory,
++        "coords": grid.coords,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "latitude_reversed": grid.latitude_reversed,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "output_variables": output_variables,
++        "use_surface_layer_richardson_10m_wind_diagnostic": True,
++    }
++    land_sea_fraction = jnp.mod(
++        jnp.arange(np.prod(grid.coords.horizontal.nodal_shape), dtype=jnp.float32),
++        2.0,
++    ).reshape(grid.coords.horizontal.nodal_shape)
++    roughness_adjustment = _roughness_aware_10m_wind_adjustment(land_sea_fraction)
++
++    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
++    candidate = dinosaur_state_to_weather_state(
++        **common_kwargs,
++        surface_layer_roughness_10m_wind_adjustment=roughness_adjustment,
++    )
++
++    unchanged_variables = tuple(output_variables[:-2])
++    np.testing.assert_array_equal(
++        candidate.select(unchanged_variables).values,
++        incumbent.select(unchanged_variables).values,
++    )
++    assert bool(jnp.isfinite(candidate.values).all())
++
++
++def test_roughness_aware_10m_wind_flag_controls_static_mask_loading(monkeypatch):
++    """A plain Richardson diagnostic loads land-sea data only for roughness."""
++    load_calls = 0
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        nonlocal load_calls
++        del initial_time
++        load_calls += 1
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    model = DinosaurPrimitiveEquationsDycoreModel(
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=("10m_u_component_of_wind",),
++        apply_spectral_filter=False,
++        use_surface_layer_richardson_10m_wind_diagnostic=True,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++
++    disabled_forecast = model.forecast(forecast_input)
++    enabled_forecast = replace(
++        model,
++        use_roughness_aware_surface_layer_10m_wind_diagnostic=True,
++    ).forecast(forecast_input)
++
++    assert load_calls == 1
++    assert disabled_forecast.variables == enabled_forecast.variables
++    assert bool(jnp.isfinite(disabled_forecast.values).all())
++    assert bool(jnp.isfinite(enabled_forecast.values).all())
++
++
+ def test_potential_temperature_conversion_round_trips_finite_pressure():
+     """Dry theta conversion is an inverse pair for finite pressure."""
+     temperature = jnp.asarray([[250.0, 280.0], [300.0, 260.0]], dtype=jnp.float32)
+@@ -3809,10 +4009,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -4866,10 +5065,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -5817,6 +6015,139 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++@pytest.mark.parametrize("mask_case", ("missing", "wrong_shape", "nonfinite"))
++def test_roughness_aware_10m_wind_invalid_mask_reproduces_incumbent(
++    monkeypatch,
++    mask_case,
++):
++    """Invalid roughness data falls back exactly to the incumbent diagnostic."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def invalid_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        if mask_case == "missing":
++            return None
++        if mask_case == "nonfinite":
++            return jnp.full((longitude.size, latitude.size), jnp.nan, dtype=jnp.float32)
++        return jnp.zeros((longitude.size, latitude.size + 1), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        invalid_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "10m_v_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    common_kwargs = {
++        "inner_step_seconds": 3600.0,
++        "spectral_wavenumbers": None,
++        "output_variables": output_variables,
++        "apply_spectral_filter": False,
++        "jit_forecast": False,
++    }
++    incumbent = replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        **common_kwargs,
++    )
++    candidate = replace(
++        roughness_aware_10m_wind_dinosaur_dycore_model(),
++        **common_kwargs,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    incumbent_forecast = incumbent.forecast(forecast_input)
++    candidate_forecast = candidate.forecast(forecast_input)
++
++    assert candidate.name == "dino_hsl2_mass_dse_wtg_vdse_z0_10m"
++    assert candidate_forecast.variables == incumbent_forecast.variables
++    np.testing.assert_array_equal(candidate_forecast.values, incumbent_forecast.values)
++
++
++def test_roughness_aware_10m_wind_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The roughness-aware candidate runs a small finite non-JIT forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        land_fraction_by_latitude = jnp.asarray([0.0, 0.5, 1.0], dtype=jnp.float32)
++        return jnp.broadcast_to(
++            land_fraction_by_latitude[jnp.newaxis, :],
++            (longitude.size, latitude.size),
++        )
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "10m_v_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        roughness_aware_10m_wind_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_z0_10m"
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6730,9 +7061,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..9536355 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_z0_10m",
+     )
+ 
+ 
+@@ -660,6 +661,24 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_roughness_aware_10m_wind_candidate_model():
++    """The roughness-aware alias adds only the 10 m wind diagnostic selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_z0_10m")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_z0_10m"
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    assert not incumbent.use_roughness_aware_surface_layer_10m_wind_diagnostic
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_roughness_aware_surface_layer_10m_wind_diagnostic",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

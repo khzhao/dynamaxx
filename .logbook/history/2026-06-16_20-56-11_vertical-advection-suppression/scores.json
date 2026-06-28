@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "vertical-advection-suppression",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_no_vadv",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4756cc9a4b69c41eec60e2177fb03a73974f0e2d",
+    "working_tree_state": "candidate implementation uncommitted in dycore source, registry, and tests",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "executed_protocols": [
+      "fast"
+    ],
+    "skipped_protocols": {
+      "iteration": "Skipped because the fast gate failed diagnostics.",
+      "validation": "Skipped because iteration was not allowed after fast failure.",
+      "golden": "Not run; golden is prohibited for iterative model selection."
+    },
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "registration": {
+    "candidate_registered": true,
+    "candidate_class": "dynamaxx.dycore.models.dinosaur.adapter.DinosaurPrimitiveEquationsDycoreModel",
+    "incumbent_registered": true,
+    "incumbent_class": "dynamaxx.dycore.models.dinosaur.adapter.DinosaurPrimitiveEquationsDycoreModel",
+    "check_command": "uv run python - <<'PY' ... create_dycore_model(...) ... PY",
+    "check_exit_status": 0
+  },
+  "commands": [
+    {
+      "command": "python -m compileall -q src/dynamaxx/dycore/models/dinosaur src/dynamaxx/dycore/registry.py tests/dycore",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run ruff format src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; one file was formatted, then rerun stable."
+    },
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; initial import-order failure was repaired before this passing rerun."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; focused pytest passed with 41 tests."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; full pytest passed with 107 tests and 2 skipped."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_no_vadv",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; Scorer verified the resulting artifact by exact model-name filtering. The command exited 0 but diagnostics failed."
+    },
+    {
+      "command": "uv run python - <<'PY' ... create_dycore_model('dinosaur_dfi_surface_residual_weak_hs_no_vadv'); create_dycore_model('dinosaur_dfi_surface_residual_weak_hs') ... PY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Run by Scorer to confirm candidate and incumbent registration through the repository API."
+    },
+    {
+      "command": "uv run python - <<'PY' ... inspect outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_no_vadv.json with exact model-name filtering ... PY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Run by Scorer to verify filtered row counts, diagnostic issue codes, primary score representation, and earliest nonfinite metric records."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_no_vadv.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_no_vadv.csv",
+    "candidate_iteration_json": null,
+    "candidate_iteration_csv": null,
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  },
+  "filtered_record_counts": {
+    "candidate_fast": 60,
+    "persistence_fast": 60,
+    "candidate_iteration": 0,
+    "candidate_validation": 0,
+    "incumbent_iteration_artifact_records": 120,
+    "incumbent_validation_artifact_records": 120
+  },
+  "primary_scores": {
+    "candidate_fast": -1.7976931348623157e308,
+    "candidate_fast_artifact_primary_score_repr": "-Infinity",
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2218408656785489,
+    "incumbent_validation": -1.2103467803549615,
+    "iteration_delta": null,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": true,
+    "candidate_issue_count": 2,
+    "candidate_issues": [
+      {
+        "code": "nonfinite_forecast",
+        "message": "Forecast contains NaN or Inf values.",
+        "severity": "error",
+        "value": 16030080
+      },
+      {
+        "code": "nonfinite_metric",
+        "message": "Metric records contain NaN or Inf values.",
+        "severity": "error",
+        "value": 80
+      }
+    ],
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "nonfinite_metrics": {
+    "candidate_nonfinite_record_count": 20,
+    "candidate_nonfinite_metric_value_count": 80,
+    "earliest_nonfinite_lead_hours": 264,
+    "nonfinite_lead_hours": [
+      264,
+      288,
+      312,
+      336,
+      360
+    ],
+    "fields_nonfinite_at_earliest_lead": [
+      "rmse",
+      "mae",
+      "bias",
+      "skill_vs_persistence"
+    ],
+    "variables_nonfinite_at_earliest_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "variable": "10 m zonal wind"
+      },
+      {
+        "channel_name": "2m_temperature",
+        "variable": "2 m temperature"
+      },
+      {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential"
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure"
+      }
+    ]
+  },
+  "gate_status": {
+    "fast_passed": false,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_skipped": true,
+    "validation_skipped": true,
+    "golden_skipped": true
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": [],
+    "notes": "Not computed because the candidate failed the fast gate and iteration was not run."
+  },
+  "skip_reasons": {
+    "iteration": "Fast diagnostics failed with nonfinite forecast output and nonfinite metric records.",
+    "validation": "Validation may run only if iteration passes; iteration was skipped after fast failure.",
+    "golden": "Golden was not run because it is prohibited for iterative selection."
+  }
+}

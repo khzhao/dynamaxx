@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "analysis-offset-relaxation-rate-mask",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "6094c73fe9b98b46c3ac9bfbb430bafd332d628f",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "candidate_created_type": "DinosaurPrimitiveEquationsDycoreModel",
+    "incumbent_created_type": "DinosaurPrimitiveEquationsDycoreModel"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import get_model_factory\n...\nPY",
+      "exit_status": 1,
+      "notes": "Initial registration probe used a helper not exposed by this registry; no evaluation was run."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\n...\nPY",
+      "exit_status": 0,
+      "notes": "Confirmed both candidate and incumbent were listed and constructible."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "199 passed, 2 skipped in 129.96s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask",
+      "exit_status": 0,
+      "notes": "Candidate only. failed=false, issues=0, records=120, primary_score=-0.5474015011136666."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate only. failed=false, issues=0, records=120, primary_score=-0.5313755627331137."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask --workers 4",
+      "exit_status": null,
+      "notes": "Skipped because candidate iteration delta was below +0.002 and RMSE guardrails were not clean."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_hs_rate_mask.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.5474015011136666,
+    "candidate_iteration": -0.5313755627331137,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.5150627015910243,
+    "incumbent_validation": -0.5044433981077879,
+    "iteration_delta": -0.016312861142089408,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_gate": {
+      "candidate_diagnostics_clean": true,
+      "primary_delta": -0.016312861142089408,
+      "primary_delta_threshold": 0.002,
+      "primary_delta_passed": false,
+      "early_day_1_to_5_mean_rmse_guardrail_passed": false,
+      "variable_lead_rmse_guardrail_passed": false,
+      "passed": false
+    },
+    "validation_gate": {
+      "evaluated": false,
+      "reason": "validation skipped because iteration promotion gate failed",
+      "primary_delta_threshold": 0.001
+    },
+    "thresholds_reported_not_decided": {
+      "iteration_primary_delta_required": 0.002,
+      "validation_primary_delta_required": 0.001,
+      "early_day_1_to_5_mean_rmse_regression_limit": 0.02,
+      "variable_lead_rmse_regression_limit": 0.1
+    }
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.776359562036793,
+        "incumbent_mean_rmse": 4.778312124724008,
+        "rmse_delta": -0.001952562687214332,
+        "regression_fraction": -0.000408630210050816,
+        "regression_percent": -0.0408630210050816,
+        "violates_2_percent_guardrail": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.395129043084863,
+        "incumbent_mean_rmse": 2.793822259777979,
+        "rmse_delta": 1.6013067833068835,
+        "regression_fraction": 0.5731598628733586,
+        "regression_percent": 57.31598628733586,
+        "violates_2_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 759.7245666849277,
+        "incumbent_mean_rmse": 878.0844084065939,
+        "rmse_delta": -118.35984172166616,
+        "regression_fraction": -0.13479323922451433,
+        "regression_percent": -13.479323922451433,
+        "violates_2_percent_guardrail": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 844.213183047919,
+        "incumbent_mean_rmse": 817.7806712478797,
+        "rmse_delta": 26.432511800039265,
+        "regression_fraction": 0.03232225060994042,
+        "regression_percent": 3.232225060994042,
+        "violates_2_percent_guardrail": true
+      }
+    ],
+    "early_day_1_to_5_mean_rmse_guardrail_violations": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.395129043084863,
+        "incumbent_mean_rmse": 2.793822259777979,
+        "rmse_delta": 1.6013067833068835,
+        "regression_fraction": 0.5731598628733586,
+        "regression_percent": 57.31598628733586
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 844.213183047919,
+        "incumbent_mean_rmse": 817.7806712478797,
+        "rmse_delta": 26.432511800039265,
+        "regression_fraction": 0.03232225060994042,
+        "regression_percent": 3.232225060994042
+      }
+    ],
+    "variable_lead_rmse_regression_check_count": 120,
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 336,
+        "lead_days": 14.0,
+        "candidate_rmse": 7.151459223471277,
+        "incumbent_rmse": 5.429263116540544,
+        "rmse_delta": 1.722196106930733,
+        "regression_fraction": 0.3172062340622191,
+        "regression_percent": 31.72062340622191,
+        "violates_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 240,
+        "lead_days": 10.0,
+        "candidate_rmse": 9.595927190555068,
+        "incumbent_rmse": 3.5394388517203392,
+        "rmse_delta": 6.056488338834729,
+        "regression_fraction": 1.7111436565406353,
+        "regression_percent": 171.11436565406353,
+        "violates_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 288,
+        "lead_days": 12.0,
+        "candidate_rmse": 1338.0896176092092,
+        "incumbent_rmse": 1128.3837269115577,
+        "rmse_delta": 209.7058906976515,
+        "regression_fraction": 0.18584625575169092,
+        "regression_percent": 18.584625575169092,
+        "violates_10_percent_guardrail": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 288,
+        "lead_days": 12.0,
+        "candidate_rmse": 1707.7407511579117,
+        "incumbent_rmse": 995.5557590132713,
+        "rmse_delta": 712.1849921446404,
+        "regression_fraction": 0.7153642432348649,
+        "regression_percent": 71.53642432348649,
+        "violates_10_percent_guardrail": true
+      }
+    ],
+    "worst_variable_lead_regression": {
+      "channel_name": "2m_temperature",
+      "lead_hours": 240,
+      "lead_days": 10.0,
+      "candidate_rmse": 9.595927190555068,
+      "incumbent_rmse": 3.5394388517203392,
+      "rmse_delta": 6.056488338834729,
+      "regression_fraction": 1.7111436565406353,
+      "regression_percent": 171.11436565406353
+    },
+    "variable_lead_rmse_guardrail_violations_count": 48,
+    "variable_lead_rmse_guardrail_violations_summary": [
+      "10m_u_component_of_wind: 11 violations, worst 31.72062340622191% at lead hour 336",
+      "2m_temperature: 15 violations, worst 171.11436565406353% at lead hour 240",
+      "geopotential_500: 9 violations, worst 18.584625575169092% at lead hour 288",
+      "mean_sea_level_pressure: 13 violations, worst 71.53642432348649% at lead hour 288"
+    ]
+  },
+  "cache_reuse": {
+    "leaderboard_path": ".logbook/leaderboard.json",
+    "incumbent_commit": "6094c73fe9b98b46c3ac9bfbb430bafd332d628f",
+    "current_head": "6094c73fe9b98b46c3ac9bfbb430bafd332d628f",
+    "incumbent_cache_status": "valid",
+    "validation_checks": [
+      "Requested incumbent matched .logbook/leaderboard.json incumbent_model_name.",
+      "Leaderboard fingerprint data_path, target_variables, lead_days, and protocols were compatible with candidate scoring.",
+      "Current HEAD matched leaderboard evaluation_fingerprint.eval_code_commit.",
+      "Cached incumbent iteration and validation JSON artifacts existed, were readable, had finite primary_score values, clean diagnostics, 120 records, and required guardrail records.",
+      "Candidate source edits in adapter, registry, and tests were treated as non-invalidating under the Orchestrator instruction and protocol."
+    ],
+    "iteration": {
+      "status": "reused",
+      "reused": true,
+      "recomputed": false,
+      "source": "leaderboard",
+      "json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+      "csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv"
+    },
+    "validation": {
+      "status": "checked_valid_not_used_iteration_gate_failed",
+      "reused": false,
+      "recomputed": false,
+      "source": "leaderboard",
+      "json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+      "csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv",
+      "not_used_reason": "Candidate validation was not run because the iteration promotion gate failed."
+    }
+  },
+  "scoring_anomalies": {
+    "cache_reuse": "No anomaly. Incumbent iteration reused and incumbent validation checked valid but not used.",
+    "resource_limits": "No resource limit failure observed. Candidate iteration completed 229 chunks with --workers 4.",
+    "failed_or_restarted_commands": "No gate command failed or restarted. One preliminary registration probe failed because it used a nonexistent helper, then the registry was confirmed with the correct API.",
+    "nonfinite_or_unstable_outputs": "None reported by candidate or cached incumbent diagnostics.",
+    "golden": "Not run."
+  }
+}

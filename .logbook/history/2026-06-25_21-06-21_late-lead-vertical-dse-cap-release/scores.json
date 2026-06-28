@@ -1,0 +1,1033 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "late-lead-vertical-dse-cap-release",
+  "history_path": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release",
+  "scored_at": "2026-06-26T00:03:00Z",
+  "role": "Scorer",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_latecap",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "worker_count": 4,
+  "validation_allowed_only_if_iteration_promotes": true,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "protocols": [
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "eval_code_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "current_head": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "candidate_protocols_measured": [
+      "fast",
+      "iteration"
+    ],
+    "validation_measured": false
+  },
+  "registry_verification": {
+    "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore import registry\nfor name in ['dino_hsl2_mass_dse_wtg_vdse_latecap', 'dino_hsl2_mass_dse_wtg_vdse_ramp']:\n    registered = name in registry.dycore_model_names()\n    print(f'{name}: registered={registered}')\n    if registered:\n        model = registry.create_dycore_model(name)\n        print(f'{name}: constructed_name={model.name} type={type(model).__name__}')\nPY",
+    "exit_status": 0,
+    "candidate_registered": true,
+    "candidate_constructed_name": "dino_hsl2_mass_dse_wtg_vdse_latecap",
+    "candidate_type": "DinosaurPrimitiveEquationsDycoreModel",
+    "incumbent_registered": true,
+    "incumbent_constructed_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+    "incumbent_type": "DinosaurPrimitiveEquationsDycoreModel"
+  },
+  "pre_scoring_records": {
+    "pytest": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "source": "Orchestrator-provided pre-scoring record",
+      "summary": "262 passed, 2 skipped in 304.46s",
+      "rerun": false
+    },
+    "candidate_fast": {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_latecap",
+      "exit_status": 0,
+      "source": "Orchestrator-provided pre-scoring record; raw artifact verified by Scorer",
+      "primary_score": -0.22415855014566696,
+      "diagnostics_failed": false,
+      "diagnostic_issue_count": 0,
+      "records": 120,
+      "rerun": false
+    }
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "kind": "provided_pre_scoring_record",
+      "notes": "Not rerun; provided record was usable: 262 passed, 2 skipped in 304.46s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_latecap",
+      "exit_status": 0,
+      "kind": "provided_pre_scoring_record",
+      "notes": "Not rerun; fast JSON/CSV artifacts were present and readable."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore import registry\nnames = sorted(registry.list_registered_models()) if hasattr(registry, 'list_registered_models') else sorted(registry.MODEL_REGISTRY)\nfor name in ['dino_hsl2_mass_dse_wtg_vdse_latecap', 'dino_hsl2_mass_dse_wtg_vdse_ramp']:\n    print(f'{name}: registered={name in names}')\n    if name in names:\n        model = registry.get_model(name) if hasattr(registry, 'get_model') else registry.MODEL_REGISTRY[name]()\n        print(f'{name}: constructed_name={getattr(model, \"name\", None)} type={type(model).__name__}')\nPY",
+      "exit_status": 1,
+      "kind": "scratch_verification",
+      "notes": "Scratch registry probe used a non-existent helper name; no files or metric artifacts were changed."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore import registry\nprint([name for name in dir(registry) if not name.startswith('_')])\nfor name in ['dino_hsl2_mass_dse_wtg_vdse_latecap', 'dino_hsl2_mass_dse_wtg_vdse_ramp']:\n    registered = name in registry.DYCORE_MODEL_FACTORIES\n    print(f'{name}: registered={registered}')\n    if registered:\n        model = registry.create(name)\n        print(f'{name}: constructed_name={model.name} type={type(model).__name__}')\nPY",
+      "exit_status": 1,
+      "kind": "scratch_verification",
+      "notes": "Scratch registry probe used a non-existent helper name; corrected follow-up check passed."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore import registry\nfor name in ['dino_hsl2_mass_dse_wtg_vdse_latecap', 'dino_hsl2_mass_dse_wtg_vdse_ramp']:\n    registered = name in registry.dycore_model_names()\n    print(f'{name}: registered={registered}')\n    if registered:\n        model = registry.create_dycore_model(name)\n        print(f'{name}: constructed_name={model.name} type={type(model).__name__}')\nPY",
+      "exit_status": 0,
+      "kind": "registry_verification",
+      "notes": "Candidate and incumbent were both registered and constructed successfully."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_latecap --workers 4",
+      "exit_status": 0,
+      "kind": "candidate_iteration",
+      "notes": "Ran candidate iteration only; incumbent iteration was not rerun."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg_vdse_latecap --workers 4",
+      "exit_status": "not_run",
+      "kind": "candidate_validation",
+      "notes": "Skipped because iteration did not promote under the +0.002 primary-delta gate."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_latecap.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_latecap.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_latecap.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_latecap.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.22415855014566696,
+    "candidate_iteration": -0.2201311388680774,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2197104515448394,
+    "incumbent_validation": -0.21940899263836755,
+    "iteration_delta": -0.00042068732323799485,
+    "validation_delta": null,
+    "absolute_iteration_delta": 0.00042068732323799485,
+    "iteration_primary_delta_threshold": 0.002,
+    "validation_primary_delta_threshold_if_run": 0.001
+  },
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_validation": null,
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "incumbent_validation_cache": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    }
+  },
+  "cache_reuse": {
+    "iteration": {
+      "status": "reused_leaderboard_incumbent_cache",
+      "recomputed": false,
+      "artifacts": {
+        "json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+        "csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+      },
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "protocol_list_includes_iteration": true,
+        "current_head_matches_eval_code_commit": true,
+        "iteration_json_exists": true,
+        "iteration_csv_exists": true,
+        "iteration_json_readable": true,
+        "iteration_primary_score_finite": true,
+        "iteration_model_name_matches": true,
+        "iteration_guardrail_records_complete": true,
+        "iteration_diagnostics_clean": true,
+        "data_path_compatible": true,
+        "target_variables_compatible": true,
+        "lead_days_compatible": true
+      },
+      "reason": "All reuse checks passed; candidate source edits do not invalidate the accepted incumbent cache."
+    },
+    "validation": {
+      "status": "not_used_because_candidate_validation_skipped",
+      "recomputed": false,
+      "artifacts": {
+        "json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+        "csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+      },
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "protocol_list_includes_validation": true,
+        "current_head_matches_eval_code_commit": true,
+        "validation_json_exists": true,
+        "validation_csv_exists": true,
+        "validation_json_readable": true,
+        "validation_primary_score_finite": true,
+        "validation_model_name_matches": true,
+        "validation_guardrail_records_present": true,
+        "validation_diagnostics_clean": true,
+        "data_path_compatible": true,
+        "target_variables_compatible": true,
+        "lead_days_compatible": true
+      },
+      "reason": "Iteration did not promote, so candidate validation was not run. Cached incumbent validation artifacts were present and readable but not used for a candidate comparison."
+    }
+  },
+  "guardrails": {
+    "early_day_1_to_5_mean_rmse": {
+      "threshold": 0.02,
+      "passed": true,
+      "worst_relative_regression": {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "candidate_mean_rmse": 592.5712775629829,
+        "incumbent_mean_rmse": 592.5709106473444,
+        "absolute_delta": 0.0003669156385512906,
+        "relative_delta": 6.191927952562836e-07,
+        "threshold": 0.02,
+        "passed": true
+      },
+      "failures": [],
+      "by_channel": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 4.2914548930400205,
+          "incumbent_mean_rmse": 4.291454635917505,
+          "absolute_delta": 2.571225152792067e-07,
+          "relative_delta": 5.99150025092213e-08,
+          "threshold": 0.02,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 4.751334225170451,
+          "incumbent_mean_rmse": 4.751335465357272,
+          "absolute_delta": -1.24018682079452e-06,
+          "relative_delta": -2.6101857674266855e-07,
+          "threshold": 0.02,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 592.5712775629829,
+          "incumbent_mean_rmse": 592.5709106473444,
+          "absolute_delta": 0.0003669156385512906,
+          "relative_delta": 6.191927952562836e-07,
+          "threshold": 0.02,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": [
+            24,
+            48,
+            72,
+            96,
+            120
+          ],
+          "candidate_mean_rmse": 771.1149571703181,
+          "incumbent_mean_rmse": 771.1150019948005,
+          "absolute_delta": -4.4824482415606326e-05,
+          "relative_delta": -5.8129438928888284e-08,
+          "threshold": 0.02,
+          "passed": true
+        }
+      ]
+    },
+    "variable_lead_rmse": {
+      "threshold": 0.1,
+      "passed": true,
+      "worst_relative_regression": {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential",
+        "lead_hours": 336,
+        "candidate_rmse": 1100.31821961626,
+        "incumbent_rmse": 1098.5635941661108,
+        "absolute_delta": 1.7546254501492058,
+        "relative_delta": 0.0015971997064777059,
+        "threshold": 0.1,
+        "passed": true
+      },
+      "failure_count": 0,
+      "failures": [],
+      "all_deltas": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 24,
+          "candidate_rmse": 3.0337004080056906,
+          "incumbent_rmse": 3.033700193497104,
+          "absolute_delta": 2.1450858644911364e-07,
+          "relative_delta": 7.070856471213736e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 48,
+          "candidate_rmse": 3.835467929043612,
+          "incumbent_rmse": 3.835467428210872,
+          "absolute_delta": 5.008327397248991e-07,
+          "relative_delta": 1.3057932288543046e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 72,
+          "candidate_rmse": 4.477192176861478,
+          "incumbent_rmse": 4.4771924820240745,
+          "absolute_delta": -3.0516259652557665e-07,
+          "relative_delta": -6.815936499286201e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 96,
+          "candidate_rmse": 4.914168490018257,
+          "incumbent_rmse": 4.9141683703476025,
+          "absolute_delta": 1.196706547190729e-07,
+          "relative_delta": 2.4352168200254e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 120,
+          "candidate_rmse": 5.196745461271068,
+          "incumbent_rmse": 5.19674470550787,
+          "absolute_delta": 7.557631986898627e-07,
+          "relative_delta": 1.4543011856804367e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 144,
+          "candidate_rmse": 5.361937387278017,
+          "incumbent_rmse": 5.361839511552081,
+          "absolute_delta": 9.787572593555893e-05,
+          "relative_delta": 1.8254131949433718e-05,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 168,
+          "candidate_rmse": 5.423954332841687,
+          "incumbent_rmse": 5.42329497576609,
+          "absolute_delta": 0.0006593570755963896,
+          "relative_delta": 0.0001215786857515065,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 192,
+          "candidate_rmse": 5.465127287734204,
+          "incumbent_rmse": 5.464444435943178,
+          "absolute_delta": 0.0006828517910264509,
+          "relative_delta": 0.00012496271103698922,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 216,
+          "candidate_rmse": 5.48178986841796,
+          "incumbent_rmse": 5.476015974660371,
+          "absolute_delta": 0.005773893757588411,
+          "relative_delta": 0.0010543968067855234,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 240,
+          "candidate_rmse": 5.519127691621734,
+          "incumbent_rmse": 5.514868346160393,
+          "absolute_delta": 0.004259345461341546,
+          "relative_delta": 0.0007723385571492423,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 264,
+          "candidate_rmse": 5.484298278270244,
+          "incumbent_rmse": 5.47932500473572,
+          "absolute_delta": 0.0049732735345244805,
+          "relative_delta": 0.0009076434652491202,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 288,
+          "candidate_rmse": 5.456127538202318,
+          "incumbent_rmse": 5.450352742158608,
+          "absolute_delta": 0.0057747960437097845,
+          "relative_delta": 0.001059527028230962,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 312,
+          "candidate_rmse": 5.435249872823282,
+          "incumbent_rmse": 5.429449384806425,
+          "absolute_delta": 0.005800488016856953,
+          "relative_delta": 0.0010683381694447376,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 336,
+          "candidate_rmse": 5.3714021629783195,
+          "incumbent_rmse": 5.366912858464822,
+          "absolute_delta": 0.004489304513497494,
+          "relative_delta": 0.0008364779961755587,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "variable": "10 m zonal wind",
+          "lead_hours": 360,
+          "candidate_rmse": 5.351591677497765,
+          "incumbent_rmse": 5.343150846633728,
+          "absolute_delta": 0.008440830864037352,
+          "relative_delta": 0.0015797478129136505,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 24,
+          "candidate_rmse": 2.5944130218905914,
+          "incumbent_rmse": 2.594413234672729,
+          "absolute_delta": -2.1278213768738397e-07,
+          "relative_delta": -8.201551504736494e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 48,
+          "candidate_rmse": 3.987515457070394,
+          "incumbent_rmse": 3.987515926755938,
+          "absolute_delta": -4.6968554379134275e-07,
+          "relative_delta": -1.1778900759738347e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 72,
+          "candidate_rmse": 5.045623288265533,
+          "incumbent_rmse": 5.045624150301071,
+          "absolute_delta": -8.620355380628553e-07,
+          "relative_delta": -1.708481473023348e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 96,
+          "candidate_rmse": 5.804509774907596,
+          "incumbent_rmse": 5.804511594611619,
+          "absolute_delta": -1.819704023020563e-06,
+          "relative_delta": -3.134982148558047e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 120,
+          "candidate_rmse": 6.324609583718142,
+          "incumbent_rmse": 6.324612420445005,
+          "absolute_delta": -2.8367268631868114e-06,
+          "relative_delta": -4.4852184997404425e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 144,
+          "candidate_rmse": 6.712838550796756,
+          "incumbent_rmse": 6.712419167708991,
+          "absolute_delta": 0.0004193830877650129,
+          "relative_delta": 6.247867978545089e-05,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 168,
+          "candidate_rmse": 6.994088614003889,
+          "incumbent_rmse": 6.992728022319562,
+          "absolute_delta": 0.0013605916843273391,
+          "relative_delta": 0.00019457237289718249,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 192,
+          "candidate_rmse": 7.208201783793502,
+          "incumbent_rmse": 7.205919663928306,
+          "absolute_delta": 0.0022821198651961083,
+          "relative_delta": 0.000316700708810291,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 216,
+          "candidate_rmse": 7.365593118193914,
+          "incumbent_rmse": 7.36316176431721,
+          "absolute_delta": 0.002431353876703568,
+          "relative_delta": 0.0003302051421016185,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 240,
+          "candidate_rmse": 7.490391914193973,
+          "incumbent_rmse": 7.4891119868385605,
+          "absolute_delta": 0.0012799273554122692,
+          "relative_delta": 0.00017090508963701253,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 264,
+          "candidate_rmse": 7.5914455443704245,
+          "incumbent_rmse": 7.590861519017483,
+          "absolute_delta": 0.000584025352941886,
+          "relative_delta": 7.693795381179327e-05,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 288,
+          "candidate_rmse": 7.681536575866059,
+          "incumbent_rmse": 7.6817140984986,
+          "absolute_delta": -0.00017752263254067202,
+          "relative_delta": -2.310976824500264e-05,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 312,
+          "candidate_rmse": 7.759716138321107,
+          "incumbent_rmse": 7.760224054150595,
+          "absolute_delta": -0.0005079158294885033,
+          "relative_delta": -6.545118104120229e-05,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 336,
+          "candidate_rmse": 7.825330254440891,
+          "incumbent_rmse": 7.826121366752912,
+          "absolute_delta": -0.0007911123120214469,
+          "relative_delta": -0.0001010861287408941,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "variable": "2 m temperature",
+          "lead_hours": 360,
+          "candidate_rmse": 7.887901475466274,
+          "incumbent_rmse": 7.888408857325572,
+          "absolute_delta": -0.0005073818592986612,
+          "relative_delta": -6.431992414129003e-05,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 24,
+          "candidate_rmse": 245.96218897072814,
+          "incumbent_rmse": 245.96134960647697,
+          "absolute_delta": 0.000839364251163488,
+          "relative_delta": 3.412585971358586e-06,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 48,
+          "candidate_rmse": 446.0548122175843,
+          "incumbent_rmse": 446.0544092842204,
+          "absolute_delta": 0.0004029333638868593,
+          "relative_delta": 9.03327835125412e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 72,
+          "candidate_rmse": 623.8870091654153,
+          "incumbent_rmse": 623.8867643153221,
+          "absolute_delta": 0.00024485009316776996,
+          "relative_delta": 3.92459188385697e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 96,
+          "candidate_rmse": 768.4532565146521,
+          "incumbent_rmse": 768.4530987497508,
+          "absolute_delta": 0.00015776490135976928,
+          "relative_delta": 2.053019261897022e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 120,
+          "candidate_rmse": 878.4991209465343,
+          "incumbent_rmse": 878.4989312809518,
+          "absolute_delta": 0.0001896655825248672,
+          "relative_delta": 2.1589734007793628e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 144,
+          "candidate_rmse": 959.8529535448678,
+          "incumbent_rmse": 959.7195143056651,
+          "absolute_delta": 0.13343923920263023,
+          "relative_delta": 0.0001390398311314639,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 168,
+          "candidate_rmse": 1016.9613676009384,
+          "incumbent_rmse": 1016.4559943608332,
+          "absolute_delta": 0.5053732401052002,
+          "relative_delta": 0.0004971914602392487,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 192,
+          "candidate_rmse": 1056.3437885540145,
+          "incumbent_rmse": 1055.2766779012197,
+          "absolute_delta": 1.0671106527947813,
+          "relative_delta": 0.0010112140968727723,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 216,
+          "candidate_rmse": 1072.9828864637268,
+          "incumbent_rmse": 1072.1620068063373,
+          "absolute_delta": 0.8208796573894688,
+          "relative_delta": 0.0007656302426110337,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 240,
+          "candidate_rmse": 1080.4111169107616,
+          "incumbent_rmse": 1079.2513427572715,
+          "absolute_delta": 1.1597741534901616,
+          "relative_delta": 0.0010746098777391097,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 264,
+          "candidate_rmse": 1094.2411367024715,
+          "incumbent_rmse": 1092.8595962917698,
+          "absolute_delta": 1.3815404107017457,
+          "relative_delta": 0.0012641517861850795,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 288,
+          "candidate_rmse": 1100.7404734771553,
+          "incumbent_rmse": 1099.9000334193474,
+          "absolute_delta": 0.8404400578078821,
+          "relative_delta": 0.000764105857143343,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 312,
+          "candidate_rmse": 1098.1632626702833,
+          "incumbent_rmse": 1096.8082039759147,
+          "absolute_delta": 1.3550586943686085,
+          "relative_delta": 0.0012354563810304659,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 336,
+          "candidate_rmse": 1100.31821961626,
+          "incumbent_rmse": 1098.5635941661108,
+          "absolute_delta": 1.7546254501492058,
+          "relative_delta": 0.0015971997064777059,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "variable": "500 hPa geopotential",
+          "lead_hours": 360,
+          "candidate_rmse": 1098.085696010622,
+          "incumbent_rmse": 1097.163995725289,
+          "absolute_delta": 0.9217002853331451,
+          "relative_delta": 0.0008400752202261685,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 24,
+          "candidate_rmse": 380.1125104559805,
+          "incumbent_rmse": 380.1126201551748,
+          "absolute_delta": -0.0001096991942972636,
+          "relative_delta": -2.885965592315264e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 48,
+          "candidate_rmse": 629.2040180232083,
+          "incumbent_rmse": 629.2039887839578,
+          "absolute_delta": 2.9239250466162048e-05,
+          "relative_delta": 4.6470224263313715e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 72,
+          "candidate_rmse": 828.2631892079553,
+          "incumbent_rmse": 828.2632606172269,
+          "absolute_delta": -7.140927164073219e-05,
+          "relative_delta": -8.62156696260046e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 96,
+          "candidate_rmse": 959.701307171589,
+          "incumbent_rmse": 959.701351610273,
+          "absolute_delta": -4.443868408543494e-05,
+          "relative_delta": -4.630470094771851e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 120,
+          "candidate_rmse": 1058.2937609928574,
+          "incumbent_rmse": 1058.29378880737,
+          "absolute_delta": -2.7814512577606365e-05,
+          "relative_delta": -2.6282411247023906e-08,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 144,
+          "candidate_rmse": 1122.548962248474,
+          "incumbent_rmse": 1122.433537271342,
+          "absolute_delta": 0.11542497713207922,
+          "relative_delta": 0.00010283457621257434,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 168,
+          "candidate_rmse": 1163.2948530424287,
+          "incumbent_rmse": 1162.777676149293,
+          "absolute_delta": 0.5171768931356837,
+          "relative_delta": 0.0004447771089383054,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 192,
+          "candidate_rmse": 1188.7015644087546,
+          "incumbent_rmse": 1187.7250086012987,
+          "absolute_delta": 0.9765558074559522,
+          "relative_delta": 0.000822206992682569,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 216,
+          "candidate_rmse": 1193.636086185046,
+          "incumbent_rmse": 1193.4378342352018,
+          "absolute_delta": 0.19825194984423433,
+          "relative_delta": 0.00016611837178036288,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 240,
+          "candidate_rmse": 1185.0407198349903,
+          "incumbent_rmse": 1184.4021754216271,
+          "absolute_delta": 0.6385444133632063,
+          "relative_delta": 0.0005391280315201172,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 264,
+          "candidate_rmse": 1187.9684917786863,
+          "incumbent_rmse": 1186.9647216946446,
+          "absolute_delta": 1.003770084041662,
+          "relative_delta": 0.0008456612616157341,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 288,
+          "candidate_rmse": 1183.80951032505,
+          "incumbent_rmse": 1183.2480699630123,
+          "absolute_delta": 0.5614403620377288,
+          "relative_delta": 0.000474490832725617,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 312,
+          "candidate_rmse": 1166.2981208427245,
+          "incumbent_rmse": 1165.4306021807786,
+          "absolute_delta": 0.867518661945951,
+          "relative_delta": 0.0007443760789553935,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 336,
+          "candidate_rmse": 1157.4639636800632,
+          "incumbent_rmse": 1156.0041140819396,
+          "absolute_delta": 1.4598495981235828,
+          "relative_delta": 0.0012628411787988724,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "variable": "Mean sea level pressure",
+          "lead_hours": 360,
+          "candidate_rmse": 1140.7818353743382,
+          "incumbent_rmse": 1140.2974721656549,
+          "absolute_delta": 0.48436320868336225,
+          "relative_delta": 0.0004247691681394845,
+          "threshold": 0.1,
+          "passed": true
+        }
+      ]
+    },
+    "leads_through_120h": {
+      "changed_materially": false,
+      "classification": "incumbent_equivalent_by_measurement",
+      "record_count": 20,
+      "max_absolute_relative_delta": {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential",
+        "lead_hours": 24,
+        "candidate_rmse": 245.96218897072814,
+        "incumbent_rmse": 245.96134960647697,
+        "absolute_delta": 0.000839364251163488,
+        "relative_delta": 3.412585971358586e-06,
+        "threshold": 0.1,
+        "passed": true
+      },
+      "max_absolute_rmse_delta": {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential",
+        "lead_hours": 24,
+        "candidate_rmse": 245.96218897072814,
+        "incumbent_rmse": 245.96134960647697,
+        "absolute_delta": 0.000839364251163488,
+        "relative_delta": 3.412585971358586e-06,
+        "threshold": 0.1,
+        "passed": true
+      },
+      "notes": "All leads through 120h show only tiny numerical-scale RMSE movement and no guardrail failure."
+    },
+    "record_completeness": {
+      "candidate_model_record_count": 60,
+      "incumbent_model_record_count": 60,
+      "common_record_count": 60,
+      "missing_candidate_keys": [],
+      "missing_incumbent_keys": []
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_passed": false,
+    "iteration_diagnostics_passed": true,
+    "iteration_early_day_1_to_5_mean_rmse_guardrail_passed": true,
+    "iteration_variable_lead_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_run": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "validation": {
+    "allowed_if_iteration_promotes": true,
+    "run": false,
+    "reason": "Iteration primary delta was below +0.002, so validation was not run."
+  },
+  "anomalies": [
+    "Two scratch registry helper probes exited 1 because they used non-existent helper names; the corrected registry.create_dycore_model verification exited 0 and no files were changed by the failed probes.",
+    "Candidate iteration was a long supervised run and completed successfully; no resource or nonfinite-output failure was observed."
+  ],
+  "measurement_lessons": [
+    "The late-lead vertical-DSE cap release left leads through 120h effectively incumbent-equivalent by RMSE, consistent with a late activation schedule.",
+    "The iteration primary score moved slightly negative despite clean diagnostics and clean RMSE guardrails, so validation was correctly skipped under the fixed gate."
+  ]
+}

@@ -1,0 +1,302 @@
+{
+  "anomalies": [
+    "The interactive turn was interrupted after candidate validation had already started; the existing running candidate validation process was reattached and allowed to finish. No duplicate validation command was launched.",
+    "Iteration and validation metrics files contain both evaluated-model rows and persistence rows; guardrails were computed only from rows whose model_name matched the candidate or incumbent."
+  ],
+  "baseline_commit": "329dd5758204b7e77f1abb258b1dab9ee5d9b2c8",
+  "cache_reuse": {
+    "iteration": {
+      "artifact_csv": "outputs/eval/iteration_ocean_bulk_sensible_heat_flux.csv",
+      "artifact_json": "outputs/eval/iteration_ocean_bulk_sensible_heat_flux.json",
+      "invalidation_reason": null,
+      "primary_score": -0.42701187536092744,
+      "reused": true,
+      "source": "leaderboard",
+      "validation_checks": {
+        "artifact_exists": true,
+        "artifact_readable": true,
+        "contains_model_rows": true,
+        "csv_exists": true,
+        "csv_readable": true,
+        "data_path_matches": true,
+        "eval_code_commit_matches": true,
+        "finite_primary_score": true,
+        "has_guardrail_records": true,
+        "lead_days_match": true,
+        "model_name_matches": true,
+        "protocol_in_fingerprint": true,
+        "requested_incumbent_matches_leaderboard": true,
+        "target_variables_match": true
+      }
+    },
+    "validation": {
+      "artifact_csv": "outputs/eval/validation_ocean_bulk_sensible_heat_flux.csv",
+      "artifact_json": "outputs/eval/validation_ocean_bulk_sensible_heat_flux.json",
+      "invalidation_reason": null,
+      "primary_score": -0.417391902036791,
+      "reused": true,
+      "source": "leaderboard",
+      "validation_checks": {
+        "artifact_exists": true,
+        "artifact_readable": true,
+        "contains_model_rows": true,
+        "csv_exists": true,
+        "csv_readable": true,
+        "data_path_matches": true,
+        "eval_code_commit_matches": true,
+        "finite_primary_score": true,
+        "has_guardrail_records": true,
+        "lead_days_match": true,
+        "model_name_matches": true,
+        "protocol_in_fingerprint": true,
+        "requested_incumbent_matches_leaderboard": true,
+        "target_variables_match": true
+      }
+    }
+  },
+  "candidate_model_name": "dino_hsl_theta",
+  "commands": [
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl_theta",
+      "exit_status": 0,
+      "name": "candidate_fast",
+      "raw_csv": "outputs/eval/fast_dino_hsl_theta.csv",
+      "raw_json": "outputs/eval/fast_dino_hsl_theta.json"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl_theta --workers 4",
+      "exit_status": 0,
+      "name": "candidate_iteration",
+      "raw_csv": "outputs/eval/iteration_dino_hsl_theta.csv",
+      "raw_json": "outputs/eval/iteration_dino_hsl_theta.json"
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl_theta --workers 4",
+      "exit_status": 0,
+      "name": "candidate_validation",
+      "raw_csv": "outputs/eval/validation_dino_hsl_theta.csv",
+      "raw_json": "outputs/eval/validation_dino_hsl_theta.json"
+    }
+  ],
+  "eval_code_commit": "329dd5758204b7e77f1abb258b1dab9ee5d9b2c8",
+  "generated_at": "2026-06-22T14:27:04.696257Z",
+  "golden_ran": false,
+  "history_dir": ".logbook/history/2026-06-22_12-07-18_horizontal-semilagrangian-theta-transport",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+  "raw_metric_paths": {
+    "candidate": {
+      "fast_csv": "outputs/eval/fast_dino_hsl_theta.csv",
+      "fast_json": "outputs/eval/fast_dino_hsl_theta.json",
+      "iteration_csv": "outputs/eval/iteration_dino_hsl_theta.csv",
+      "iteration_json": "outputs/eval/iteration_dino_hsl_theta.json",
+      "validation_csv": "outputs/eval/validation_dino_hsl_theta.csv",
+      "validation_json": "outputs/eval/validation_dino_hsl_theta.json"
+    },
+    "incumbent": {
+      "iteration_csv": "outputs/eval/iteration_ocean_bulk_sensible_heat_flux.csv",
+      "iteration_json": "outputs/eval/iteration_ocean_bulk_sensible_heat_flux.json",
+      "validation_csv": "outputs/eval/validation_ocean_bulk_sensible_heat_flux.csv",
+      "validation_json": "outputs/eval/validation_ocean_bulk_sensible_heat_flux.json"
+    }
+  },
+  "recommendation_to_orchestrator": "Use these measurements for the decision phase; this Scorer report does not accept or reject the candidate.",
+  "registration": {
+    "candidate_registered": true,
+    "command": "uv run python - <<'PY' ... create_dycore_model(...) ... PY",
+    "exit_status": 0,
+    "incumbent_registered": true
+  },
+  "role": "Scorer",
+  "schema_version": 1,
+  "scores": {
+    "fast": {
+      "candidate_primary_score": -0.32243765258030105,
+      "diagnostics": {
+        "candidate": {
+          "failed": false,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "gate_checks": {
+        "candidate_diagnostics_clean": true
+      },
+      "record_counts": {
+        "candidate_model_records": 60,
+        "candidate_total_records": 120
+      }
+    },
+    "iteration": {
+      "candidate_primary_score": -0.32000443139324114,
+      "checks": {
+        "candidate_diagnostics_clean": true,
+        "candidate_incumbent_guardrail_keys_match": true,
+        "early_day_1_5_mean_rmse_regression_within_2_percent": true,
+        "primary_delta_meets_threshold": true,
+        "worst_variable_lead_rmse_regression_within_10_percent": true
+      },
+      "diagnostics": {
+        "candidate": {
+          "failed": false,
+          "issue_count": 0,
+          "issues": []
+        },
+        "incumbent": {
+          "failed": false,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "early_day_1_5_rmse_regressions_by_variable": {
+        "10m_u_component_of_wind": {
+          "candidate_mean_rmse_days_1_5": 4.471013553459182,
+          "incumbent_mean_rmse_days_1_5": 4.770297078004947,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.0627389698485891,
+          "relative_regression_percent": -6.27389698485891
+        },
+        "2m_temperature": {
+          "candidate_mean_rmse_days_1_5": 4.8353532853798145,
+          "incumbent_mean_rmse_days_1_5": 5.315779360281383,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.0903773543520697,
+          "relative_regression_percent": -9.03773543520697
+        },
+        "geopotential_500": {
+          "candidate_mean_rmse_days_1_5": 617.0171501857016,
+          "incumbent_mean_rmse_days_1_5": 639.8059371558511,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.035618279929463044,
+          "relative_regression_percent": -3.5618279929463044
+        },
+        "mean_sea_level_pressure": {
+          "candidate_mean_rmse_days_1_5": 820.2478873122927,
+          "incumbent_mean_rmse_days_1_5": 861.8979434453915,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.04832365183121903,
+          "relative_regression_percent": -4.832365183121904
+        }
+      },
+      "incumbent_primary_score": -0.42701187536092744,
+      "max_early_day_1_5_mean_rmse_regression": {
+        "candidate_mean_rmse_days_1_5": 617.0171501857016,
+        "incumbent_mean_rmse_days_1_5": 639.8059371558511,
+        "passes_max_2_percent_regression": true,
+        "relative_regression": -0.035618279929463044,
+        "relative_regression_percent": -3.5618279929463044,
+        "variable": "geopotential_500"
+      },
+      "passes_fixed_numeric_and_diagnostic_gate": true,
+      "primary_delta": 0.1070074439676863,
+      "primary_threshold": 0.002,
+      "protocol": "iteration",
+      "record_counts": {
+        "candidate_model_records": 60,
+        "candidate_total_records": 120,
+        "incumbent_model_records": 60,
+        "incumbent_total_records": 120
+      },
+      "worst_variable_lead_rmse_regression": {
+        "candidate_rmse": 246.58754588335452,
+        "incumbent_rmse": 247.37760221732373,
+        "lead_days": 1.0,
+        "lead_hours": 24,
+        "passes_max_10_percent_regression": true,
+        "relative_regression": -0.0031937262180879726,
+        "relative_regression_percent": -0.3193726218087973,
+        "variable": "geopotential_500"
+      }
+    },
+    "validation": {
+      "candidate_primary_score": -0.31443387067049233,
+      "checks": {
+        "candidate_diagnostics_clean": true,
+        "candidate_incumbent_guardrail_keys_match": true,
+        "early_day_1_5_mean_rmse_regression_within_2_percent": true,
+        "primary_delta_meets_threshold": true,
+        "worst_variable_lead_rmse_regression_within_10_percent": true
+      },
+      "diagnostics": {
+        "candidate": {
+          "failed": false,
+          "issue_count": 0,
+          "issues": []
+        },
+        "incumbent": {
+          "failed": false,
+          "issue_count": 0,
+          "issues": []
+        }
+      },
+      "early_day_1_5_rmse_regressions_by_variable": {
+        "10m_u_component_of_wind": {
+          "candidate_mean_rmse_days_1_5": 4.428945167685237,
+          "incumbent_mean_rmse_days_1_5": 4.714850440759338,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.06063930906534864,
+          "relative_regression_percent": -6.063930906534864
+        },
+        "2m_temperature": {
+          "candidate_mean_rmse_days_1_5": 4.84163438842265,
+          "incumbent_mean_rmse_days_1_5": 5.322497651432542,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.09034541572422652,
+          "relative_regression_percent": -9.034541572422652
+        },
+        "geopotential_500": {
+          "candidate_mean_rmse_days_1_5": 606.6437444359568,
+          "incumbent_mean_rmse_days_1_5": 627.234772508007,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.03282826299587427,
+          "relative_regression_percent": -3.282826299587427
+        },
+        "mean_sea_level_pressure": {
+          "candidate_mean_rmse_days_1_5": 797.6288331289678,
+          "incumbent_mean_rmse_days_1_5": 834.7628447994554,
+          "passes_max_2_percent_regression": true,
+          "relative_regression": -0.04448450467319096,
+          "relative_regression_percent": -4.4484504673190965
+        }
+      },
+      "incumbent_primary_score": -0.417391902036791,
+      "max_early_day_1_5_mean_rmse_regression": {
+        "candidate_mean_rmse_days_1_5": 606.6437444359568,
+        "incumbent_mean_rmse_days_1_5": 627.234772508007,
+        "passes_max_2_percent_regression": true,
+        "relative_regression": -0.03282826299587427,
+        "relative_regression_percent": -3.282826299587427,
+        "variable": "geopotential_500"
+      },
+      "passes_fixed_numeric_and_diagnostic_gate": true,
+      "primary_delta": 0.10295803136629866,
+      "primary_threshold": 0.001,
+      "protocol": "validation",
+      "record_counts": {
+        "candidate_model_records": 60,
+        "candidate_total_records": 120,
+        "incumbent_model_records": 60,
+        "incumbent_total_records": 120
+      },
+      "worst_variable_lead_rmse_regression": {
+        "candidate_rmse": 241.6113471364052,
+        "incumbent_rmse": 242.31069206645842,
+        "lead_days": 1.0,
+        "lead_hours": 24,
+        "passes_max_10_percent_regression": true,
+        "relative_regression": -0.0028861496952079196,
+        "relative_regression_percent": -0.28861496952079196,
+        "variable": "geopotential_500"
+      }
+    }
+  },
+  "unit_tests": {
+    "command": "uv run pytest",
+    "exit_status": 0,
+    "rerun_by_scorer": false,
+    "result": "216 passed, 2 skipped in 157.63s",
+    "source": "Orchestrator implementation.md record"
+  },
+  "validation_allowed_after_iteration_gate": true,
+  "validation_ran": true,
+  "worker_count": 4
+}

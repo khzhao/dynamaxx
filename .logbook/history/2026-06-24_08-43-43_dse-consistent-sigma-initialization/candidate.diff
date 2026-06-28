@@ -1,0 +1,582 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d3b94b2..6d50b8f 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    dse_consistent_sigma_initialization_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+@@ -86,6 +87,7 @@ __all__ = [
+     "default_dinosaur_dycore_model",
+     "digital_filter_dinosaur_dycore_model",
+     "digital_filter_surface_residual_dinosaur_dycore_model",
++    "dse_consistent_sigma_initialization_dinosaur_dycore_model",
+     "dry_static_energy_hsl_transport_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index a9c9ddb..5afabea 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -49,6 +49,7 @@ DEFAULT_SEMI_IMPLICIT_OFFCENTERING = 0.05
+ _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_KELVIN = 20.0
+ _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER = 3
+ _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER = 12
++_DSE_SIGMA_INITIALIZATION_MAX_CORRECTION_KELVIN = 8.0
+ _FINITE_SIGMA_TO_PRESSURE_INTERPOLATE = (
+     vertical_interpolation.vectorize_vertical_interpolation(
+         vertical_interpolation.linear_interp_with_nearest_extrap
+@@ -105,6 +106,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_log_pressure_initialization: bool = False
+     use_hydrostatic_temperature_initialization: bool = False
+     use_layer_mean_hydrostatic_temperature_initialization: bool = False
++    use_dse_consistent_sigma_initialization: bool = False
+     apply_spectral_filter: bool = True
+     horizontal_diffusion_order: int = 2
+     horizontal_diffusion_tau_seconds: float | None = None
+@@ -228,6 +230,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mean_hydrostatic_temperature_initialization=(
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
++                use_dse_consistent_sigma_initialization=(
++                    self.use_dse_consistent_sigma_initialization
++                ),
+             )
+             if (
+                 self.apply_ocean_bulk_sensible_heat_flux
+@@ -1102,6 +1107,17 @@ def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def dse_consistent_sigma_initialization_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return mass-DSE HSL with DSE-consistent sigma temperature initialization."""
++    return replace(
++        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
++        name="dino_mass_dse_init",
++        use_dse_consistent_sigma_initialization=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1114,6 +1130,7 @@ def weather_state_to_dinosaur_state(
+     use_log_pressure_initialization: bool = False,
+     use_hydrostatic_temperature_initialization: bool = False,
+     use_layer_mean_hydrostatic_temperature_initialization: bool = False,
++    use_dse_consistent_sigma_initialization: bool = False,
+ ) -> Any:
+     """Convert one packed WeatherState initialization into Dinosaur state."""
+     temperature = _stack_pressure_level_channels(
+@@ -1121,16 +1138,21 @@ def weather_state_to_dinosaur_state(
+         TEMPERATURE_VARIABLE,
+         pressure_levels_hpa,
+     )
+-    if use_hydrostatic_temperature_initialization and has_pressure_level_stack(
++    pressure_level_geopotential = None
++    if has_pressure_level_stack(
+         state.variables,
+         GEOPOTENTIAL_VARIABLE,
+         pressure_levels_hpa,
+     ):
+-        geopotential = _stack_pressure_level_channels(
++        pressure_level_geopotential = _stack_pressure_level_channels(
+             state,
+             GEOPOTENTIAL_VARIABLE,
+             pressure_levels_hpa,
+         )
++    if (
++        use_hydrostatic_temperature_initialization
++        and pressure_level_geopotential is not None
++    ):
+         specific_humidity = None
+         if has_pressure_level_stack(
+             state.variables,
+@@ -1146,7 +1168,7 @@ def weather_state_to_dinosaur_state(
+             temperature = (
+                 _layer_mean_hydrostatic_temperature_from_geopotential_thickness(
+                     analyzed_temperature=temperature,
+-                    geopotential=geopotential,
++                    geopotential=pressure_level_geopotential,
+                     pressure_levels_hpa=pressure_levels_hpa,
+                     specific_humidity=specific_humidity,
+                 )
+@@ -1154,7 +1176,7 @@ def weather_state_to_dinosaur_state(
+         else:
+             temperature = _hydrostatic_temperature_from_geopotential_thickness(
+                 analyzed_temperature=temperature,
+-                geopotential=geopotential,
++                geopotential=pressure_level_geopotential,
+                 pressure_levels_hpa=pressure_levels_hpa,
+                 specific_humidity=specific_humidity,
+             )
+@@ -1171,6 +1193,7 @@ def weather_state_to_dinosaur_state(
+     temperature = temperature * _unit_factor(physics_specs, "kelvin")
+     u_wind = u_wind * _unit_factor(physics_specs, "meter / second")
+     v_wind = v_wind * _unit_factor(physics_specs, "meter / second")
++    pressure_level_temperature = temperature
+ 
+     sigma_coords = cast(sigma_coordinates.SigmaCoordinates, coords.vertical)
+     pressure_coords = _pressure_coordinates(pressure_levels_hpa)
+@@ -1202,6 +1225,26 @@ def weather_state_to_dinosaur_state(
+     temperature = nodal_inputs[TEMPERATURE_VARIABLE]
+     u_wind = nodal_inputs[U_WIND_VARIABLE]
+     v_wind = nodal_inputs[V_WIND_VARIABLE]
++    if (
++        use_dse_consistent_sigma_initialization
++        and pressure_level_geopotential is not None
++    ):
++        pressure_level_geopotential = _to_dinosaur_latitude_order(
++            pressure_level_geopotential,
++            latitude_reversed,
++        ) * _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++        temperature = _dse_consistent_sigma_temperature_initialization(
++            sigma_temperature=temperature,
++            pressure_level_temperature=pressure_level_temperature,
++            pressure_level_geopotential=pressure_level_geopotential,
++            pressure_to_sigma=pressure_to_sigma,
++            pressure_coords=pressure_coords,
++            sigma_coords=sigma_coords,
++            surface_pressure_hpa=surface_pressure_hpa,
++            coords=coords,
++            physics_specs=physics_specs,
++        )
++        nodal_inputs[TEMPERATURE_VARIABLE] = temperature
+ 
+     vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
+         coords.horizontal,
+@@ -1231,6 +1274,82 @@ def weather_state_to_dinosaur_state(
+     return coords.horizontal.clip_wavenumbers(dinosaur_state)
+ 
+ 
++def _dse_consistent_sigma_temperature_initialization(
++    *,
++    sigma_temperature: jax.Array,
++    pressure_level_temperature: jax.Array,
++    pressure_level_geopotential: jax.Array,
++    pressure_to_sigma: Any,
++    pressure_coords: vertical_interpolation.PressureCoordinates,
++    sigma_coords: sigma_coordinates.SigmaCoordinates,
++    surface_pressure_hpa: jax.Array,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++) -> jax.Array:
++    """Apply a bounded DSE-anomaly initialization correction to sigma temperature."""
++    if pressure_level_geopotential.shape != pressure_level_temperature.shape:
++        return sigma_temperature
++
++    pressure_level_dse = (
++        physics_specs.Cp * pressure_level_temperature + pressure_level_geopotential
++    )
++    pressure_level_dse_anomaly = _horizontal_layer_anomaly(
++        pressure_level_dse,
++        coords.horizontal.quadrature_weights,
++    )
++    projected_dse_anomaly = pressure_to_sigma(
++        {"dry_static_energy_anomaly": pressure_level_dse_anomaly},
++        pressure_coords,
++        sigma_coords,
++        surface_pressure_hpa,
++    )["dry_static_energy_anomaly"]
++    if projected_dse_anomaly.shape != sigma_temperature.shape:
++        return sigma_temperature
++
++    current_geopotential = primitive_equations.get_geopotential_on_sigma(
++        sigma_temperature,
++        nodal_orography=jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        sigma=sigma_coords,
++        gravity_acceleration=physics_specs.g,
++        ideal_gas_constant=physics_specs.R,
++    )
++    if current_geopotential.shape != sigma_temperature.shape:
++        return sigma_temperature
++
++    current_dse = physics_specs.Cp * sigma_temperature + current_geopotential
++    current_dse_anomaly = _horizontal_layer_anomaly(
++        current_dse,
++        coords.horizontal.quadrature_weights,
++    )
++    delta_temperature = (projected_dse_anomaly - current_dse_anomaly) / physics_specs.Cp
++    corrected_temperature = sigma_temperature + delta_temperature
++    correction_cap = (
++        _DSE_SIGMA_INITIALIZATION_MAX_CORRECTION_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++    correction_is_valid = (
++        jnp.all(jnp.isfinite(projected_dse_anomaly))
++        & jnp.all(jnp.isfinite(current_geopotential))
++        & jnp.all(jnp.isfinite(current_dse_anomaly))
++        & jnp.all(jnp.isfinite(delta_temperature))
++        & jnp.all(jnp.isfinite(corrected_temperature))
++        & jnp.all(jnp.abs(delta_temperature) <= correction_cap)
++    )
++    return jnp.where(correction_is_valid, corrected_temperature, sigma_temperature)
++
++
++def _horizontal_layer_anomaly(
++    layer_values: jax.Array,
++    quadrature_weights: np.ndarray,
++) -> jax.Array:
++    """Remove the horizontal quadrature mean from each vertical layer."""
++    weights = jnp.asarray(quadrature_weights, dtype=layer_values.dtype)
++    layer_mean = (
++        jnp.sum(layer_values * weights, axis=(-2, -1)) / jnp.sum(weights)
++    )
++    return layer_values - layer_mean[:, jnp.newaxis, jnp.newaxis]
++
++
+ def dinosaur_state_to_weather_state(
+     trajectory: Any,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 1d7cbc9..522c78d 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -206,6 +206,15 @@ def dino_hsl2_mass_dse_model() -> DycoreModel:
+     return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+ 
+ 
++def dino_mass_dse_init_model() -> DycoreModel:
++    """Return mass-DSE HSL with DSE-consistent sigma initialization."""
++    from dynamaxx.dycore.models.dinosaur import (
++        dse_consistent_sigma_initialization_dinosaur_dycore_model,
++    )
++
++    return dse_consistent_sigma_initialization_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -283,6 +292,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta": dino_hsl2_theta_model,
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
++    "dino_mass_dse_init": dino_mass_dse_init_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index aa6c347..d93a73c 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -130,6 +130,9 @@ assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name ==
+ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse"
+ )
++assert dinosaur.dse_consistent_sigma_initialization_dinosaur_dycore_model().name == (
++    "dino_mass_dse_init"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -229,6 +232,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_init",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -709,6 +713,25 @@ def test_dinosaur_layer_mass_dse_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_dse_initialization_is_registered():
++    """The DSE-consistent initialization candidate is side-by-side."""
++    model = create_dycore_model("dino_mass_dse_init")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_init"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_sigma_initialization
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_dse_consistent_sigma_initialization
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_dse_consistent_sigma_initialization"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 9ee521a..dc04bbb 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -73,6 +73,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    dse_consistent_sigma_initialization_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -613,6 +614,25 @@ def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dse_init_factory_preserves_mass_dse_except_initialization():
++    """The DSE-init candidate changes only name and sigma initialization."""
++    model = dse_consistent_sigma_initialization_dinosaur_dycore_model()
++    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
++
++    assert model.name == "dino_mass_dse_init"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_sigma_initialization
++    assert not incumbent.use_dse_consistent_sigma_initialization
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_dse_consistent_sigma_initialization"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -2702,6 +2722,156 @@ def test_hydrostatic_temperature_initialization_falls_back_without_geopotential(
+     _assert_pytree_allclose(candidate, incumbent)
+ 
+ 
++def test_dse_consistent_initialization_changes_only_temperature_state():
++    """DSE-consistent initialization adjusts sigma temperature, not wind or mass."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    weather_state = _weather_state_with_added_geopotential_pattern(
++        forecast_input.initial_state,
++        pressure_levels_hpa,
++        amplitude=1000.0,
++    )
++    common_kwargs = {
++        "state": weather_state,
++        "coords": grid.coords,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "latitude_reversed": grid.latitude_reversed,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "include_humidity": True,
++        "use_log_pressure_initialization": True,
++        "use_hydrostatic_temperature_initialization": True,
++        "use_layer_mean_hydrostatic_temperature_initialization": True,
++    }
++
++    incumbent = weather_state_to_dinosaur_state(**common_kwargs)
++    candidate = weather_state_to_dinosaur_state(
++        **common_kwargs,
++        use_dse_consistent_sigma_initialization=True,
++    )
++
++    np.testing.assert_array_equal(candidate.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(candidate.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        candidate.log_surface_pressure,
++        incumbent.log_surface_pressure,
++    )
++    np.testing.assert_array_equal(
++        candidate.tracers["specific_humidity"],
++        incumbent.tracers["specific_humidity"],
++    )
++    assert bool(jnp.isfinite(candidate.temperature_variation).all())
++    assert bool(
++        jnp.any(
++            jnp.abs(candidate.temperature_variation - incumbent.temperature_variation)
++            > 1.0e-9
++        )
++    )
++
++
++def test_dse_consistent_initialization_falls_back_for_invalid_projection():
++    """Nonfinite DSE projections reproduce the incumbent initialized state."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    weather_state = _weather_state_with_invalid_geopotential(
++        forecast_input.initial_state,
++        pressure_levels_hpa,
++    )
++    common_kwargs = {
++        "state": weather_state,
++        "coords": grid.coords,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "latitude_reversed": grid.latitude_reversed,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "include_humidity": True,
++        "use_log_pressure_initialization": True,
++        "use_hydrostatic_temperature_initialization": True,
++        "use_layer_mean_hydrostatic_temperature_initialization": True,
++    }
++
++    incumbent = weather_state_to_dinosaur_state(**common_kwargs)
++    candidate = weather_state_to_dinosaur_state(
++        **common_kwargs,
++        use_dse_consistent_sigma_initialization=True,
++    )
++
++    _assert_pytree_allclose(candidate, incumbent)
++
++
++def test_dse_consistent_initialization_falls_back_when_cap_exceeded():
++    """Overlarge DSE corrections reproduce the incumbent initialized state."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    weather_state = _weather_state_with_added_geopotential_pattern(
++        forecast_input.initial_state,
++        pressure_levels_hpa,
++        amplitude=100_000.0,
++    )
++    common_kwargs = {
++        "state": weather_state,
++        "coords": grid.coords,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "latitude_reversed": grid.latitude_reversed,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "include_humidity": True,
++        "use_log_pressure_initialization": True,
++        "use_hydrostatic_temperature_initialization": True,
++        "use_layer_mean_hydrostatic_temperature_initialization": True,
++    }
++
++    incumbent = weather_state_to_dinosaur_state(**common_kwargs)
++    candidate = weather_state_to_dinosaur_state(
++        **common_kwargs,
++        use_dse_consistent_sigma_initialization=True,
++    )
++
++    _assert_pytree_allclose(candidate, incumbent)
++
++
+ def test_weather_state_to_dinosaur_state_matches_direct_dinosaur_initialization():
+     """State initialization mirrors explicit Dinosaur initialization calls."""
+     forecast_input = _forecast_input(
+@@ -6294,6 +6464,36 @@ def _surface_pressure_field(
+     return values
+ 
+ 
++def _weather_state_with_added_geopotential_pattern(
++    state: WeatherState,
++    pressure_levels_hpa: tuple[int, ...],
++    *,
++    amplitude: float,
++) -> WeatherState:
++    """Return one initialization with a shared horizontal geopotential anomaly."""
++    values = state.values[0]
++    longitude_count, latitude_count = state.spatial_shape
++    lon_pattern = jnp.arange(longitude_count, dtype=values.dtype)[:, np.newaxis]
++    lat_pattern = jnp.arange(latitude_count, dtype=values.dtype)[np.newaxis, :]
++    spatial_pattern = lon_pattern + 0.25 * lat_pattern
++    spatial_pattern = spatial_pattern - jnp.mean(spatial_pattern)
++    for pressure_level in pressure_levels_hpa:
++        channel_index = state.variables.index(f"geopotential_{pressure_level}")
++        values = values.at[channel_index].add(amplitude * spatial_pattern)
++    return WeatherState(values=values, variables=state.variables)
++
++
++def _weather_state_with_invalid_geopotential(
++    state: WeatherState,
++    pressure_levels_hpa: tuple[int, ...],
++) -> WeatherState:
++    """Return one initialization with a nonfinite pressure-level geopotential."""
++    values = state.values[0]
++    channel_index = state.variables.index(f"geopotential_{pressure_levels_hpa[0]}")
++    values = values.at[channel_index, 0, 0].set(jnp.nan)
++    return WeatherState(values=values, variables=state.variables)
++
++
+ def _residual_split_test_grid() -> spherical_harmonic.Grid:
+     return spherical_harmonic.Grid(
+         longitude_wavenumbers=10,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 091dbd0..118b2b5 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -54,6 +54,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_init",
+     )
+ 
+ 
+@@ -620,6 +621,25 @@ def test_registry_creates_layer_mass_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_dse_initialization_candidate_model():
++    """The DSE-init alias adds only the sigma initialization selector."""
++    model = create_dycore_model("dino_mass_dse_init")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_init"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_sigma_initialization
++    assert not incumbent.use_dse_consistent_sigma_initialization
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_dse_consistent_sigma_initialization"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

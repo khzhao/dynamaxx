@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "snow-soil-land-thermal-reservoir",
+  "history_path": ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir",
+  "source_artifacts": [
+    ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir/proposal.md",
+    ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir/implementation.md",
+    ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_land_soilflux.json",
+    "outputs/eval/fast_dino_land_soilflux.csv",
+    "outputs/eval/iteration_dino_land_soilflux.json",
+    "outputs/eval/iteration_dino_land_soilflux.csv",
+    "outputs/eval/runs/iteration_dino_land_soilflux/manifest.json",
+    "outputs/eval/runs/iteration_dino_land_soilflux/chunks/"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir/scores.json",
+    ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir/scoring_notes.md",
+    ".logbook/history/2026-06-22_10-08-39_snow-soil-land-thermal-reservoir/decision.md"
+  ],
+  "notes": "Rejected because the candidate iteration primary delta was +0.0000005876598810350409, below the +0.002 promotion threshold. Incumbent iteration metrics were reused from leaderboard artifacts; no incumbent rerun was performed. Validation was not run."
+}

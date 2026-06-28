@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dse-consistent-sigma-initialization",
+  "history_path": ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization",
+  "source_artifacts": [
+    ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/proposal.md",
+    ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/implementation.md",
+    ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_mass_dse_init.json",
+    "outputs/eval/fast_dino_mass_dse_init.csv",
+    "outputs/eval/iteration_dino_mass_dse_init.json",
+    "outputs/eval/iteration_dino_mass_dse_init.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/scores.json",
+    ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/scoring_notes.md",
+    ".logbook/history/2026-06-24_08-43-43_dse-consistent-sigma-initialization/decision.md"
+  ],
+  "notes": "Rejected after fixed iteration scored -0.26271419693216724 versus cached incumbent -0.2616483974683927, delta -0.0010657994637745527. Validation and golden were not run. Candidate code was reverted and the ready proposal was removed."
+}

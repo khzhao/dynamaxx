@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "vertical-dse-transport-mass-hsl",
+  "history_path": ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl",
+  "source_artifacts": [
+    ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_mass_dse_vdse.json",
+    "outputs/eval/fast_dino_mass_dse_vdse.csv",
+    "outputs/eval/iteration_dino_mass_dse_vdse.json",
+    "outputs/eval/iteration_dino_mass_dse_vdse.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl/proposal.md",
+    ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl/implementation.md",
+    ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl/scores.json",
+    ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl/scoring_notes.md",
+    ".logbook/history/2026-06-24_05-18-28_vertical-dse-transport-mass-hsl/decision.md"
+  ],
+  "notes": "Rejected after iteration failed the worst variable+lead RMSE guardrail despite a positive primary-score delta. Candidate source/test changes were reverted; ignored history and evaluation artifacts were preserved. Cached incumbent metrics were reused and golden was not run."
+}

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "charney-phillips-interface-theta-advection",
+  "history_path": ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection",
+  "source_artifacts": [
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/proposal.md",
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/implementation.md",
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_theta_cpvert.json",
+    "outputs/eval/fast_dino_hsl2_theta_cpvert.csv",
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/fast_failed_pre_repair.json",
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/fast_failed_pre_repair.csv",
+    "outputs/eval/iteration_dino_hsl2_theta.json",
+    "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "outputs/eval/validation_dino_hsl2_theta.json",
+    "outputs/eval/validation_dino_hsl2_theta.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/scores.json",
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/scoring_notes.md",
+    ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/decision.md"
+  ],
+  "notes": "Rejected after the repaired candidate still failed fast with nonfinite forecasts and metrics from 48 hours onward. Iteration, validation, golden, and incumbent reruns were not run. Incumbent cache artifacts were checked and valid."
+}

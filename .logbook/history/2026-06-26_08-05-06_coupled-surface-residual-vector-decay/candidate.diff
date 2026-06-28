@@ -1,0 +1,896 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..e550b90 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -47,6 +47,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
++    coupled_surface_residual_vector_decay_dinosaur_dycore_model,
+     default_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+@@ -85,6 +86,7 @@ __all__ = [
+     "coordinate_systems",
+     "coriolis_split_dinosaur_dycore_model",
+     "coriolis_strang_split_dinosaur_dycore_model",
++    "coupled_surface_residual_vector_decay_dinosaur_dycore_model",
+     "default_dinosaur_dycore_model",
+     "digital_filter_dinosaur_dycore_model",
+     "digital_filter_surface_residual_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..666ae6e 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -135,6 +135,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_stability_aware_near_surface_residual_decay: bool = False
+     use_scale_separated_near_surface_residual: bool = False
+     use_land_sea_surface_temperature_residual: bool = False
++    use_coupled_surface_residual_vector_decay: bool = False
+     apply_ocean_bulk_sensible_heat_flux: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+@@ -275,13 +276,21 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 ),
+             )
+             if self.apply_near_surface_residual_correction:
+-                residual_correction = (
+-                    _apply_scale_separated_near_surface_residual_correction
+-                    if self.use_scale_separated_near_surface_residual
+-                    else _apply_near_surface_residual_correction
+-                )
++                if self.use_coupled_surface_residual_vector_decay:
++                    residual_correction = (
++                        _apply_coupled_surface_residual_vector_correction
++                    )
++                else:
++                    residual_correction = (
++                        _apply_scale_separated_near_surface_residual_correction
++                        if self.use_scale_separated_near_surface_residual
++                        else _apply_near_surface_residual_correction
++                    )
+                 residual_kwargs: dict[str, Any] = {}
+-                if self.use_scale_separated_near_surface_residual:
++                if (
++                    self.use_scale_separated_near_surface_residual
++                    or self.use_coupled_surface_residual_vector_decay
++                ):
+                     residual_kwargs = {
+                         "horizontal_grid": grid.coords.horizontal,
+                         "latitude_reversed": grid.latitude_reversed,
+@@ -843,9 +852,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,8 +872,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -1368,6 +1375,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def coupled_surface_residual_vector_decay_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the ramp incumbent with coupled T2m/U10 residual-vector decay."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec",
++        use_coupled_surface_residual_vector_decay=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1891,6 +1909,244 @@ def _apply_scale_separated_near_surface_residual_correction(
+     )
+ 
+ 
++def _apply_coupled_surface_residual_vector_correction(
++    trajectory_state: WeatherState,
++    *,
++    initial_state: WeatherState,
++    lead_steps: tuple[int, ...],
++    lead_hours: tuple[int, ...],
++    decay_hours: float,
++    use_stability_aware_decay: bool = False,
++    horizontal_grid: spherical_harmonic.Grid | None = None,
++    latitude_reversed: bool = False,
++    land_sea_fraction: jax.Array | None = None,
++) -> WeatherState:
++    """Apply paired T2m/U10 residual-vector decay after the raw trajectory."""
++    incumbent_state = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=lead_steps,
++        lead_hours=lead_hours,
++        decay_hours=decay_hours,
++        use_stability_aware_decay=use_stability_aware_decay,
++        horizontal_grid=horizontal_grid,
++        latitude_reversed=latitude_reversed,
++        land_sea_fraction=land_sea_fraction,
++    )
++    required_channels = (
++        TWO_METER_TEMPERATURE_VARIABLE,
++        TEN_METER_U_WIND_VARIABLE,
++    )
++    if any(
++        channel not in initial_state.variables
++        or channel not in trajectory_state.variables
++        for channel in required_channels
++    ):
++        return incumbent_state
++
++    lead_hours_numpy = np.asarray(lead_hours, dtype=np.float64)
++    if not bool(np.isfinite(lead_hours_numpy).all()):
++        return incumbent_state
++
++    assert decay_hours > 0.0
++    assert len(lead_steps) == len(lead_hours)
++
++    lead_indices = jnp.asarray(lead_steps, dtype=jnp.int32)
++    corrected_values = jnp.take(trajectory_state.values, lead_indices, axis=0)
++    lead_hours_array = jnp.asarray(lead_hours, dtype=corrected_values.dtype)
++    temperature_output_index = int(
++        trajectory_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
++    )
++    temperature_initial_index = int(
++        initial_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
++    )
++    wind_output_index = int(
++        trajectory_state.variable_indices((TEN_METER_U_WIND_VARIABLE,))[0]
++    )
++    wind_initial_index = int(
++        initial_state.variable_indices((TEN_METER_U_WIND_VARIABLE,))[0]
++    )
++    initial_temperature = initial_state.values[temperature_initial_index]
++    initial_wind = initial_state.values[wind_initial_index]
++    temperature_residual = (
++        initial_temperature - trajectory_state.values[0, temperature_output_index]
++    )
++    wind_residual = initial_wind - trajectory_state.values[0, wind_output_index]
++
++    valid_decay = jnp.asarray(True)
++    valid_residual_split = jnp.asarray(True)
++    if horizontal_grid is None:
++        high_mode_decay = _near_surface_residual_decay_factors(
++            trajectory_state,
++            initial_state=initial_state,
++            lead_indices=lead_indices,
++            lead_hours_array=lead_hours_array,
++            decay_hours=decay_hours,
++            use_stability_aware_decay=use_stability_aware_decay,
++        )
++        residual_bands = ((temperature_residual, wind_residual, high_mode_decay),)
++    else:
++        high_mode_decay, low_mode_decay = _scale_separated_residual_decays(
++            trajectory_state,
++            initial_state=initial_state,
++            lead_indices=lead_indices,
++            lead_hours_array=lead_hours_array,
++            decay_hours=decay_hours,
++            use_stability_aware_decay=use_stability_aware_decay,
++        )
++        try:
++            (
++                low_mode_temperature_residual,
++                high_mode_temperature_residual,
++                temperature_split_is_valid,
++            ) = _split_near_surface_residual_by_scale(
++                temperature_residual,
++                horizontal_grid=horizontal_grid,
++                latitude_reversed=latitude_reversed,
++            )
++            (
++                low_mode_wind_residual,
++                high_mode_wind_residual,
++                wind_split_is_valid,
++            ) = _split_near_surface_residual_by_scale(
++                wind_residual,
++                horizontal_grid=horizontal_grid,
++                latitude_reversed=latitude_reversed,
++            )
++        except (AssertionError, AttributeError, TypeError, ValueError):
++            return incumbent_state
++        valid_residual_split = temperature_split_is_valid & wind_split_is_valid
++        residual_bands = (
++            (low_mode_temperature_residual, low_mode_wind_residual, low_mode_decay),
++            (high_mode_temperature_residual, high_mode_wind_residual, high_mode_decay),
++        )
++
++    temperature_increment = jnp.zeros_like(
++        corrected_values[:, temperature_output_index]
++    )
++    wind_increment = jnp.zeros_like(corrected_values[:, wind_output_index])
++    valid_vector_decay = jnp.asarray(True)
++    for temperature_band, wind_band, band_decay in residual_bands:
++        (
++            band_temperature_increment,
++            band_wind_increment,
++            band_is_valid,
++        ) = _coupled_surface_residual_vector_increment(
++            temperature_band,
++            wind_band,
++            band_decay,
++        )
++        temperature_increment = temperature_increment + band_temperature_increment
++        wind_increment = wind_increment + band_wind_increment
++        valid_vector_decay = valid_vector_decay & band_is_valid
++        valid_decay = valid_decay & jnp.all(
++            jnp.isfinite(band_decay) & (band_decay >= 0.0) & (band_decay <= 1.0)
++        )
++
++    candidate_temperature = (
++        corrected_values[:, temperature_output_index] + temperature_increment
++    )
++    candidate_wind = corrected_values[:, wind_output_index] + wind_increment
++    lead_zero_mask = lead_indices == 0
++    candidate_temperature = jnp.where(
++        lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
++        initial_temperature[jnp.newaxis, ...],
++        candidate_temperature,
++    )
++    candidate_wind = jnp.where(
++        lead_zero_mask[:, jnp.newaxis, jnp.newaxis],
++        initial_wind[jnp.newaxis, ...],
++        candidate_wind,
++    )
++    candidate_is_valid = (
++        valid_residual_split
++        & valid_vector_decay
++        & valid_decay
++        & jnp.all(jnp.isfinite(candidate_temperature))
++        & jnp.all(jnp.isfinite(candidate_wind))
++    )
++    corrected_values = corrected_values.at[:, temperature_output_index].set(
++        jnp.where(
++            candidate_is_valid,
++            candidate_temperature,
++            incumbent_state.values[:, temperature_output_index],
++        )
++    )
++    corrected_values = corrected_values.at[:, wind_output_index].set(
++        jnp.where(
++            candidate_is_valid,
++            candidate_wind,
++            incumbent_state.values[:, wind_output_index],
++        )
++    )
++
++    return WeatherState(
++        values=corrected_values,
++        variables=trajectory_state.variables,
++    )
++
++
++def _near_surface_residual_decay_factors(
++    trajectory_state: WeatherState,
++    *,
++    initial_state: WeatherState,
++    lead_indices: jax.Array,
++    lead_hours_array: jax.Array,
++    decay_hours: float,
++    use_stability_aware_decay: bool,
++) -> jax.Array:
++    """Return scalar residual factors in the same shape as stability decay."""
++    if use_stability_aware_decay:
++        decay_hours_array_local = _stability_aware_near_surface_residual_decay_hours(
++            trajectory_state,
++            initial_state=initial_state,
++            lead_indices=lead_indices,
++            base_decay_hours=decay_hours,
++        )
++        return jnp.exp(
++            -lead_hours_array[:, jnp.newaxis, jnp.newaxis] / decay_hours_array_local
++        )
++    decay = jnp.exp(-lead_hours_array / jnp.asarray(decay_hours))
++    return decay[:, jnp.newaxis, jnp.newaxis]
++
++
++def _coupled_surface_residual_vector_increment(
++    temperature_residual: jax.Array,
++    wind_residual: jax.Array,
++    shared_decay: jax.Array,
++) -> tuple[jax.Array, jax.Array, jax.Array]:
++    """Return direction-preserving decayed increments for one residual band."""
++    scaled_temperature = (
++        temperature_residual / _STABILITY_AWARE_TEMPERATURE_RESIDUAL_SCALE_KELVIN
++    )
++    scaled_wind = wind_residual / _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND
++    vector_norm = jnp.sqrt(jnp.maximum(scaled_temperature**2 + scaled_wind**2, 0.0))
++    safe_norm = jnp.where(vector_norm > 0.0, vector_norm, 1.0)
++    bounded_decay = jnp.clip(shared_decay, 0.0, 1.0)
++    decayed_norm = vector_norm[jnp.newaxis, ...] * bounded_decay
++    temperature_increment = (
++        scaled_temperature[jnp.newaxis, ...]
++        / safe_norm[jnp.newaxis, ...]
++        * decayed_norm
++        * _STABILITY_AWARE_TEMPERATURE_RESIDUAL_SCALE_KELVIN
++    )
++    wind_increment = (
++        scaled_wind[jnp.newaxis, ...]
++        / safe_norm[jnp.newaxis, ...]
++        * decayed_norm
++        * _STABILITY_AWARE_WIND_RESIDUAL_SCALE_METERS_PER_SECOND
++    )
++    vector_is_valid = (
++        jnp.all(jnp.isfinite(scaled_temperature))
++        & jnp.all(jnp.isfinite(scaled_wind))
++        & jnp.all(jnp.isfinite(vector_norm))
++        & jnp.all(jnp.isfinite(shared_decay))
++        & jnp.all(jnp.isfinite(temperature_increment))
++        & jnp.all(jnp.isfinite(wind_increment))
++    )
++    return temperature_increment, wind_increment, vector_is_valid
++
++
+ def _land_sea_surface_temperature_residual_decays(
+     *,
+     high_mode_decay: jax.Array,
+@@ -2559,9 +2815,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+@@ -2586,9 +2840,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..ac8c20e 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec_model() -> DycoreModel:
++    """Return the vertical-DSE ramp dycore with coupled surface residual decay."""
++    from dynamaxx.dycore.models.dinosaur import (
++        coupled_surface_residual_vector_decay_dinosaur_dycore_model,
++    )
++
++    return coupled_surface_residual_vector_decay_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,8 +311,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec": (
++        dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec_model
+     ),
+ }
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..51a7eaa 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,10 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert (
++    dinosaur.coupled_surface_residual_vector_decay_dinosaur_dycore_model().name
++    == "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +241,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +759,20 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_coupled_surface_residual_vector_decay_is_registered():
++    """The coupled residual candidate is side-by-side with the ramp incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec"
++    assert model.use_coupled_surface_residual_vector_decay
++    assert not incumbent.use_coupled_surface_residual_vector_decay
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_coupled_surface_residual_vector_decay"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..2274449 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -39,6 +39,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     DinosaurPrimitiveEquationsDycoreModel,
+     _analysis_offset_weak_held_suarez_equilibrium,
+     _analysis_offset_weak_hs_low_mode_mask,
++    _apply_coupled_surface_residual_vector_correction,
+     _apply_near_surface_residual_correction,
+     _apply_scale_separated_near_surface_residual_correction,
+     _compose_ocean_bulk_sensible_heat_flux_equation,
+@@ -71,6 +72,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
++    coupled_surface_residual_vector_decay_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
+@@ -655,6 +657,20 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_coupled_surface_vector_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the coupled residual selector."""
++    model = coupled_surface_residual_vector_decay_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec"
++    assert model.use_coupled_surface_residual_vector_decay
++    assert not incumbent.use_coupled_surface_residual_vector_decay
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_coupled_surface_residual_vector_decay"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -1476,6 +1492,66 @@ def test_land_sea_surface_temperature_candidate_forecast_is_finite(monkeypatch):
+     )
+ 
+ 
++def test_coupled_surface_vector_candidate_forecast_is_finite(monkeypatch):
++    """The coupled residual-vector candidate runs a non-JIT smoke forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        coupled_surface_residual_vector_decay_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++    np.testing.assert_array_equal(
++        forecast.select(("2m_temperature",)).values[0],
++        forecast_input.initial_state.select(("2m_temperature",)).values,
++    )
++    np.testing.assert_array_equal(
++        forecast.select(("10m_u_component_of_wind",)).values[0],
++        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
++    )
++
++
+ def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
+     """The residual candidate changes only selected near-surface diagnostics."""
+ 
+@@ -2116,6 +2192,272 @@ def test_scale_separated_residual_correction_falls_back_to_incumbent(monkeypatch
+     np.testing.assert_array_equal(nonfinite_fallback.values, incumbent.values)
+ 
+ 
++def test_coupled_surface_vector_decay_applies_shared_scale_bands():
++    """Paired residuals use one decay per low/high residual vector band."""
++    raw_temperature = jnp.stack(
++        [
++            jnp.full((4, 3), 280.0, dtype=jnp.float32),
++            jnp.full((4, 3), 281.0, dtype=jnp.float32),
++        ]
++    )
++    raw_u_wind = jnp.stack(
++        [
++            jnp.full((4, 3), 1.0, dtype=jnp.float32),
++            jnp.full((4, 3), 1.5, dtype=jnp.float32),
++        ]
++    )
++    raw_pressure = jnp.stack(
++        [
++            jnp.full((4, 3), 100000.0, dtype=jnp.float32),
++            jnp.full((4, 3), 99900.0, dtype=jnp.float32),
++        ]
++    )
++    trajectory_state = WeatherState(
++        values=jnp.stack([raw_temperature, raw_u_wind, raw_pressure], axis=1),
++        variables=(
++            "2m_temperature",
++            "10m_u_component_of_wind",
++            "mean_sea_level_pressure",
++        ),
++    )
++    initial_temperature = raw_temperature[0] + 4.0
++    initial_u_wind = raw_u_wind[0] + 2.0
++    initial_state = WeatherState(
++        values=jnp.stack([initial_temperature, initial_u_wind]),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++    grid = grid_metadata(
++        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
++        latitude=np.array([90.0, 0.0, -90.0]),
++        layer_count=2,
++        spectral_wavenumbers=None,
++    )
++
++    corrected = _apply_coupled_surface_residual_vector_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 96),
++        decay_hours=48.0,
++        horizontal_grid=grid.coords.horizontal,
++        latitude_reversed=grid.latitude_reversed,
++    )
++
++    low_mode_decay = np.exp(-1.0)
++    expected_temperature = raw_temperature.at[0].set(initial_temperature)
++    expected_temperature = expected_temperature.at[1].set(
++        raw_temperature[1] + (initial_temperature - raw_temperature[0]) * low_mode_decay
++    )
++    expected_u_wind = raw_u_wind.at[0].set(initial_u_wind)
++    expected_u_wind = expected_u_wind.at[1].set(
++        raw_u_wind[1] + (initial_u_wind - raw_u_wind[0]) * low_mode_decay
++    )
++    np.testing.assert_allclose(
++        corrected.select(("2m_temperature",)).values[:, 0],
++        expected_temperature,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    np.testing.assert_allclose(
++        corrected.select(("10m_u_component_of_wind",)).values[:, 0],
++        expected_u_wind,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    np.testing.assert_array_equal(
++        corrected.select(("mean_sea_level_pressure",)).values,
++        trajectory_state.select(("mean_sea_level_pressure",)).values,
++    )
++
++
++def test_coupled_surface_vector_decay_falls_back_for_missing_paired_channel():
++    """Missing T2m/U10 pairs reproduce the incumbent residual correction exactly."""
++    raw_u_wind = jnp.stack(
++        [
++            jnp.full((2, 2), 1.0, dtype=jnp.float32),
++            jnp.full((2, 2), 2.0, dtype=jnp.float32),
++        ]
++    )
++    raw_pressure = jnp.stack(
++        [
++            jnp.full((2, 2), 100000.0, dtype=jnp.float32),
++            jnp.full((2, 2), 99900.0, dtype=jnp.float32),
++        ]
++    )
++    trajectory_state = WeatherState(
++        values=jnp.stack([raw_u_wind, raw_pressure], axis=1),
++        variables=("10m_u_component_of_wind", "mean_sea_level_pressure"),
++    )
++    initial_state = WeatherState(
++        values=jnp.stack([raw_u_wind[0] + 2.0]),
++        variables=("10m_u_component_of_wind",),
++    )
++
++    incumbent = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 24),
++        decay_hours=48.0,
++    )
++    corrected = _apply_coupled_surface_residual_vector_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 24),
++        decay_hours=48.0,
++    )
++
++    np.testing.assert_array_equal(corrected.values, incumbent.values)
++
++
++def test_coupled_surface_vector_decay_zero_vector_is_noop():
++    """Zero paired residual norm leaves requested raw trajectory leads unchanged."""
++    raw_temperature = jnp.stack(
++        [
++            jnp.full((2, 2), 280.0, dtype=jnp.float32),
++            jnp.full((2, 2), 281.0, dtype=jnp.float32),
++        ]
++    )
++    raw_u_wind = jnp.stack(
++        [
++            jnp.full((2, 2), 3.0, dtype=jnp.float32),
++            jnp.full((2, 2), 4.0, dtype=jnp.float32),
++        ]
++    )
++    trajectory_state = WeatherState(
++        values=jnp.stack([raw_temperature, raw_u_wind], axis=1),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++    initial_state = WeatherState(
++        values=jnp.stack([raw_temperature[0], raw_u_wind[0]]),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++
++    corrected = _apply_coupled_surface_residual_vector_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 24),
++        decay_hours=48.0,
++    )
++
++    np.testing.assert_array_equal(corrected.values, trajectory_state.values)
++
++
++def test_coupled_surface_vector_decay_stable_columns_decay_no_faster():
++    """The shared vector amplitude inherits the lower-column stability ordering."""
++    low_temperature = 290.0
++    neutral_upper_temperature = low_temperature * (850.0 / 1000.0) ** (2.0 / 7.0)
++    upper_temperature = jnp.asarray(
++        [
++            neutral_upper_temperature + 12.0,
++            neutral_upper_temperature,
++            neutral_upper_temperature - 12.0,
++        ],
++        dtype=jnp.float32,
++    )[jnp.newaxis, :]
++    low_temperature_field = jnp.full_like(upper_temperature, low_temperature)
++    low_wind = jnp.zeros_like(upper_temperature)
++    raw_temperature = jnp.stack([low_temperature_field, low_temperature_field + 1.0])
++    raw_u_wind = jnp.stack([low_wind, low_wind + 0.5])
++    trajectory_state = WeatherState(
++        values=jnp.stack(
++            [
++                jnp.stack([low_temperature_field, low_temperature_field]),
++                jnp.stack([upper_temperature, upper_temperature]),
++                jnp.stack([low_wind, low_wind]),
++                jnp.stack([low_wind, low_wind]),
++                jnp.stack([low_wind, low_wind]),
++                jnp.stack([low_wind, low_wind]),
++                raw_temperature,
++                raw_u_wind,
++            ],
++            axis=1,
++        ),
++        variables=(
++            "temperature_1000",
++            "temperature_850",
++            "u_component_of_wind_1000",
++            "u_component_of_wind_850",
++            "v_component_of_wind_1000",
++            "v_component_of_wind_850",
++            "2m_temperature",
++            "10m_u_component_of_wind",
++        ),
++    )
++    initial_state = WeatherState(
++        values=jnp.stack([raw_temperature[0] + 4.0, raw_u_wind[0] + 2.0]),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++
++    corrected = _apply_coupled_surface_residual_vector_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(1,),
++        lead_hours=(24,),
++        decay_hours=48.0,
++        use_stability_aware_decay=True,
++    )
++
++    temperature_increment = (
++        corrected.select(("2m_temperature",)).values[0, 0] - raw_temperature[1]
++    )
++    wind_increment = (
++        corrected.select(("10m_u_component_of_wind",)).values[0, 0] - raw_u_wind[1]
++    )
++    assert temperature_increment[0, 0] > temperature_increment[0, 1]
++    assert temperature_increment[0, 1] > temperature_increment[0, 2]
++    assert wind_increment[0, 0] > wind_increment[0, 1]
++    assert wind_increment[0, 1] > wind_increment[0, 2]
++
++
++def test_coupled_surface_vector_decay_nonfinite_diagnostic_uses_incumbent():
++    """Nonfinite residual-vector diagnostics reproduce scalar incumbent output."""
++    raw_temperature = jnp.stack(
++        [
++            jnp.full((2, 2), 280.0, dtype=jnp.float32),
++            jnp.full((2, 2), 281.0, dtype=jnp.float32),
++        ]
++    )
++    raw_u_wind = jnp.stack(
++        [
++            jnp.full((2, 2), 3.0, dtype=jnp.float32),
++            jnp.full((2, 2), 4.0, dtype=jnp.float32),
++        ]
++    )
++    trajectory_state = WeatherState(
++        values=jnp.stack([raw_temperature, raw_u_wind], axis=1),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++    initial_state = WeatherState(
++        values=jnp.stack(
++            [
++                jnp.full((2, 2), jnp.inf, dtype=jnp.float32),
++                raw_u_wind[0] + 2.0,
++            ]
++        ),
++        variables=("2m_temperature", "10m_u_component_of_wind"),
++    )
++
++    incumbent = _apply_scale_separated_near_surface_residual_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 24),
++        decay_hours=48.0,
++    )
++    corrected = _apply_coupled_surface_residual_vector_correction(
++        trajectory_state,
++        initial_state=initial_state,
++        lead_steps=(0, 1),
++        lead_hours=(0, 24),
++        decay_hours=48.0,
++    )
++
++    np.testing.assert_array_equal(corrected.values, incumbent.values)
++
++
+ def test_stability_aware_residual_decay_hours_are_bounded_by_column_state():
+     """Synthetic lower-column states map to fixed min, base, and max decay."""
+     low_temperature = 290.0
+@@ -3809,10 +4151,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -4866,10 +5207,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -6730,9 +7070,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..359edec 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec",
+     )
+ 
+ 
+@@ -660,6 +661,20 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_coupled_surface_residual_vector_candidate_model():
++    """The surface-vector alias adds only the coupled residual selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec"
++    assert model.use_coupled_surface_residual_vector_decay
++    assert not incumbent.use_coupled_surface_residual_vector_decay
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_coupled_surface_residual_vector_decay"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

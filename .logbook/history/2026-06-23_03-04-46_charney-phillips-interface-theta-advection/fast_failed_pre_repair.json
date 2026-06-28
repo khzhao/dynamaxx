@@ -1,0 +1,1307 @@
+{
+  "case": {
+    "initial_times": [
+      "2018-01-01T00:00:00.000000000",
+      "2018-01-15T00:00:00.000000000",
+      "2018-02-01T00:00:00.000000000",
+      "2018-03-01T00:00:00.000000000",
+      "2018-04-01T00:00:00.000000000",
+      "2018-05-01T00:00:00.000000000",
+      "2018-06-01T00:00:00.000000000",
+      "2018-07-01T00:00:00.000000000",
+      "2018-08-01T00:00:00.000000000",
+      "2018-09-01T00:00:00.000000000",
+      "2018-10-01T00:00:00.000000000",
+      "2018-11-01T00:00:00.000000000",
+      "2018-12-01T00:00:00.000000000",
+      "2018-12-15T00:00:00.000000000"
+    ],
+    "lead_hours": [
+      24,
+      48,
+      72,
+      96,
+      120,
+      144,
+      168,
+      192,
+      216,
+      240,
+      264,
+      288,
+      312,
+      336,
+      360
+    ],
+    "lead_steps": [
+      4,
+      8,
+      12,
+      16,
+      20,
+      24,
+      28,
+      32,
+      36,
+      40,
+      44,
+      48,
+      52,
+      56,
+      60
+    ],
+    "name": "fast",
+    "step_hours": 6,
+    "target_variables": [
+      {
+        "channel_name": "2m_temperature",
+        "level": null,
+        "title": "2 m temperature",
+        "unit": "K",
+        "variable": "2m_temperature"
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "level": null,
+        "title": "Mean sea level pressure",
+        "unit": "Pa",
+        "variable": "mean_sea_level_pressure"
+      },
+      {
+        "channel_name": "geopotential_500",
+        "level": 500,
+        "title": "500 hPa geopotential",
+        "unit": "m2 s-2",
+        "variable": "geopotential"
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "level": null,
+        "title": "10 m zonal wind",
+        "unit": "m s-1",
+        "variable": "10m_u_component_of_wind"
+      }
+    ]
+  },
+  "diagnostics": {
+    "failed": true,
+    "issues": [
+      {
+        "code": "nonfinite_forecast",
+        "message": "Forecast contains NaN or Inf values.",
+        "severity": "error",
+        "value": 420789600
+      },
+      {
+        "code": "nonfinite_metric",
+        "message": "Metric records contain NaN or Inf values.",
+        "severity": "error",
+        "value": 240
+      }
+    ]
+  },
+  "model_name": "dino_hsl2_theta_cpvert",
+  "primary_score": -Infinity,
+  "records": [
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 24,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 24,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 24,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 24,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 48,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 48,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 48,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 48,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 72,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 72,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 72,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 72,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 96,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 96,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 96,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 96,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 120,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 120,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 120,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 120,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 144,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 144,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 144,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 144,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 168,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 168,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 168,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 168,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 192,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 192,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 192,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 192,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 216,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 216,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 216,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 216,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 240,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 240,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 240,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 240,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 264,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 264,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 264,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 264,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 288,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 288,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 288,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 288,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 312,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 312,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 312,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 312,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 336,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 336,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 336,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 336,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "2m_temperature",
+      "lead_hours": 360,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 360,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "geopotential_500",
+      "lead_hours": 360,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": NaN,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 360,
+      "mae": NaN,
+      "model_name": "dino_hsl2_theta_cpvert",
+      "rmse": NaN,
+      "skill_vs_persistence": NaN,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.013619871011802129,
+      "channel_name": "2m_temperature",
+      "lead_hours": 24,
+      "mae": 1.1997782843453544,
+      "model_name": "persistence",
+      "rmse": 2.055466321450892,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.4380380085536413,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 24,
+      "mae": 347.28529575892856,
+      "model_name": "persistence",
+      "rmse": 590.0508755304797,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": 1.3240563528878349,
+      "channel_name": "geopotential_500",
+      "lead_hours": 24,
+      "mae": 349.00198800223217,
+      "model_name": "persistence",
+      "rmse": 590.8544357840722,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": 0.015216513403824397,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 24,
+      "mae": 2.4867180415562222,
+      "model_name": "persistence",
+      "rmse": 3.8726827839050366,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.019256300159863064,
+      "channel_name": "2m_temperature",
+      "lead_hours": 48,
+      "mae": 1.570119994027274,
+      "model_name": "persistence",
+      "rmse": 2.6805635582821448,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -2.3012428283691406,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 48,
+      "mae": 482.15834263392856,
+      "model_name": "persistence",
+      "rmse": 785.3667023390138,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": 0.050964219229561944,
+      "channel_name": "geopotential_500",
+      "lead_hours": 48,
+      "mae": 497.73416573660717,
+      "model_name": "persistence",
+      "rmse": 813.3433205866125,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": 0.00545791643006461,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 48,
+      "mae": 3.0800064631870816,
+      "model_name": "persistence",
+      "rmse": 4.5783411623151355,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.008778947804655348,
+      "channel_name": "2m_temperature",
+      "lead_hours": 72,
+      "mae": 1.7169110434395927,
+      "model_name": "persistence",
+      "rmse": 2.91314208193675,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.7205039433070592,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 72,
+      "mae": 549.4306989397321,
+      "model_name": "persistence",
+      "rmse": 883.3580409841915,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -2.225754601614816,
+      "channel_name": "geopotential_500",
+      "lead_hours": 72,
+      "mae": 575.2672991071429,
+      "model_name": "persistence",
+      "rmse": 938.8260906959438,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": 0.006473657275949206,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 72,
+      "mae": 3.347076416015625,
+      "model_name": "persistence",
+      "rmse": 4.911344540267956,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.012768941266196114,
+      "channel_name": "2m_temperature",
+      "lead_hours": 96,
+      "mae": 1.7951107025146484,
+      "model_name": "persistence",
+      "rmse": 3.0655612603956945,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.1323901585170202,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 96,
+      "mae": 586.1261858258929,
+      "model_name": "persistence",
+      "rmse": 940.6323101282152,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -4.030274527413504,
+      "channel_name": "geopotential_500",
+      "lead_hours": 96,
+      "mae": 613.8429129464286,
+      "model_name": "persistence",
+      "rmse": 991.8668545439238,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.0015095280749457224,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 96,
+      "mae": 3.528975622994559,
+      "model_name": "persistence",
+      "rmse": 5.185401899288315,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": -0.0077485208000455585,
+      "channel_name": "2m_temperature",
+      "lead_hours": 120,
+      "mae": 1.851670265197754,
+      "model_name": "persistence",
+      "rmse": 3.186034477413379,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.7239288602556502,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 120,
+      "mae": 591.9482421875,
+      "model_name": "persistence",
+      "rmse": 945.1682389924028,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -2.3223282950265065,
+      "channel_name": "geopotential_500",
+      "lead_hours": 120,
+      "mae": 629.8162667410714,
+      "model_name": "persistence",
+      "rmse": 1006.759085949989,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.0031870859009878977,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 120,
+      "mae": 3.536022186279297,
+      "model_name": "persistence",
+      "rmse": 5.165655315462854,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": -0.0032512545585632324,
+      "channel_name": "2m_temperature",
+      "lead_hours": 144,
+      "mae": 1.9346177237374442,
+      "model_name": "persistence",
+      "rmse": 3.3330678379957046,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.7404492241995675,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 144,
+      "mae": 613.0837751116071,
+      "model_name": "persistence",
+      "rmse": 976.6540548511242,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -1.757256099155971,
+      "channel_name": "geopotential_500",
+      "lead_hours": 144,
+      "mae": 651.1828962053571,
+      "model_name": "persistence",
+      "rmse": 1044.476116118917,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.004567152687481472,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 144,
+      "mae": 3.628155027117048,
+      "model_name": "persistence",
+      "rmse": 5.323125493694835,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.0034468972257205416,
+      "channel_name": "2m_temperature",
+      "lead_hours": 168,
+      "mae": 1.995349611554827,
+      "model_name": "persistence",
+      "rmse": 3.439564112425024,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.9029889787946428,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 168,
+      "mae": 626.9232003348214,
+      "model_name": "persistence",
+      "rmse": 994.6891115174774,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -0.7506717954363141,
+      "channel_name": "geopotential_500",
+      "lead_hours": 168,
+      "mae": 665.1483677455357,
+      "model_name": "persistence",
+      "rmse": 1061.8674251390466,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.03848469257354736,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 168,
+      "mae": 3.6789422716413225,
+      "model_name": "persistence",
+      "rmse": 5.363183907854017,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": -0.005879755531038556,
+      "channel_name": "2m_temperature",
+      "lead_hours": 192,
+      "mae": 2.0374317169189453,
+      "model_name": "persistence",
+      "rmse": 3.526349589472992,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -0.8508529663085938,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 192,
+      "mae": 638.1612025669643,
+      "model_name": "persistence",
+      "rmse": 1003.3092031586559,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -1.9722559792654855,
+      "channel_name": "geopotential_500",
+      "lead_hours": 192,
+      "mae": 681.4292689732143,
+      "model_name": "persistence",
+      "rmse": 1088.8698269306574,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.056085450308663506,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 192,
+      "mae": 3.6752597263881137,
+      "model_name": "persistence",
+      "rmse": 5.338884756868809,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": -0.006638982466288975,
+      "channel_name": "2m_temperature",
+      "lead_hours": 216,
+      "mae": 2.0616704395839145,
+      "model_name": "persistence",
+      "rmse": 3.575379763619742,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": 0.13518985680171422,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 216,
+      "mae": 632.9574497767857,
+      "model_name": "persistence",
+      "rmse": 995.0025125596418,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -0.8016131264822823,
+      "channel_name": "geopotential_500",
+      "lead_hours": 216,
+      "mae": 689.1833844866071,
+      "model_name": "persistence",
+      "rmse": 1102.0615746344276,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.0788203137261527,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 216,
+      "mae": 3.682921818324498,
+      "model_name": "persistence",
+      "rmse": 5.325696336539385,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.014805045511041368,
+      "channel_name": "2m_temperature",
+      "lead_hours": 240,
+      "mae": 2.0855253764561246,
+      "model_name": "persistence",
+      "rmse": 3.618172365248571,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -0.3706816945757185,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 240,
+      "mae": 630.1619698660714,
+      "model_name": "persistence",
+      "rmse": 988.5199976299344,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -0.14708409990583146,
+      "channel_name": "geopotential_500",
+      "lead_hours": 240,
+      "mae": 688.4144810267857,
+      "model_name": "persistence",
+      "rmse": 1100.1900485175927,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.054039878504616876,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 240,
+      "mae": 3.7108772822788785,
+      "model_name": "persistence",
+      "rmse": 5.368072405087432,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.019031362874167308,
+      "channel_name": "2m_temperature",
+      "lead_hours": 264,
+      "mae": 2.1030897412981306,
+      "model_name": "persistence",
+      "rmse": 3.6389864491685238,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": 0.391538211277553,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 264,
+      "mae": 637.3016183035714,
+      "model_name": "persistence",
+      "rmse": 1000.5181157780203,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -0.5323333740234375,
+      "channel_name": "geopotential_500",
+      "lead_hours": 264,
+      "mae": 689.33642578125,
+      "model_name": "persistence",
+      "rmse": 1104.004011379876,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.0321507602930069,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 264,
+      "mae": 3.712475912911551,
+      "model_name": "persistence",
+      "rmse": 5.394476496761029,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.012491945709500994,
+      "channel_name": "2m_temperature",
+      "lead_hours": 288,
+      "mae": 2.1304212297712053,
+      "model_name": "persistence",
+      "rmse": 3.663860816296683,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -0.974348749433245,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 288,
+      "mae": 642.9347098214286,
+      "model_name": "persistence",
+      "rmse": 1006.2391081930491,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -1.5715277535574776,
+      "channel_name": "geopotential_500",
+      "lead_hours": 288,
+      "mae": 692.2297712053571,
+      "model_name": "persistence",
+      "rmse": 1111.9702591089642,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.0019066384328263147,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 288,
+      "mae": 3.7098726545061385,
+      "model_name": "persistence",
+      "rmse": 5.370167127861692,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.013097028647150313,
+      "channel_name": "2m_temperature",
+      "lead_hours": 312,
+      "mae": 2.1682699748447964,
+      "model_name": "persistence",
+      "rmse": 3.7436612279489765,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.8332578114100866,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 312,
+      "mae": 649.13525390625,
+      "model_name": "persistence",
+      "rmse": 1006.6315115274308,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -3.935039520263672,
+      "channel_name": "geopotential_500",
+      "lead_hours": 312,
+      "mae": 699.3570033482143,
+      "model_name": "persistence",
+      "rmse": 1119.941388772517,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": 0.02322058379650116,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 312,
+      "mae": 3.7234739576067244,
+      "model_name": "persistence",
+      "rmse": 5.387431119049227,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.013017916253634862,
+      "channel_name": "2m_temperature",
+      "lead_hours": 336,
+      "mae": 2.183700289045061,
+      "model_name": "persistence",
+      "rmse": 3.7502072231621235,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.8762133462088448,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 336,
+      "mae": 638.4645647321429,
+      "model_name": "persistence",
+      "rmse": 994.7154654185573,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -8.267313276018415,
+      "channel_name": "geopotential_500",
+      "lead_hours": 336,
+      "mae": 696.5357142857143,
+      "model_name": "persistence",
+      "rmse": 1113.0957473897486,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": 0.015566713043621607,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 336,
+      "mae": 3.7403501783098494,
+      "model_name": "persistence",
+      "rmse": 5.419985872772097,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    },
+    {
+      "bias": 0.009942565645490373,
+      "channel_name": "2m_temperature",
+      "lead_hours": 360,
+      "mae": 2.170876911708287,
+      "model_name": "persistence",
+      "rmse": 3.7041696979899146,
+      "skill_vs_persistence": 0.0,
+      "variable": "2 m temperature"
+    },
+    {
+      "bias": -1.7225843157087053,
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 360,
+      "mae": 632.0475725446429,
+      "model_name": "persistence",
+      "rmse": 993.9269519005336,
+      "skill_vs_persistence": 0.0,
+      "variable": "Mean sea level pressure"
+    },
+    {
+      "bias": -10.766734531947545,
+      "channel_name": "geopotential_500",
+      "lead_hours": 360,
+      "mae": 696.7354910714286,
+      "model_name": "persistence",
+      "rmse": 1117.3496702976583,
+      "skill_vs_persistence": 0.0,
+      "variable": "500 hPa geopotential"
+    },
+    {
+      "bias": -0.004256153745310647,
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 360,
+      "mae": 3.7699187142508372,
+      "model_name": "persistence",
+      "rmse": 5.470713534617398,
+      "skill_vs_persistence": 0.0,
+      "variable": "10 m zonal wind"
+    }
+  ]
+}

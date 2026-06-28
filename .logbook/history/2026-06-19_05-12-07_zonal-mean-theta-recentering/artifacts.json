@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "zonal-mean-theta-recentering",
+  "history_path": ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "status": "reverted_after_rejection"
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "status": "reverted_after_rejection"
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_zonal_recenter.json",
+      "protocol": "fast",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_zonal_recenter.csv",
+      "protocol": "fast",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_zonal_recenter.json",
+      "protocol": "iteration",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_zonal_recenter.csv",
+      "protocol": "iteration",
+      "model_role": "candidate"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+      "protocol": "iteration",
+      "model_role": "incumbent",
+      "source": "reused_from_leaderboard_cache"
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv",
+      "protocol": "iteration",
+      "model_role": "incumbent",
+      "source": "reused_from_leaderboard_cache"
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering/proposal.md",
+    ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering/implementation.md",
+    ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering/scores.json",
+    ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering/scoring_notes.md",
+    ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering/decision.md",
+    ".logbook/history/2026-06-19_05-12-07_zonal-mean-theta-recentering/artifacts.json"
+  ],
+  "notes": "Rejected because iteration produced nonfinite forecasts and primary score -Infinity. Validation and golden were not run."
+}

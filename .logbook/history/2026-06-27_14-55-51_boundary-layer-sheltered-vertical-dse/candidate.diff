@@ -1,0 +1,780 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..981ca73 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -45,6 +45,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+     DinosaurPrimitiveEquationsDycoreModel,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+     default_dinosaur_dycore_model,
+@@ -82,6 +83,7 @@ __all__ = [
+     "DinosaurPrimitiveEquationsDycoreModel",
+     "analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model",
+     "associated_legendre",
++    "boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model",
+     "coordinate_systems",
+     "coriolis_split_dinosaur_dycore_model",
+     "coriolis_strang_split_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..04c03b1 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -148,6 +148,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
++    use_boundary_layer_sheltered_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+@@ -370,6 +371,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_pressure_ramped_vertical_dse_increment=(
+                     self.use_pressure_ramped_vertical_dse_increment
+                 ),
++                use_boundary_layer_sheltered_vertical_dse_increment=(
++                    self.use_boundary_layer_sheltered_vertical_dse_increment
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -843,9 +847,8 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+         layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
+             next_state
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > 0.0)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > 0.0
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -864,8 +867,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             / safe_tropical_weight_sum
+         )
+         masked_mass_dse_anomaly = mask * (
+-            low_mode_mass_dse_anomaly
+-            - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
++            low_mode_mass_dse_anomaly - tropical_layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+         mass_dse_increment = -relaxation_fraction * masked_mass_dse_anomaly
+         raw_temperature_increment = (
+@@ -1368,6 +1370,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return vertical-DSE ramp candidate with lower-layer sheltering."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_pblcap",
++        use_boundary_layer_sheltered_vertical_dse_increment=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2542,6 +2555,7 @@ def _primitive_equation(
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+     use_pressure_ramped_vertical_dse_increment: bool = False,
++    use_boundary_layer_sheltered_vertical_dse_increment: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2559,15 +2573,16 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_boundary_layer_sheltered_vertical_dse_increment=(
++                use_boundary_layer_sheltered_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2586,15 +2601,16 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
+-        use_dry_static_energy_hsl_transport=(
+-            use_dry_static_energy_hsl_transport
+-        ),
++        use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
+         use_pressure_ramped_vertical_dse_increment=(
+             use_pressure_ramped_vertical_dse_increment
+         ),
++        use_boundary_layer_sheltered_vertical_dse_increment=(
++            use_boundary_layer_sheltered_vertical_dse_increment
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 4c30004..17e2269 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -55,6 +55,9 @@ PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS = 72.0
+ PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF = 8.0
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO = 16.0
++PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FULL_SIGMA = 0.65
++PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR_SIGMA = 0.90
++PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR = 0.35
+ 
+ OrographyInitFn = Callable[..., Array]
+ 
+@@ -199,9 +202,7 @@ def _pressure_ramped_vertical_dse_increment_weight(
+         physics_specs.nondimensionalize(hour),
+         dtype=sim_time.dtype,
+     )
+-    ramp_start_time = (
+-        PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS * nondimensional_hour
+-    )
++    ramp_start_time = PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS * nondimensional_hour
+     ramp_full_time = PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS * nondimensional_hour
+     ramp_fraction = jnp.clip(
+         (sim_time - ramp_start_time) / (ramp_full_time - ramp_start_time),
+@@ -260,8 +261,7 @@ def _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+         jnp.ones_like(weight_sum),
+     )
+     area_mean = (
+-        jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1))
+-        / safe_weight_sum
++        jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1)) / safe_weight_sum
+     )
+     area_mean_component = area_mean[:, jnp.newaxis, jnp.newaxis]
+     anomaly = nodal_field - area_mean_component
+@@ -272,6 +272,35 @@ def _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+     return area_mean_component + low_mode_anomaly
+ 
+ 
++def _pressure_ramped_vertical_dse_pbl_shelter_envelope(
++    vertical_coords: sigma_coordinates.SigmaCoordinates,
++) -> jax.Array:
++    """Return fixed sigma weights that shelter lower layers from vertical DSE."""
++    sigma = jnp.asarray(vertical_coords.centers, dtype=jnp.float32)
++    taper_fraction = jnp.clip(
++        (sigma - PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FULL_SIGMA)
++        / (
++            PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR_SIGMA
++            - PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FULL_SIGMA
++        ),
++        0.0,
++        1.0,
++    )
++    smooth_fraction = taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
++    envelope = 1.0 - (
++        (1.0 - PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR) * smooth_fraction
++    )
++    return jnp.where(
++        sigma <= PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FULL_SIGMA,
++        1.0,
++        jnp.where(
++            sigma >= PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR_SIGMA,
++            PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR,
++            envelope,
++        ),
++    )
++
++
+ @tree_math.struct
+ class DiagnosticStateSigma:
+     """Stores nodal diagnostic values used to compute explicit tendencies.
+@@ -990,6 +1019,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_boundary_layer_sheltered_vertical_dse_increment: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1344,10 +1377,9 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             self.coords.horizontal.quadrature_weights,
+             dtype=dry_static_energy.dtype,
+         )
+-        layer_mean = (
+-            jnp.sum(dry_static_energy * quadrature_weights, axis=(-2, -1))
+-            / jnp.sum(quadrature_weights)
+-        )
++        layer_mean = jnp.sum(
++            dry_static_energy * quadrature_weights, axis=(-2, -1)
++        ) / jnp.sum(quadrature_weights)
+         dry_static_energy_anomaly = (
+             dry_static_energy - layer_mean[:, jnp.newaxis, jnp.newaxis]
+         )
+@@ -1690,12 +1722,22 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         vertical_temperature_increment = (
+             dse_vertical_temperature_tendency - theta_vertical_temperature_tendency
+         )
+-        ramped_increment = vertical_temperature_increment * ramp_weight
+-        low_mode_area_mean = (
+-            _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+-                ramped_increment,
+-                self.coords,
++        shelter_envelope = jnp.ones(
++            (vertical_temperature_increment.shape[0],),
++            dtype=vertical_temperature_increment.dtype,
++        )
++        if self.use_boundary_layer_sheltered_vertical_dse_increment:
++            shelter_envelope = _pressure_ramped_vertical_dse_pbl_shelter_envelope(
++                self.coords.vertical
++            ).astype(vertical_temperature_increment.dtype)
++            vertical_temperature_increment = (
++                vertical_temperature_increment
++                * (shelter_envelope[:, jnp.newaxis, jnp.newaxis])
+             )
++        ramped_increment = vertical_temperature_increment * ramp_weight
++        low_mode_area_mean = _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
++            ramped_increment,
++            self.coords,
+         )
+         early_ramp_weight = 1.0 - ramp_weight
+         pressure_guarded_increment = ramped_increment - (
+@@ -1708,9 +1750,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         valid_step = jnp.isfinite(step) & (step > 0.0)
+         safe_step = jnp.where(valid_step, step, jnp.ones_like(step))
+         temperature_unit = jnp.asarray(
+-            self.physics_specs.nondimensionalize(
+-                scales.units.Quantity(1.0, "kelvin")
+-            ),
++            self.physics_specs.nondimensionalize(scales.units.Quantity(1.0, "kelvin")),
+             dtype=pressure_guarded_increment.dtype,
+         )
+         max_temperature_tendency = (
+@@ -1740,6 +1780,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                     valid_step,
+                     jnp.all(jnp.isfinite(theta_vertical_temperature_tendency)),
+                     jnp.all(jnp.isfinite(dse_vertical_temperature_tendency)),
++                    jnp.all(jnp.isfinite(shelter_envelope)),
+                     jnp.all(jnp.isfinite(vertical_temperature_increment)),
+                     jnp.all(jnp.isfinite(low_mode_area_mean)),
+                     jnp.all(jnp.isfinite(capped_increment)),
+@@ -1877,9 +1918,8 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             jnp.finfo(layer_pressure_thickness.dtype).tiny,
+             dtype=layer_pressure_thickness.dtype,
+         )
+-        valid_layer_pressure_thickness = (
+-            jnp.isfinite(layer_pressure_thickness)
+-            & (layer_pressure_thickness > tiny_pressure_thickness)
++        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
++            layer_pressure_thickness > tiny_pressure_thickness
+         )
+         safe_layer_pressure_thickness = jnp.where(
+             valid_layer_pressure_thickness,
+@@ -3380,6 +3420,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_boundary_layer_sheltered_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3400,15 +3441,16 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_boundary_layer_sheltered_vertical_dse_increment=(
++                use_boundary_layer_sheltered_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3442,6 +3484,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_boundary_layer_sheltered_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3462,15 +3505,16 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_boundary_layer_sheltered_vertical_dse_increment=(
++                use_boundary_layer_sheltered_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3501,6 +3545,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_boundary_layer_sheltered_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3524,15 +3569,16 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
+-            use_dry_static_energy_hsl_transport=(
+-                use_dry_static_energy_hsl_transport
+-            ),
++            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_boundary_layer_sheltered_vertical_dse_increment=(
++                use_boundary_layer_sheltered_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..4373ca5 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_pblcap_model() -> DycoreModel:
++    """Return vertical-DSE ramp with boundary-layer sheltered increments."""
++    from dynamaxx.dycore.models.dinosaur import (
++        boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model,
++    )
++
++    return boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -302,9 +311,8 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
+-    "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+-        dino_hsl2_mass_dse_wtg_vdse_ramp_model
+-    ),
++    "dino_hsl2_mass_dse_wtg_vdse_ramp": (dino_hsl2_mass_dse_wtg_vdse_ramp_model),
++    "dino_hsl2_mass_dse_wtg_vdse_pblcap": (dino_hsl2_mass_dse_wtg_vdse_pblcap_model),
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..1da2d6a 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_pblcap"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_pblcap",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,29 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_boundary_layer_sheltered_vertical_dse_is_registered():
++    """The sheltered vertical-DSE candidate is side-by-side with the ramp incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_pblcap")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_pblcap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_boundary_layer_sheltered_vertical_dse_increment
++    assert not incumbent.use_boundary_layer_sheltered_vertical_dse_increment
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_boundary_layer_sheltered_vertical_dse_increment",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..3340a26 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -69,6 +69,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _unit_factor,
+     _valid_land_sea_fraction_or_none,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+@@ -655,6 +656,29 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_boundary_layer_sheltered_vertical_dse_factory_preserves_ramp_except_selector():
++    """The candidate changes only name and the lower-layer shelter selector."""
++    model = boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_pblcap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_boundary_layer_sheltered_vertical_dse_increment
++    assert not incumbent.use_boundary_layer_sheltered_vertical_dse_increment
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_boundary_layer_sheltered_vertical_dse_increment",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3809,10 +3833,9 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     )
+     assert float(polar_leakage) <= 0.01 * temperature_increment_cap + 1.0e-6
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean_delta = (
+-        jnp.sum(nodal_delta * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean_delta, 0.0, rtol=1e-6, atol=1e-6)
+     assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap + 1.0e-6
+     np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+@@ -4866,10 +4889,9 @@ def test_dse_hsl_uses_accepted_hsl2_transport_helper_with_dse_anomaly(monkeypatc
+     np.testing.assert_allclose(captured["scalar"], expected_dse_anomaly, rtol=1e-6)
+     assert not np.allclose(np.asarray(captured["scalar"]), np.asarray(theta_anomaly))
+     quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+-    layer_mean = (
+-        jnp.sum(captured["scalar"] * quadrature_weights, axis=(-2, -1))
+-        / jnp.sum(quadrature_weights)
+-    )
++    layer_mean = jnp.sum(
++        captured["scalar"] * quadrature_weights, axis=(-2, -1)
++    ) / jnp.sum(quadrature_weights)
+     np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
+ 
+ 
+@@ -5093,6 +5115,30 @@ def test_pressure_ramped_vertical_dse_weight_endpoints():
+     assert 0.0 < weights_np[2] < 1.0
+ 
+ 
++def test_pressure_ramped_vertical_dse_pbl_shelter_envelope_bounds():
++    """The fixed lower-layer shelter tapers smoothly from free air to PBL floor."""
++    vertical_coords = sigma_coordinates.SigmaCoordinates.equidistant(5)
++
++    envelope = primitive_equations._pressure_ramped_vertical_dse_pbl_shelter_envelope(
++        vertical_coords
++    )
++    envelope_np = np.asarray(envelope)
++
++    assert envelope_np.shape == (5,)
++    assert bool(np.isfinite(envelope_np).all())
++    assert np.all(envelope_np <= 1.0)
++    assert np.all(
++        envelope_np
++        >= primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR
++    )
++    np.testing.assert_allclose(envelope_np[:3], 1.0)
++    np.testing.assert_allclose(
++        envelope_np[-1],
++        primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_PBL_SHELTER_FLOOR,
++    )
++    assert np.all(np.diff(envelope_np) <= 0.0)
++
++
+ def test_pressure_ramped_vertical_dse_noop_before_ramp():
+     """At 24h and earlier, the selected tendency matches the WTG incumbent path."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5272,6 +5318,103 @@ def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+     assert float(jnp.max(jnp.abs(nodal_tendency))) <= max_tendency * 1.0001
+ 
+ 
++def test_boundary_layer_sheltered_vertical_dse_scales_lower_increment(monkeypatch):
++    """The lower-layer shelter scales only the vertical-DSE increment."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    timed_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(72.0 * hour, dtype=jnp.float32),
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "use_pressure_ramped_vertical_dse_increment": True,
++        "horizontal_semilagrangian_theta_transport_step": step_seconds,
++    }
++    unsheltered_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    sheltered_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_boundary_layer_sheltered_vertical_dse_increment=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        timed_state,
++        coords,
++    )
++    raw_increment = jnp.asarray(1.0e-6, dtype=jnp.float32)
++
++    def small_vertical_tendency(unused_sigma_dot, scalar):
++        del unused_sigma_dot
++        return jnp.ones_like(scalar) * physics_specs.Cp * raw_increment
++
++    monkeypatch.setattr(
++        unsheltered_equation,
++        "_vertical_tendency",
++        small_vertical_tendency,
++    )
++    monkeypatch.setattr(
++        sheltered_equation,
++        "_vertical_tendency",
++        small_vertical_tendency,
++    )
++
++    call_kwargs = {
++        "state": timed_state,
++        "aux_state": aux_state,
++        "incumbent_temperature_tendency": jnp.zeros(
++            coords.modal_shape,
++            dtype=jnp.float32,
++        ),
++        "dry_static_energy_anomaly": jnp.ones(coords.nodal_shape, dtype=jnp.float32),
++        "geopotential": jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++        "theta_vertical_temperature_tendency": jnp.zeros(
++            coords.nodal_shape,
++            dtype=jnp.float32,
++        ),
++        "valid_layer_pressure_thickness": jnp.ones(coords.nodal_shape, dtype=bool),
++        "finite_theta_diagnostics": jnp.asarray(True),
++        "finite_dse_diagnostics": jnp.asarray(True),
++        "finite_mass_dse_diagnostics": jnp.asarray(True),
++    }
++
++    unsheltered_tendency = unsheltered_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++        **call_kwargs
++    )
++    sheltered_tendency = (
++        sheltered_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            **call_kwargs
++        )
++    )
++    unsheltered_nodal = coords.horizontal.to_nodal(unsheltered_tendency)
++    sheltered_nodal = coords.horizontal.to_nodal(sheltered_tendency)
++    expected_envelope = (
++        primitive_equations._pressure_ramped_vertical_dse_pbl_shelter_envelope(
++            coords.vertical
++        )
++    )
++
++    np.testing.assert_allclose(
++        sheltered_nodal,
++        unsheltered_nodal * expected_envelope[:, np.newaxis, np.newaxis],
++        rtol=5e-5,
++        atol=1e-9,
++    )
++    assert float(expected_envelope[-1]) < 1.0
++
++
+ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     """DSE-HSL changes only the horizontal thermal transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5817,6 +5960,68 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_boundary_layer_sheltered_vertical_dse_non_jit_forecast_smoke_is_finite(
++    monkeypatch,
++):
++    """The sheltered vertical-DSE candidate runs a small finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        boundary_layer_sheltered_vertical_dse_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_pblcap"
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_boundary_layer_sheltered_vertical_dse_increment
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6730,9 +6935,7 @@ def _synthetic_wtg_mass_dse_state():
+     )
+     next_state = _primitive_equation_state(
+         vorticity=(
+-            jnp.zeros(state_shape, dtype=jnp.float32)
+-            .at[1, 1, 1]
+-            .set(jnp.float32(0.05))
++            jnp.zeros(state_shape, dtype=jnp.float32).at[1, 1, 1].set(jnp.float32(0.05))
+         ),
+         divergence=(
+             jnp.zeros(state_shape, dtype=jnp.float32)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..ca52dbf 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_pblcap",
+     )
+ 
+ 
+@@ -660,6 +661,29 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_boundary_layer_sheltered_vertical_dse_candidate_model():
++    """The sheltered vertical-DSE alias adds only the lower-layer selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_pblcap")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_pblcap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_boundary_layer_sheltered_vertical_dse_increment
++    assert not incumbent.use_boundary_layer_sheltered_vertical_dse_increment
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_boundary_layer_sheltered_vertical_dse_increment",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "role": "Scorer",
+  "scored_at": "2026-06-17T19:22:00Z",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init",
+  "worker_count": 4,
+  "model_registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import list_models\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init'\nmodels = sorted(list_models())\nprint('candidate_registered=', candidate in models)\nprint('incumbent_registered=', incumbent in models)\nprint('candidate_matches=', [m for m in models if m == candidate])\nprint('incumbent_matches=', [m for m in models if m == incumbent])\nPY",
+      "exit_status": 1,
+      "purpose": "Initial registration probe; failed because registry exposes dycore_model_names(), not list_models()."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import dycore_model_names\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init'\nmodels = set(dycore_model_names())\nprint('candidate_registered=', candidate in models)\nprint('incumbent_registered=', incumbent in models)\nPY",
+      "exit_status": 0,
+      "purpose": "Confirm candidate and incumbent are registered."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "purpose": "Full repository test suite.",
+      "summary": "131 passed, 2 skipped in 65.36s."
+    },
+    {
+      "command": "uv run python - <<'PY'\nimport json\nfrom pathlib import Path\nmodel='dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist'\njson_path=Path('outputs/eval/fast_'+model+'.json')\ncsv_path=Path('outputs/eval/fast_'+model+'.csv')\ndata=json.loads(json_path.read_text())\nprint('json_exists=', json_path.exists())\nprint('csv_exists=', csv_path.exists())\nprint('model_name=', data.get('model_name'))\nprint('primary_score=', data.get('primary_score'))\ndiag=data.get('diagnostics', {})\nprint('failed=', diag.get('failed'))\nissues=diag.get('issues')\nprint('issues_count=', len(issues) if isinstance(issues, list) else issues)\nPY",
+      "exit_status": 0,
+      "purpose": "Verify reusable candidate fast gate artifacts."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist --workers 4",
+      "exit_status": 0,
+      "purpose": "Run candidate iteration protocol.",
+      "summary": "failed=False, issues=0, records=120, primary_score=-1.199169003293556."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv"
+  },
+  "fast": {
+    "reused_existing_artifact": true,
+    "candidate_primary_score": -1.1788189813240295,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "candidate_model_name_matches": true
+  },
+  "iteration": {
+    "candidate_primary_score": -1.199169003293556,
+    "incumbent_primary_score": -1.143975258592661,
+    "primary_delta": -0.055193744700895,
+    "required_primary_delta": 0.002,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "candidate_exact_model_records": 60,
+    "incumbent_exact_model_records": 60,
+    "primary_gate_passed": false,
+    "diagnostics_gate_passed": true,
+    "early_day_1_to_5_mean_rmse": {
+      "candidate": 449.0447501099323,
+      "incumbent": 443.9461359445328,
+      "relative_regression": 0.011484758515921711,
+      "threshold": 0.02,
+      "gate_passed": true
+    },
+    "worst_variable_lead_rmse_regression": {
+      "channel_name": "10m_u_component_of_wind",
+      "lead_hours": 24,
+      "candidate_rmse": 5.807337186067861,
+      "incumbent_rmse": 5.455615913305551,
+      "relative_regression": 0.06446958113464453,
+      "threshold": 0.1,
+      "gate_passed": true
+    },
+    "variable_lead_rmse_regressions_over_10_percent": [],
+    "iteration_gate_passed": false
+  },
+  "validation": {
+    "run": false,
+    "reason": "Iteration gate did not pass, so validation was not run.",
+    "required_primary_delta": 0.001
+  },
+  "gate_status": {
+    "iteration": "failed",
+    "validation": "not_run"
+  },
+  "anomalies": [
+    "Initial registration probe used a nonexistent list_models helper and exited 1; corrected probe with dycore_model_names exited 0.",
+    "Candidate iteration artifacts include persistence rows; all candidate/incumbent comparisons used exact model-name filtering."
+  ]
+}

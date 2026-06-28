@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "vector-wind-pchip-sigma-init",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "6094c73fe9b98b46c3ac9bfbb430bafd332d628f",
+    "protocols": ["fast", "iteration", "validation"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Full repository test suite passed: 200 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate-only fast gate; incumbent was not rerun."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate-only iteration gate; compared against the valid cached incumbent iteration metrics."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv",
+    "incumbent_validation_json": null,
+    "incumbent_validation_csv": null
+  },
+  "primary_scores": {
+    "candidate_fast": -0.5307081511868749,
+    "candidate_iteration": -0.5150613366089396,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.5150627015910243,
+    "incumbent_validation": null,
+    "iteration_delta": 0.0000013649820846950433,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "10 m zonal wind",
+        "lead_hours": "24..120",
+        "mean_pct_change": 0.000013715008208371018
+      },
+      {
+        "variable": "2 m temperature",
+        "lead_hours": "24..120",
+        "mean_pct_change": 0.000016140874521350618
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "lead_hours": "24..120",
+        "mean_pct_change": -0.00005699569151374871
+      },
+      {
+        "variable": "Mean sea level pressure",
+        "lead_hours": "24..120",
+        "mean_pct_change": -0.000012271765029893725
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "variable": "500 hPa geopotential",
+        "lead_hours": 360,
+        "candidate_rmse": 1319.1807695660934,
+        "incumbent_rmse": 1319.1635698791813,
+        "pct_change": 0.001303832769859698
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "lead_hours": 336,
+        "candidate_rmse": 1326.5528512431356,
+        "incumbent_rmse": 1326.5357118439636,
+        "pct_change": 0.0012920420474932485
+      },
+      {
+        "variable": "2 m temperature",
+        "lead_hours": 360,
+        "candidate_rmse": 9.774585604423175,
+        "incumbent_rmse": 9.774470880668426,
+        "pct_change": 0.0011737080825052221
+      },
+      {
+        "variable": "10 m zonal wind",
+        "lead_hours": 360,
+        "candidate_rmse": 6.921218614024102,
+        "incumbent_rmse": 6.9211722319327444,
+        "pct_change": 0.0006701479143067784
+      },
+      {
+        "variable": "2 m temperature",
+        "lead_hours": 336,
+        "candidate_rmse": 9.73104565150159,
+        "incumbent_rmse": 9.730988182985902,
+        "pct_change": 0.0005905722482421867
+      }
+    ]
+  }
+}

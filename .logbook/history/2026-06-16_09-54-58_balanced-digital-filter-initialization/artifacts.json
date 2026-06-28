@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "balanced-digital-filter-initialization",
+  "history_path": ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi.json",
+    "outputs/eval/fast_dinosaur_dfi.csv",
+    "outputs/eval/iteration_dinosaur_dfi.json",
+    "outputs/eval/iteration_dinosaur_dfi.csv",
+    "outputs/eval/validation_dinosaur_dfi.json",
+    "outputs/eval/validation_dinosaur_dfi.csv",
+    "outputs/eval/iteration_dinosaur.json",
+    "outputs/eval/iteration_dinosaur.csv",
+    "outputs/eval/validation_dinosaur.json",
+    "outputs/eval/validation_dinosaur.csv",
+    "outputs/eval/runs/iteration_dinosaur_dfi",
+    "outputs/eval/runs/validation_dinosaur_dfi"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization/proposal.md",
+    ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization/implementation.md",
+    ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization/scores.json",
+    ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization/scoring_notes.md",
+    ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization/decision.md",
+    ".logbook/history/2026-06-16_09-54-58_balanced-digital-filter-initialization/artifacts.json"
+  ],
+  "notes": "Accepted model-selection candidate. Source change retained in commit cfdc344723cee1f267b892ddd924fc5d07b89f2d."
+}

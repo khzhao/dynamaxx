@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "read-only-balance-diagnostic-sidecar",
+  "history_path": ".logbook/history/2026-06-21_00-42-37_read-only-balance-diagnostic-sidecar",
+  "source_artifacts": [],
+  "evaluation_artifacts": [],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_00-42-37_read-only-balance-diagnostic-sidecar/proposal.md",
+    ".logbook/history/2026-06-21_00-42-37_read-only-balance-diagnostic-sidecar/implementation.md",
+    ".logbook/history/2026-06-21_00-42-37_read-only-balance-diagnostic-sidecar/scores.json",
+    ".logbook/history/2026-06-21_00-42-37_read-only-balance-diagnostic-sidecar/scoring_notes.md",
+    ".logbook/history/2026-06-21_00-42-37_read-only-balance-diagnostic-sidecar/decision.md"
+  ],
+  "notes": "Infrastructure-only proposal deferred before implementation to preserve the latest-commit-is-best-score invariant."
+}

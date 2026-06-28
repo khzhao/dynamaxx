@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "surface-layer-richardson-wind-diagnostic",
+  "history_path": ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic",
+  "source_artifacts": [
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "status": "accepted_retained",
+      "commit": "257f79d871482727b4256b624490122a84982c69"
+    },
+    {
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "status": "accepted_retained",
+      "commit": "257f79d871482727b4256b624490122a84982c69"
+    },
+    {
+      "path": "src/dynamaxx/dycore/registry.py",
+      "status": "accepted_retained",
+      "commit": "257f79d871482727b4256b624490122a84982c69"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_dependency.py",
+      "status": "accepted_retained",
+      "commit": "257f79d871482727b4256b624490122a84982c69"
+    },
+    {
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "status": "accepted_retained",
+      "commit": "257f79d871482727b4256b624490122a84982c69"
+    },
+    {
+      "path": "tests/dycore/test_registry.py",
+      "status": "accepted_retained",
+      "commit": "257f79d871482727b4256b624490122a84982c69"
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic/proposal.md",
+    ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic/implementation.md",
+    ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic/scores.json",
+    ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic/scoring_notes.md",
+    ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic/decision.md",
+    ".logbook/history/2026-06-18_17-23-29_surface-layer-richardson-wind-diagnostic/artifacts.json"
+  ],
+  "notes": "Accepted because iteration delta was +0.25187119632332566 and validation delta was +0.25121982841541335 with clean diagnostics and no RMSE guardrail violations. Candidate source and tests were retained in commit 257f79d871482727b4256b624490122a84982c69 and the leaderboard was updated."
+}

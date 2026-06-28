@@ -1,0 +1,761 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d3b94b2..d572c2c 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -65,6 +65,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     stability_aware_surface_residual_dinosaur_dycore_model,
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
++    vertical_dse_transport_mass_dse_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+ )
+ 
+@@ -121,6 +122,7 @@ __all__ = [
+     "time_integration",
+     "typing",
+     "units",
++    "vertical_dse_transport_mass_dse_dinosaur_dycore_model",
+     "vertical_interpolation",
+     "weatherbench_utils",
+     "weak_held_suarez_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index a9c9ddb..f19336c 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -137,6 +137,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_midpoint_semilagrangian_theta_departure: bool = False
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
++    use_dse_vertical_thermal_transport: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -354,6 +355,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mass_weighted_dse_hsl_transport=(
+                     self.use_layer_mass_weighted_dse_hsl_transport
+                 ),
++                use_dse_vertical_thermal_transport=(
++                    self.use_dse_vertical_thermal_transport
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1102,6 +1106,17 @@ def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def vertical_dse_transport_mass_dse_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return mass-DSE HSL with DSE-based vertical thermal transport."""
++    return replace(
++        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
++        name="dino_mass_dse_vdse",
++        use_dse_vertical_thermal_transport=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2269,6 +2284,7 @@ def _primitive_equation(
+     use_midpoint_semilagrangian_theta_departure: bool = False,
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
++    use_dse_vertical_thermal_transport: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2292,6 +2308,9 @@ def _primitive_equation(
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_dse_vertical_thermal_transport=(
++                use_dse_vertical_thermal_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2316,6 +2335,7 @@ def _primitive_equation(
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
++        use_dse_vertical_thermal_transport=use_dse_vertical_thermal_transport,
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 848b142..3f02fa7 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -897,6 +897,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_dse_vertical_thermal_transport: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1736,15 +1740,49 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                 ]
+             )
+         )
+-        return jnp.where(
+-            (
+-                finite_theta_diagnostics
+-                & finite_dse_diagnostics
+-                & finite_mass_dse_diagnostics
+-            ),
++        finite_incumbent_mass_dse_diagnostics = (
++            finite_theta_diagnostics
++            & finite_dse_diagnostics
++            & finite_mass_dse_diagnostics
++        )
++        incumbent_mass_dse_temperature_tendency = jnp.where(
++            finite_incumbent_mass_dse_diagnostics,
+             mass_dse_temperature_tendency,
+             incumbent_dse_temperature_tendency,
+         )
++        if not (
++            self.use_dse_vertical_thermal_transport
++            and self.include_vertical_advection
++        ):
++            return incumbent_mass_dse_temperature_tendency
++
++        dse_vertical_temperature_nodal = (
++            self._vertical_tendency(
++                aux_state.sigma_dot_full,
++                dry_static_energy_anomaly,
++            )
++            / self.physics_specs.Cp
++        )
++        vdse_mass_dse_temperature_tendency = self.coords.horizontal.to_modal(
++            dT_dt_horizontal_mass_dse_nodal
++            + dse_vertical_temperature_nodal
++            + dT_dt_adiabatic
++        )
++        finite_vdse_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(dry_static_energy_anomaly)),
++                    jnp.all(jnp.isfinite(aux_state.sigma_dot_full)),
++                    jnp.all(jnp.isfinite(dse_vertical_temperature_nodal)),
++                    jnp.all(jnp.isfinite(vdse_mass_dse_temperature_tendency)),
++                ]
++            )
++        )
++        return jnp.where(
++            finite_incumbent_mass_dse_diagnostics & finite_vdse_diagnostics,
++            vdse_mass_dse_temperature_tendency,
++            incumbent_mass_dse_temperature_tendency,
++        )
+ 
+     @jax.named_call
+     def temperature_tendency(
+@@ -3170,6 +3208,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_dse_vertical_thermal_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3196,6 +3235,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_dse_vertical_thermal_transport=use_dse_vertical_thermal_transport,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3228,6 +3268,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_dse_vertical_thermal_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3254,6 +3295,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_dse_vertical_thermal_transport=use_dse_vertical_thermal_transport,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3283,6 +3325,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_dse_vertical_thermal_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3312,6 +3355,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_dse_vertical_thermal_transport=use_dse_vertical_thermal_transport,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 1d7cbc9..9c88ca1 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -206,6 +206,15 @@ def dino_hsl2_mass_dse_model() -> DycoreModel:
+     return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+ 
+ 
++def dino_mass_dse_vdse_model() -> DycoreModel:
++    """Return mass-DSE HSL with DSE-based vertical thermal transport."""
++    from dynamaxx.dycore.models.dinosaur import (
++        vertical_dse_transport_mass_dse_dinosaur_dycore_model,
++    )
++
++    return vertical_dse_transport_mass_dse_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -283,6 +292,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta": dino_hsl2_theta_model,
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
++    "dino_mass_dse_vdse": dino_mass_dse_vdse_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index aa6c347..240a183 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -130,6 +130,9 @@ assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name ==
+ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse"
+ )
++assert dinosaur.vertical_dse_transport_mass_dse_dinosaur_dycore_model().name == (
++    "dino_mass_dse_vdse"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -229,6 +232,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_vdse",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -709,6 +713,25 @@ def test_dinosaur_layer_mass_dse_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_vertical_dse_is_registered():
++    """The vertical-DSE candidate is side-by-side with mass-DSE."""
++    model = create_dycore_model("dino_mass_dse_vdse")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_vdse"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_vertical_thermal_transport
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_dse_vertical_thermal_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_dse_vertical_thermal_transport"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 9ee521a..827949a 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -90,6 +90,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     supported_output_variables,
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
++    vertical_dse_transport_mass_dse_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+     weather_state_to_dinosaur_state,
+ )
+@@ -613,6 +614,26 @@ def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_vertical_dse_factory_preserves_mass_dse_except_selector():
++    """The vertical-DSE candidate changes only name and vertical-DSE selector."""
++    model = vertical_dse_transport_mass_dse_dinosaur_dycore_model()
++    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
++
++    assert model.name == "dino_mass_dse_vdse"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_vertical_thermal_transport
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_dse_vertical_thermal_transport
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_dse_vertical_thermal_transport"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4912,6 +4933,332 @@ def test_layer_mass_dse_invalid_pressure_thickness_falls_back_to_dse_hsl(
+     np.testing.assert_array_equal(actual_tendency, expected_tendency)
+ 
+ 
++def test_vertical_dse_disabled_preserves_layer_mass_dse_tendency():
++    """The selector default leaves the accepted mass-DSE branch unchanged."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    default_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    explicit_false_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_dse_vertical_thermal_transport=False,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++
++    mass_dse_model = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
++    assert not mass_dse_model.use_dse_vertical_thermal_transport
++    default_tendency = default_equation.temperature_tendency_potential_temperature_form(
++        state,
++        aux_state,
++    )
++    explicit_false_tendency = (
++        explicit_false_equation.temperature_tendency_potential_temperature_form(
++            state,
++            aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(default_tendency, explicit_false_tendency)
++
++
++def test_vertical_dse_ignored_without_vertical_advection():
++    """Disabling vertical advection reduces the candidate to incumbent mass-DSE."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_dse_vertical_thermal_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            state,
++            aux_state,
++        )
++    )
++    candidate_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            state,
++            aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
++
++
++def test_vertical_dse_zero_sigma_dot_preserves_layer_mass_dse_tendency():
++    """Zero vertical velocity makes DSE vertical transport match mass-DSE."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    nonuniform_state = _nonuniform_mass_dse_test_state(
++        coords,
++        physics_specs,
++        reference_temperature,
++        state,
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_dse_vertical_thermal_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        nonuniform_state,
++        coords,
++    )
++    zero_sigma_dot = jnp.zeros_like(aux_state.sigma_dot_full)
++    zero_sigma_aux_state = _diagnostic_state_with_sigma_dot(
++        aux_state,
++        sigma_dot_full=zero_sigma_dot,
++        sigma_dot_explicit=zero_sigma_dot,
++    )
++
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            zero_sigma_aux_state,
++        )
++    )
++    candidate_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            zero_sigma_aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
++
++
++def test_vertical_dse_uses_dse_vertical_tendency_converted_by_cp():
++    """The candidate swaps theta vertical transport for DSE transport over Cp."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    nonuniform_state = _nonuniform_mass_dse_test_state(
++        coords,
++        physics_specs,
++        reference_temperature,
++        state,
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_dse_vertical_thermal_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        nonuniform_state,
++        coords,
++    )
++    sigma_dot_full = jnp.full_like(aux_state.sigma_dot_full, 0.02)
++    synthetic_aux_state = _diagnostic_state_with_sigma_dot(
++        aux_state,
++        sigma_dot_full=sigma_dot_full,
++        sigma_dot_explicit=jnp.zeros_like(aux_state.sigma_dot_explicit),
++    )
++
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            synthetic_aux_state,
++        )
++    )
++    candidate_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            synthetic_aux_state,
++        )
++    )
++    dry_static_energy_anomaly, _ = (
++        candidate_equation.nodal_dry_static_energy_anomaly(synthetic_aux_state)
++    )
++    dse_vertical_temperature_nodal = (
++        candidate_equation._vertical_tendency(
++            synthetic_aux_state.sigma_dot_full,
++            dry_static_energy_anomaly,
++        )
++        / physics_specs.Cp
++    )
++    theta_anomaly, pressure = candidate_equation.nodal_potential_temperature_anomaly(
++        nonuniform_state,
++        synthetic_aux_state,
++    )
++    dtheta_dt_vertical = candidate_equation._vertical_tendency(
++        synthetic_aux_state.sigma_dot_full,
++        theta_anomaly,
++    )
++    theta_vertical_temperature_nodal = (
++        primitive_equations.temperature_from_potential_temperature(
++            dtheta_dt_vertical,
++            pressure,
++            candidate_equation._potential_temperature_reference_pressure,
++            physics_specs.kappa,
++        )
++    )
++    expected_delta = coords.horizontal.to_modal(
++        dse_vertical_temperature_nodal - theta_vertical_temperature_nodal
++    )
++
++    assert float(jnp.max(jnp.abs(expected_delta))) > 0.0
++    np.testing.assert_allclose(
++        candidate_tendency - incumbent_tendency,
++        expected_delta,
++        rtol=1.0e-5,
++        atol=1.0e-5,
++    )
++
++
++def test_vertical_dse_nonfinite_vertical_tendency_falls_back_to_mass_dse(
++    monkeypatch,
++):
++    """Invalid DSE vertical diagnostics reproduce the mass-DSE incumbent."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    nonuniform_state = _nonuniform_mass_dse_test_state(
++        coords,
++        physics_specs,
++        reference_temperature,
++        state,
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_dse_vertical_thermal_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        nonuniform_state,
++        coords,
++    )
++    sigma_dot_full = jnp.full_like(aux_state.sigma_dot_full, 0.02)
++    synthetic_aux_state = _diagnostic_state_with_sigma_dot(
++        aux_state,
++        sigma_dot_full=sigma_dot_full,
++        sigma_dot_explicit=jnp.zeros_like(aux_state.sigma_dot_explicit),
++    )
++    expected_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            synthetic_aux_state,
++        )
++    )
++    dry_static_energy_anomaly, geopotential = (
++        candidate_equation.nodal_dry_static_energy_anomaly(synthetic_aux_state)
++    )
++    original_vertical_tendency = candidate_equation._vertical_tendency
++
++    def fixed_dry_static_energy_anomaly(aux_state):
++        del aux_state
++        return dry_static_energy_anomaly, geopotential
++
++    def nonfinite_dse_vertical_tendency(sigma_dot, scalar):
++        if scalar is dry_static_energy_anomaly:
++            return jnp.full_like(scalar, jnp.nan)
++        return original_vertical_tendency(sigma_dot, scalar)
++
++    monkeypatch.setattr(
++        candidate_equation,
++        "nodal_dry_static_energy_anomaly",
++        fixed_dry_static_energy_anomaly,
++    )
++    monkeypatch.setattr(
++        candidate_equation,
++        "_vertical_tendency",
++        nonfinite_dse_vertical_tendency,
++    )
++
++    actual_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            nonuniform_state,
++            synthetic_aux_state,
++        )
++    )
++
++    np.testing.assert_allclose(actual_tendency, expected_tendency, rtol=1e-6)
++
++
+ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     """DSE-HSL changes only the horizontal thermal transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -6381,6 +6728,68 @@ def _ocean_bulk_shf_test_setup() -> tuple[
+     return coords, physics_specs, reference_temperature, state
+ 
+ 
++def _nonuniform_mass_dse_test_state(
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    template_state: Any,
++) -> Any:
++    """Build a small state with finite horizontal and vertical DSE structure."""
++    longitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[0],
++        dtype=jnp.float32,
++    )[:, jnp.newaxis]
++    latitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[1],
++        dtype=jnp.float32,
++    )[jnp.newaxis, :]
++    full_temperature = jnp.stack(
++        [
++            260.0 + 0.4 * longitude_pattern + 0.1 * latitude_pattern,
++            280.0 - 0.2 * longitude_pattern + 0.3 * latitude_pattern,
++        ],
++        axis=0,
++    )
++    surface_pressure = (
++        100_000.0
++        * _unit_factor(physics_specs, "pascal")
++        * (1.0 + 0.02 * longitude_pattern + 0.01 * latitude_pattern)
++    )
++    return _primitive_equation_state(
++        vorticity=template_state.vorticity,
++        divergence=template_state.divergence,
++        temperature_variation=coords.horizontal.to_modal(
++            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
++        ),
++        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
++            jnp.newaxis
++        ],
++        tracers={},
++    )
++
++
++def _diagnostic_state_with_sigma_dot(
++    aux_state: primitive_equations.DiagnosticStateSigma,
++    *,
++    sigma_dot_full: jax.Array,
++    sigma_dot_explicit: jax.Array | None = None,
++) -> primitive_equations.DiagnosticStateSigma:
++    """Return `aux_state` with explicit vertical velocity diagnostics replaced."""
++    if sigma_dot_explicit is None:
++        sigma_dot_explicit = sigma_dot_full
++    return primitive_equations.DiagnosticStateSigma(
++        vorticity=aux_state.vorticity,
++        divergence=aux_state.divergence,
++        temperature_variation=aux_state.temperature_variation,
++        cos_lat_u=aux_state.cos_lat_u,
++        sigma_dot_explicit=sigma_dot_explicit,
++        sigma_dot_full=sigma_dot_full,
++        cos_lat_grad_log_sp=aux_state.cos_lat_grad_log_sp,
++        u_dot_grad_log_sp=aux_state.u_dot_grad_log_sp,
++        tracers=aux_state.tracers,
++    )
++
++
+ def _hsl_theta_aux_state(
+     coords: coordinate_systems.CoordinateSystem,
+     *,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 091dbd0..c7933c6 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -54,6 +54,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_vdse",
+     )
+ 
+ 
+@@ -620,6 +621,26 @@ def test_registry_creates_layer_mass_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_vertical_dse_candidate_model():
++    """The vertical-DSE alias adds only the DSE vertical transport selector."""
++    model = create_dycore_model("dino_mass_dse_vdse")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_vdse"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_vertical_thermal_transport
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_dse_vertical_thermal_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_dse_vertical_thermal_transport"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

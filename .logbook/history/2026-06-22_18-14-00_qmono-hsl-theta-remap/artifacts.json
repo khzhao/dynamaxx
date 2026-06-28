@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "qmono-hsl-theta-remap",
+  "history_path": ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap",
+  "source_artifacts": [
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/proposal.md",
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/implementation.md",
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl_qmono.json",
+    "outputs/eval/fast_dino_hsl_qmono.csv",
+    "outputs/eval/iteration_dino_hsl_qmono.json",
+    "outputs/eval/iteration_dino_hsl_qmono.csv",
+    "outputs/eval/runs/iteration_dino_hsl_qmono/manifest.json",
+    "outputs/eval/runs/iteration_dino_hsl_qmono/chunks/"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/scores.json",
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/scoring_notes.md",
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/decision.md",
+    ".logbook/history/2026-06-22_18-14-00_qmono-hsl-theta-remap/artifacts.json"
+  ],
+  "notes": "Rejected after clean fast diagnostics but negative iteration delta against cached dino_hsl2_theta incumbent metrics. Incumbent was not rerun; validation was not run because iteration did not promote."
+}

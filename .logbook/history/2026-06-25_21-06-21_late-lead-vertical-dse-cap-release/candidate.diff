@@ -1,0 +1,784 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..a2508ce 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -54,6 +54,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    late_cap_vertical_dse_wtg_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+@@ -98,6 +99,7 @@ __all__ = [
+     "hybrid_coordinates",
+     "jax_numpy_utils",
+     "land_sea_surface_temperature_dinosaur_dycore_model",
++    "late_cap_vertical_dse_wtg_dinosaur_dycore_model",
+     "layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model",
+     "layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "layer_coordinates",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..6f5392e 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -148,6 +148,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
++    use_late_lead_vertical_dse_cap_release: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+@@ -370,6 +371,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_pressure_ramped_vertical_dse_increment=(
+                     self.use_pressure_ramped_vertical_dse_increment
+                 ),
++                use_late_lead_vertical_dse_cap_release=(
++                    self.use_late_lead_vertical_dse_cap_release
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1368,6 +1372,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def late_cap_vertical_dse_wtg_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return pressure-ramped vertical-DSE with the late-lead cap release."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_latecap",
++        use_late_lead_vertical_dse_cap_release=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2542,6 +2557,7 @@ def _primitive_equation(
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+     use_pressure_ramped_vertical_dse_increment: bool = False,
++    use_late_lead_vertical_dse_cap_release: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2568,6 +2584,9 @@ def _primitive_equation(
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_late_lead_vertical_dse_cap_release=(
++                use_late_lead_vertical_dse_cap_release
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2595,6 +2614,9 @@ def _primitive_equation(
+         use_pressure_ramped_vertical_dse_increment=(
+             use_pressure_ramped_vertical_dse_increment
+         ),
++        use_late_lead_vertical_dse_cap_release=(
++            use_late_lead_vertical_dse_cap_release
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 4c30004..66bedf2 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -53,6 +53,9 @@ HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT = 1.0e-6
+ PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS = 24.0
+ PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS = 72.0
+ PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
++PRESSURE_RAMPED_VERTICAL_DSE_LATE_CAP_START_HOURS = 120.0
++PRESSURE_RAMPED_VERTICAL_DSE_LATE_CAP_FULL_HOURS = 192.0
++PRESSURE_RAMPED_VERTICAL_DSE_LATE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.08
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF = 8.0
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO = 16.0
+ 
+@@ -216,6 +219,67 @@ def _pressure_ramped_vertical_dse_increment_weight(
+     )
+ 
+ 
++def _pressure_ramped_vertical_dse_late_cap_kelvin(
++    sim_time: Array,
++    physics_specs: units.SimUnitsProtocol,
++) -> jax.Array:
++    """Return the safe late-lead per-step vertical-DSE cap in kelvin."""
++    sim_time = jnp.asarray(sim_time)
++    base_cap_kelvin = jnp.asarray(
++        PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++        dtype=sim_time.dtype,
++    )
++    late_cap_kelvin = jnp.asarray(
++        PRESSURE_RAMPED_VERTICAL_DSE_LATE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++        dtype=sim_time.dtype,
++    )
++    hour = scales.units.Quantity(3600.0, "second")
++    nondimensional_hour = jnp.asarray(
++        physics_specs.nondimensionalize(hour),
++        dtype=sim_time.dtype,
++    )
++    cap_start_time = (
++        PRESSURE_RAMPED_VERTICAL_DSE_LATE_CAP_START_HOURS * nondimensional_hour
++    )
++    cap_full_time = (
++        PRESSURE_RAMPED_VERTICAL_DSE_LATE_CAP_FULL_HOURS * nondimensional_hour
++    )
++    release_duration = cap_full_time - cap_start_time
++    valid_schedule = (
++        jnp.all(jnp.isfinite(sim_time))
++        & jnp.all(jnp.isfinite(nondimensional_hour))
++        & jnp.isfinite(cap_start_time)
++        & jnp.isfinite(cap_full_time)
++        & jnp.isfinite(release_duration)
++        & (release_duration > 0.0)
++        & jnp.isfinite(base_cap_kelvin)
++        & jnp.isfinite(late_cap_kelvin)
++        & (late_cap_kelvin >= base_cap_kelvin)
++    )
++    safe_duration = jnp.where(
++        valid_schedule,
++        release_duration,
++        jnp.ones_like(release_duration),
++    )
++    release_fraction = jnp.clip(
++        (sim_time - cap_start_time) / safe_duration,
++        0.0,
++        1.0,
++    )
++    smooth_release = (
++        release_fraction * release_fraction * (3.0 - 2.0 * release_fraction)
++    )
++    scheduled_cap_kelvin = base_cap_kelvin + (
++        (late_cap_kelvin - base_cap_kelvin) * smooth_release
++    )
++    bounded_cap_kelvin = jnp.clip(
++        scheduled_cap_kelvin,
++        base_cap_kelvin,
++        late_cap_kelvin,
++    )
++    return jnp.where(valid_schedule, bounded_cap_kelvin, base_cap_kelvin)
++
++
+ def _pressure_ramped_vertical_dse_low_mode_mask(
+     horizontal_grid: spherical_harmonic.Grid,
+ ) -> jax.Array:
+@@ -990,6 +1054,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_late_lead_vertical_dse_cap_release: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1713,8 +1781,18 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             ),
+             dtype=pressure_guarded_increment.dtype,
+         )
+-        max_temperature_tendency = (
++        max_step_temperature_increment_kelvin = (
+             PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        )
++        if self.use_late_lead_vertical_dse_cap_release:
++            max_step_temperature_increment_kelvin = (
++                _pressure_ramped_vertical_dse_late_cap_kelvin(
++                    sim_time,
++                    self.physics_specs,
++                )
++            )
++        max_temperature_tendency = (
++            max_step_temperature_increment_kelvin
+             * temperature_unit
+             / safe_step
+         )
+@@ -1738,6 +1816,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                     jnp.all(ramp_weight >= 0.0),
+                     jnp.all(ramp_weight <= 1.0),
+                     valid_step,
++                    jnp.all(jnp.isfinite(max_temperature_tendency)),
+                     jnp.all(jnp.isfinite(theta_vertical_temperature_tendency)),
+                     jnp.all(jnp.isfinite(dse_vertical_temperature_tendency)),
+                     jnp.all(jnp.isfinite(vertical_temperature_increment)),
+@@ -3380,6 +3459,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_late_lead_vertical_dse_cap_release: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3409,6 +3489,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_late_lead_vertical_dse_cap_release=(
++                use_late_lead_vertical_dse_cap_release
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3442,6 +3525,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_late_lead_vertical_dse_cap_release: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3471,6 +3555,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_late_lead_vertical_dse_cap_release=(
++                use_late_lead_vertical_dse_cap_release
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3501,6 +3588,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_late_lead_vertical_dse_cap_release: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3533,6 +3621,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_late_lead_vertical_dse_cap_release=(
++                use_late_lead_vertical_dse_cap_release
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..47282c3 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_latecap_model() -> DycoreModel:
++    """Return pressure-ramped vertical-DSE with late-lead cap release."""
++    from dynamaxx.dycore.models.dinosaur import (
++        late_cap_vertical_dse_wtg_dinosaur_dycore_model,
++    )
++
++    return late_cap_vertical_dse_wtg_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -305,6 +314,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+         dino_hsl2_mass_dse_wtg_vdse_ramp_model
+     ),
++    "dino_hsl2_mass_dse_wtg_vdse_latecap": (
++        dino_hsl2_mass_dse_wtg_vdse_latecap_model
++    ),
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..cdaabfc 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.late_cap_vertical_dse_wtg_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_latecap"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_latecap",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,26 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_late_cap_vertical_dse_wtg_is_registered():
++    """The late-cap candidate is side-by-side with the vertical-DSE incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_latecap")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_latecap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_late_lead_vertical_dse_cap_release
++    assert not incumbent.use_late_lead_vertical_dse_cap_release
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_late_lead_vertical_dse_cap_release"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..704462d 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -79,6 +79,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    late_cap_vertical_dse_wtg_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+@@ -655,6 +656,26 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_late_cap_vertical_dse_factory_preserves_ramp_except_selector():
++    """The candidate changes only name and late-cap selector."""
++    model = late_cap_vertical_dse_wtg_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_latecap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_late_lead_vertical_dse_cap_release
++    assert not incumbent.use_late_lead_vertical_dse_cap_release
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_late_lead_vertical_dse_cap_release"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -5093,6 +5114,219 @@ def test_pressure_ramped_vertical_dse_weight_endpoints():
+     assert 0.0 < weights_np[2] < 1.0
+ 
+ 
++def test_pressure_ramped_vertical_dse_late_cap_schedule():
++    """The opt-in cap is fixed through 120h and reaches 0.08 K by 192h."""
++    physics_specs = units.SimUnits.from_si()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    sim_time = (
++        jnp.asarray(
++            [0.0, 120.0, 156.0, 192.0, 240.0],
++            dtype=jnp.float32,
++        )
++        * hour
++    )
++
++    cap_kelvin = primitive_equations._pressure_ramped_vertical_dse_late_cap_kelvin(
++        sim_time,
++        physics_specs,
++    )
++
++    cap_kelvin_np = np.asarray(cap_kelvin)
++    np.testing.assert_allclose(
++        cap_kelvin_np[[0, 1]],
++        [
++            primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++            primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++        ],
++    )
++    np.testing.assert_allclose(
++        cap_kelvin_np[[3, 4]],
++        [
++            primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_LATE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++            primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_LATE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++        ],
++    )
++    assert (
++        primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        < cap_kelvin_np[2]
++        < primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_LATE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++    )
++
++
++def test_pressure_ramped_vertical_dse_late_cap_invalid_schedule_uses_base_cap():
++    """A nonfinite schedule input preserves the incumbent per-step cap."""
++    physics_specs = units.SimUnits.from_si()
++
++    cap_kelvin = primitive_equations._pressure_ramped_vertical_dse_late_cap_kelvin(
++        jnp.asarray(jnp.nan, dtype=jnp.float32),
++        physics_specs,
++    )
++
++    np.testing.assert_array_equal(
++        cap_kelvin,
++        jnp.asarray(
++            primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++            dtype=jnp.float32,
++        ),
++    )
++
++
++def _pressure_ramped_vertical_dse_nodal_tendency_for_increment(
++    monkeypatch,
++    *,
++    sim_hours: float,
++    vertical_increment_kelvin_per_step: float,
++    use_late_cap_release: bool,
++) -> tuple[jax.Array, float, float]:
++    """Return nodal tendency from a synthetic pressure-guarded DSE increment."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    timed_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(sim_hours * hour, dtype=jnp.float32),
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_dry_static_energy_hsl_transport=True,
++        use_layer_mass_weighted_dse_hsl_transport=True,
++        use_pressure_ramped_vertical_dse_increment=True,
++        use_late_lead_vertical_dse_cap_release=use_late_cap_release,
++        horizontal_semilagrangian_theta_transport_step=step_seconds,
++    )
++    target_tendency = (
++        vertical_increment_kelvin_per_step * _unit_factor(physics_specs, "kelvin")
++    ) / step_seconds
++
++    def fixed_vertical_tendency(unused_sigma_dot, scalar):
++        del unused_sigma_dot
++        return jnp.ones_like(scalar) * physics_specs.Cp * target_tendency
++
++    monkeypatch.setattr(equation, "_vertical_tendency", fixed_vertical_tendency)
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        timed_state,
++        coords,
++    )
++    capped_tendency = (
++        equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            state=timed_state,
++            aux_state=aux_state,
++            incumbent_temperature_tendency=jnp.zeros(
++                coords.modal_shape,
++                dtype=jnp.float32,
++            ),
++            dry_static_energy_anomaly=jnp.ones(coords.nodal_shape, dtype=jnp.float32),
++            geopotential=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++            theta_vertical_temperature_tendency=jnp.zeros(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
++            valid_layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=bool,
++            ),
++            finite_theta_diagnostics=jnp.asarray(True),
++            finite_dse_diagnostics=jnp.asarray(True),
++            finite_mass_dse_diagnostics=jnp.asarray(True),
++        )
++    )
++    incumbent_cap_tendency = (
++        primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++        / step_seconds
++    )
++    late_cap_tendency = (
++        primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_LATE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++        / step_seconds
++    )
++    return (
++        coords.horizontal.to_nodal(capped_tendency),
++        incumbent_cap_tendency,
++        late_cap_tendency,
++    )
++
++
++def test_late_cap_vertical_dse_leaves_small_increments_unchanged(monkeypatch):
++    """Increments below the incumbent cap do not change after late-cap release."""
++    incumbent_nodal_tendency, _, _ = (
++        _pressure_ramped_vertical_dse_nodal_tendency_for_increment(
++            monkeypatch,
++            sim_hours=192.0,
++            vertical_increment_kelvin_per_step=0.03,
++            use_late_cap_release=False,
++        )
++    )
++    late_cap_nodal_tendency, _, _ = (
++        _pressure_ramped_vertical_dse_nodal_tendency_for_increment(
++            monkeypatch,
++            sim_hours=192.0,
++            vertical_increment_kelvin_per_step=0.03,
++            use_late_cap_release=True,
++        )
++    )
++
++    np.testing.assert_allclose(
++        late_cap_nodal_tendency,
++        incumbent_nodal_tendency,
++        rtol=1.0e-6,
++        atol=1.0e-8,
++    )
++
++
++def test_late_cap_vertical_dse_releases_only_after_120_hours(monkeypatch):
++    """A mid-sized increment is incumbent-capped through 120h and released later."""
++    early_incumbent_nodal_tendency, incumbent_cap_tendency, _ = (
++        _pressure_ramped_vertical_dse_nodal_tendency_for_increment(
++            monkeypatch,
++            sim_hours=120.0,
++            vertical_increment_kelvin_per_step=0.065,
++            use_late_cap_release=False,
++        )
++    )
++    early_late_cap_nodal_tendency, _, _ = (
++        _pressure_ramped_vertical_dse_nodal_tendency_for_increment(
++            monkeypatch,
++            sim_hours=120.0,
++            vertical_increment_kelvin_per_step=0.065,
++            use_late_cap_release=True,
++        )
++    )
++    released_nodal_tendency, _, late_cap_tendency = (
++        _pressure_ramped_vertical_dse_nodal_tendency_for_increment(
++            monkeypatch,
++            sim_hours=192.0,
++            vertical_increment_kelvin_per_step=0.065,
++            use_late_cap_release=True,
++        )
++    )
++
++    np.testing.assert_allclose(
++        early_late_cap_nodal_tendency,
++        early_incumbent_nodal_tendency,
++        rtol=1.0e-6,
++        atol=1.0e-8,
++    )
++    assert (
++        float(jnp.max(jnp.abs(early_late_cap_nodal_tendency)))
++        <= incumbent_cap_tendency * 1.0001
++    )
++    released_peak_tendency = float(jnp.max(jnp.abs(released_nodal_tendency)))
++    assert released_peak_tendency > incumbent_cap_tendency * 1.1
++    assert released_peak_tendency <= late_cap_tendency * 1.0001
++
++
+ def test_pressure_ramped_vertical_dse_noop_before_ramp():
+     """At 24h and earlier, the selected tendency matches the WTG incumbent path."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5164,6 +5398,7 @@ def test_pressure_ramped_vertical_dse_missing_time_falls_back(monkeypatch):
+         use_dry_static_energy_hsl_transport=True,
+         use_layer_mass_weighted_dse_hsl_transport=True,
+         use_pressure_ramped_vertical_dse_increment=True,
++        use_late_lead_vertical_dse_cap_release=True,
+         horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
+             physics_specs,
+             900.0,
+@@ -5202,6 +5437,81 @@ def test_pressure_ramped_vertical_dse_missing_time_falls_back(monkeypatch):
+     np.testing.assert_array_equal(actual_tendency, incumbent_tendency)
+ 
+ 
++@pytest.mark.parametrize(
++    ("step_is_finite", "candidate_diagnostics_are_finite"),
++    [(False, True), (True, False)],
++)
++def test_late_cap_vertical_dse_invalid_step_or_diagnostics_falls_back(
++    monkeypatch,
++    step_is_finite,
++    candidate_diagnostics_are_finite,
++):
++    """Late-cap release preserves incumbent fallback on invalid guarded inputs."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    timed_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(192.0 * hour, dtype=jnp.float32),
++    )
++    if step_is_finite:
++        step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    else:
++        step_seconds = jnp.asarray(jnp.nan, dtype=jnp.float32)
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_dry_static_energy_hsl_transport=True,
++        use_layer_mass_weighted_dse_hsl_transport=True,
++        use_pressure_ramped_vertical_dse_increment=True,
++        use_late_lead_vertical_dse_cap_release=True,
++        horizontal_semilagrangian_theta_transport_step=step_seconds,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        timed_state,
++        coords,
++    )
++    incumbent_tendency = jnp.ones(coords.modal_shape, dtype=jnp.float32)
++
++    def large_vertical_tendency(unused_sigma_dot, scalar):
++        del unused_sigma_dot
++        return jnp.ones_like(scalar) * physics_specs.Cp * 10_000.0
++
++    monkeypatch.setattr(equation, "_vertical_tendency", large_vertical_tendency)
++
++    actual_tendency = (
++        equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            state=timed_state,
++            aux_state=aux_state,
++            incumbent_temperature_tendency=incumbent_tendency,
++            dry_static_energy_anomaly=jnp.ones(coords.nodal_shape, dtype=jnp.float32),
++            geopotential=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++            theta_vertical_temperature_tendency=jnp.zeros(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
++            valid_layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=bool,
++            ),
++            finite_theta_diagnostics=jnp.asarray(candidate_diagnostics_are_finite),
++            finite_dse_diagnostics=jnp.asarray(candidate_diagnostics_are_finite),
++            finite_mass_dse_diagnostics=jnp.asarray(candidate_diagnostics_are_finite),
++        )
++    )
++
++    np.testing.assert_array_equal(actual_tendency, incumbent_tendency)
++
++
+ def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+     """A finite vertical-DSE candidate is capped by the per-inner-step limit."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5758,8 +6068,28 @@ def test_tropical_wtg_mass_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
+-def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
+-    """The pressure-ramped vertical-DSE candidate runs a small finite forecast."""
++@pytest.mark.parametrize(
++    ("model_factory", "expected_name", "uses_late_cap_release"),
++    [
++        (
++            pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
++            "dino_hsl2_mass_dse_wtg_vdse_ramp",
++            False,
++        ),
++        (
++            late_cap_vertical_dse_wtg_dinosaur_dycore_model,
++            "dino_hsl2_mass_dse_wtg_vdse_latecap",
++            True,
++        ),
++    ],
++)
++def test_vertical_dse_non_jit_forecast_smoke_is_finite(
++    monkeypatch,
++    model_factory,
++    expected_name,
++    uses_late_cap_release,
++):
++    """The vertical-DSE candidates run a small finite forecast."""
+ 
+     def fake_digital_filter_initialization(
+         equation,
+@@ -5793,7 +6123,7 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+         "geopotential_500",
+     )
+     model = replace(
+-        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        model_factory(),
+         inner_step_seconds=3600.0,
+         spectral_wavenumbers=None,
+         output_variables=output_variables,
+@@ -5807,11 +6137,12 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+ 
+     forecast = model.forecast(forecast_input)
+ 
+-    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
++    assert model.name == expected_name
+     assert model.use_dry_static_energy_hsl_transport
+     assert model.use_layer_mass_weighted_dse_hsl_transport
+     assert model.apply_tropical_wtg_mass_dse_relaxation
+     assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_late_lead_vertical_dse_cap_release is uses_late_cap_release
+     assert forecast.variables == output_variables
+     assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
+     assert bool(jnp.isfinite(forecast.values).all())
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..4ab5f7b 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_latecap",
+     )
+ 
+ 
+@@ -660,6 +661,26 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_late_cap_vertical_dse_candidate_model():
++    """The late-cap alias adds only the late-cap release selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_latecap")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_latecap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_late_lead_vertical_dse_cap_release
++    assert not incumbent.use_late_lead_vertical_dse_cap_release
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_late_lead_vertical_dse_cap_release"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "land-ocean-lowmode-t2m-memory",
+  "history_path": ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/proposal.md",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/resource_snapshot.md",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/implementation.md",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/scores.json",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/scoring_notes.md",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/decision.md",
+    ".logbook/history/2026-06-27_18-53-15_land-ocean-lowmode-t2m-memory/artifacts.json",
+    ".logbook/leaderboard.json"
+  ],
+  "notes": "Accepted candidate committed as d1f132fafcad09bcc92cfeedbe3fc2be1b930770. Incumbent metrics were reused from cache for iteration and validation."
+}

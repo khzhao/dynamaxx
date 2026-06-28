@@ -1,0 +1,505 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index a93631a..3cf0b08 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -57,6 +57,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
++    mass_neutral_clipped_wtg_dse_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+@@ -102,6 +103,7 @@ __all__ = [
+     "layer_coordinates",
+     "leapfrog_utils",
+     "log_pressure_initialization_dinosaur_dycore_model",
++    "mass_neutral_clipped_wtg_dse_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
+     "primitive_equations",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index fab858f..ef65550 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -148,6 +148,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
++    use_mass_neutral_clipped_wtg_dse: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -454,6 +455,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        use_mass_neutral_clipped_wtg_dse=(
++                            self.use_mass_neutral_clipped_wtg_dse
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -784,6 +788,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    use_mass_neutral_clipped_wtg_dse: bool = False,
+ ) -> Any:
+     """Return a rollout-only weak tropical free-tropospheric mass-DSE filter."""
+     orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+@@ -871,16 +876,47 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+             -temperature_increment_cap,
+             temperature_increment_cap,
+         )
+-        layer_heat_offset = (
+-            jnp.sum(
+-                clipped_temperature_increment * quadrature_weights,
+-                axis=(-2, -1),
++        neutralizer_finite_terms = []
++        if use_mass_neutral_clipped_wtg_dse:
++            clipped_mass_dse_increment = (
++                safe_layer_pressure_thickness
++                * physics_specs.Cp
++                * clipped_temperature_increment
+             )
+-            / safe_mask_weight_sum
+-        )
+-        temperature_increment = clipped_temperature_increment - (
+-            mask * layer_heat_offset[:, jnp.newaxis, jnp.newaxis]
+-        )
++            layer_mass_dse_offset = (
++                jnp.sum(
++                    clipped_mass_dse_increment * mask_weights,
++                    axis=(-2, -1),
++                )
++                / safe_mask_weight_sum
++            )
++            mass_neutral_temperature_offset = (
++                layer_mass_dse_offset[:, jnp.newaxis, jnp.newaxis]
++                / safe_layer_pressure_thickness
++                / physics_specs.Cp
++            )
++            temperature_increment = clipped_temperature_increment - (
++                mask * mass_neutral_temperature_offset
++            )
++            neutralizer_finite_terms.extend(
++                [
++                    jnp.all(jnp.isfinite(clipped_mass_dse_increment)),
++                    jnp.all(jnp.isfinite(layer_mass_dse_offset)),
++                    jnp.all(jnp.isfinite(mass_neutral_temperature_offset)),
++                ]
++            )
++        else:
++            layer_heat_offset = (
++                jnp.sum(
++                    clipped_temperature_increment * quadrature_weights,
++                    axis=(-2, -1),
++                )
++                / safe_mask_weight_sum
++            )
++            temperature_increment = clipped_temperature_increment - (
++                mask * layer_heat_offset[:, jnp.newaxis, jnp.newaxis]
++            )
++            neutralizer_finite_terms.append(jnp.all(jnp.isfinite(layer_heat_offset)))
+         temperature_increment = jnp.where(
+             mask_weight_sum[:, jnp.newaxis, jnp.newaxis] > tiny_weight,
+             temperature_increment,
+@@ -905,6 +941,7 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
+                     jnp.all(jnp.isfinite(mass_dse_increment)),
+                     jnp.all(jnp.isfinite(raw_temperature_increment)),
+                     jnp.all(jnp.isfinite(clipped_temperature_increment)),
++                    *neutralizer_finite_terms,
+                     jnp.all(jnp.isfinite(temperature_increment)),
+                     jnp.all(jnp.isfinite(corrected_temperature_variation)),
+                 ]
+@@ -1352,6 +1389,17 @@ def tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def mass_neutral_clipped_wtg_dse_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return WTG mass-DSE with pressure-thickness-neutral clipped increments."""
++    return replace(
++        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_mneutral",
++        use_mass_neutral_clipped_wtg_dse=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 11f829d..3d4e895 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -215,6 +215,15 @@ def dino_hsl2_mass_dse_wtg_model() -> DycoreModel:
+     return tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_mneutral_model() -> DycoreModel:
++    """Return WTG mass-DSE with pressure-thickness-neutral clipped increments."""
++    from dynamaxx.dycore.models.dinosaur import (
++        mass_neutral_clipped_wtg_dse_dinosaur_dycore_model,
++    )
++
++    return mass_neutral_clipped_wtg_dse_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -293,6 +302,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
+     "dino_hsl2_mass_dse_wtg": dino_hsl2_mass_dse_wtg_model,
++    "dino_hsl2_mass_dse_wtg_mneutral": dino_hsl2_mass_dse_wtg_mneutral_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 1cc2c19..9fd0451 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -133,6 +133,9 @@ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().na
+ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg"
+ )
++assert dinosaur.mass_neutral_clipped_wtg_dse_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_mneutral"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -233,6 +236,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
++        "dino_hsl2_mass_dse_wtg_mneutral",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -731,6 +735,26 @@ def test_dinosaur_tropical_wtg_mass_dse_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_mass_neutral_clipped_wtg_dse_is_registered():
++    """The mass-neutral WTG candidate is side-by-side with the WTG incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_mneutral")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_mneutral"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_mass_neutral_clipped_wtg_dse
++    assert incumbent.apply_tropical_wtg_mass_dse_relaxation
++    assert not incumbent.use_mass_neutral_clipped_wtg_dse
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_mass_neutral_clipped_wtg_dse"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 3b1ef2b..c6c450a 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -65,7 +65,9 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _theta_layer_mean_recenter_step_filter,
+     _to_dinosaur_latitude_order,
+     _TracerSafeHeldSuarezForcingSigma,
++    _tropical_wtg_latitude_envelope,
+     _tropical_wtg_mass_dse_relaxation_step_filter,
++    _tropical_wtg_sigma_envelope,
+     _unit_factor,
+     _valid_land_sea_fraction_or_none,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
+@@ -82,6 +84,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
++    mass_neutral_clipped_wtg_dse_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+@@ -635,6 +638,27 @@ def test_tropical_wtg_factory_preserves_mass_dse_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_mass_neutral_clipped_wtg_factory_preserves_wtg_except_selector():
++    """The mass-neutral WTG candidate changes only name and neutralizer selector."""
++    model = mass_neutral_clipped_wtg_dse_dinosaur_dycore_model()
++    incumbent = tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_mneutral"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_mass_neutral_clipped_wtg_dse
++    assert incumbent.apply_tropical_wtg_mass_dse_relaxation
++    assert not incumbent.use_mass_neutral_clipped_wtg_dse
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_mass_neutral_clipped_wtg_dse"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3765,6 +3789,96 @@ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+ 
+ 
++def test_tropical_wtg_mass_dse_filter_selector_false_matches_default():
++    """The explicit false selector preserves the incumbent WTG filter path."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    default_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++    )
++    explicit_false_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_mass_neutral_clipped_wtg_dse=False,
++    )
++
++    default_corrected = default_filter(prev_state, next_state)
++    false_corrected = explicit_false_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(
++        false_corrected.temperature_variation,
++        default_corrected.temperature_variation,
++    )
++    np.testing.assert_array_equal(false_corrected.vorticity, default_corrected.vorticity)
++    np.testing.assert_array_equal(
++        false_corrected.divergence,
++        default_corrected.divergence,
++    )
++    np.testing.assert_array_equal(
++        false_corrected.log_surface_pressure,
++        default_corrected.log_surface_pressure,
++    )
++    assert false_corrected.tracers.keys() == default_corrected.tracers.keys()
++    for tracer_name, tracer_value in false_corrected.tracers.items():
++        np.testing.assert_array_equal(
++            tracer_value,
++            default_corrected.tracers[tracer_name],
++        )
++    np.testing.assert_array_equal(false_corrected.sim_time, default_corrected.sim_time)
++
++
++def test_tropical_wtg_mass_neutral_filter_has_zero_masked_mass_dse_integral():
++    """The selected WTG branch neutralizes clipped mass-DSE over the WTG mask."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    longitude, sin_latitude = coords.horizontal.nodal_mesh
++    log_surface_pressure_nodal = jnp.float32(0.35) * jnp.cos(longitude) * (
++        1.0 - 0.25 * sin_latitude**2
++    )
++    next_state = _state_with_log_surface_pressure(
++        next_state,
++        coords.horizontal.to_modal(log_surface_pressure_nodal)[jnp.newaxis],
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    step_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_mass_neutral_clipped_wtg_dse=True,
++    )
++
++    corrected = step_filter(prev_state, next_state)
++
++    nodal_delta = coords.horizontal.to_nodal(
++        corrected.temperature_variation - next_state.temperature_variation
++    )
++    assert float(jnp.max(jnp.abs(nodal_delta))) > 0.0
++    masked_mass_dse_integral = _masked_wtg_mass_dse_integral(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        state=next_state,
++        nodal_temperature_increment=nodal_delta,
++    )
++    np.testing.assert_allclose(
++        masked_mass_dse_integral,
++        jnp.zeros_like(masked_mass_dse_integral),
++        rtol=1e-6,
++        atol=1e-6,
++    )
++
++
+ def test_tropical_wtg_mass_dse_filter_falls_back_for_nonfinite_dse():
+     """Invalid DSE diagnostics preserve the incumbent next state exactly."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+@@ -3799,6 +3913,51 @@ def test_tropical_wtg_mass_dse_filter_falls_back_for_nonfinite_dse():
+     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+ 
+ 
++def test_tropical_wtg_mass_neutral_filter_falls_back_for_invalid_pressure():
++    """Invalid pressure thickness diagnostics preserve the next state exactly."""
++    coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    bad_log_surface_pressure = (
++        jnp.zeros_like(next_state.log_surface_pressure)
++        .at[0, 0, 0]
++        .set(jnp.float32(-1.0e6))
++    )
++    bad_next_state = _state_with_log_surface_pressure(
++        next_state,
++        bad_log_surface_pressure,
++    )
++    step_filter = _tropical_wtg_mass_dse_relaxation_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 3600.0),
++        use_mass_neutral_clipped_wtg_dse=True,
++    )
++
++    corrected = step_filter(prev_state, bad_next_state)
++
++    np.testing.assert_array_equal(
++        corrected.temperature_variation,
++        bad_next_state.temperature_variation,
++    )
++    np.testing.assert_array_equal(corrected.vorticity, bad_next_state.vorticity)
++    np.testing.assert_array_equal(corrected.divergence, bad_next_state.divergence)
++    np.testing.assert_array_equal(
++        corrected.log_surface_pressure,
++        bad_next_state.log_surface_pressure,
++    )
++    assert corrected.tracers.keys() == bad_next_state.tracers.keys()
++    for tracer_name, tracer_value in corrected.tracers.items():
++        np.testing.assert_array_equal(
++            tracer_value,
++            bad_next_state.tracers[tracer_name],
++        )
++    np.testing.assert_array_equal(corrected.sim_time, bad_next_state.sim_time)
++
++
+ def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
+     """Weak HS composition combines one primitive equation with fixed forcing."""
+     compose_calls = []
+@@ -6447,6 +6606,55 @@ def _synthetic_wtg_mass_dse_state():
+     return coords, physics_specs, prev_state, next_state
+ 
+ 
++def _state_with_log_surface_pressure(state, log_surface_pressure):
++    """Return a primitive-equation state with only log surface pressure changed."""
++    return _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=state.sim_time,
++    )
++
++
++def _wtg_mask(coords):
++    """Return the nodal WTG latitude-sigma mask used by the relaxation filter."""
++    latitude_envelope = _tropical_wtg_latitude_envelope(coords.horizontal)
++    sigma_envelope = _tropical_wtg_sigma_envelope(coords.vertical)
++    return sigma_envelope[:, jnp.newaxis, jnp.newaxis] * latitude_envelope
++
++
++def _masked_wtg_mass_dse_integral(
++    *,
++    coords,
++    physics_specs,
++    reference_temperature,
++    state,
++    nodal_temperature_increment,
++):
++    """Return layerwise masked pressure-thickness-weighted DSE increments."""
++    orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        orography,
++        coords,
++        physics_specs,
++        include_vertical_advection=True,
++    )
++    layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(state)
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    mask = _wtg_mask(coords)
++    return jnp.sum(
++        mask
++        * layer_pressure_thickness
++        * physics_specs.Cp
++        * nodal_temperature_increment
++        * quadrature_weights[jnp.newaxis, ...],
++        axis=(-2, -1),
++    )
++
++
+ def _linear_implicit_oscillator_equation(
+     frequency: float,
+ ) -> time_integration.ImplicitExplicitODE:
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 8dee326..7b7ab5e 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -55,6 +55,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
++        "dino_hsl2_mass_dse_wtg_mneutral",
+     )
+ 
+ 
+@@ -640,6 +641,27 @@ def test_registry_creates_tropical_wtg_mass_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_mass_neutral_clipped_wtg_dse_candidate_model():
++    """The mass-neutral WTG alias adds only the clipped-DSE neutralizer selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_mneutral")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_mneutral"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_mass_neutral_clipped_wtg_dse
++    assert incumbent.apply_tropical_wtg_mass_dse_relaxation
++    assert not incumbent.use_mass_neutral_clipped_wtg_dse
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_mass_neutral_clipped_wtg_dse"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

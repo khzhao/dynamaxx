@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "mean-neutral-hsl-theta-transport",
+  "history_path": ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport",
+  "source_artifacts": [
+    ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport/proposal.md",
+    ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport/implementation.md",
+    ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl_mean.json",
+    "outputs/eval/fast_dino_hsl_mean.csv",
+    "outputs/eval/iteration_dino_hsl_mean.json",
+    "outputs/eval/iteration_dino_hsl_mean.csv",
+    "outputs/eval/runs/iteration_dino_hsl_mean",
+    "outputs/eval/iteration_dino_hsl2_theta.json",
+    "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "outputs/eval/validation_dino_hsl2_theta.json",
+    "outputs/eval/validation_dino_hsl2_theta.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport/scores.json",
+    ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport/scoring_notes.md",
+    ".logbook/history/2026-06-23_00-41-09_mean-neutral-hsl-theta-transport/decision.md"
+  ],
+  "notes": "Rejected after clean fast and iteration gates because iteration primary delta was +0.00009292283211348451 versus cached dino_hsl2_theta, below the +0.002 promotion threshold. Candidate validation was not run. Incumbent metrics were reused from valid leaderboard artifacts; no incumbent rerun was performed."
+}

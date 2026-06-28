@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "coupled-surface-residual-vector-decay",
+  "history_path": ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay",
+  "source_artifacts": [
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/proposal.md",
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/candidate.diff",
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/implementation.md",
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/resource_snapshot.md",
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/pre_scoring_status.txt"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sfc_vec.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/scores.json",
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/scoring_notes.md",
+    ".logbook/history/2026-06-26_08-05-06_coupled-surface-residual-vector-decay/decision.md"
+  ],
+  "notes": "Rejected because iteration delta was -0.01709918574281799 versus the cached incumbent and the early day 1-5 2m_temperature mean RMSE guardrail regressed by 2.904957387960501%. Validation and golden were not run. Incumbent iteration metrics were reused from the leaderboard cache and not recomputed."
+}

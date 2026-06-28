@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "layer-mass-weighted-dse-hsl",
+  "history_path": ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/primitive_equations.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+    "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+    "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.csv",
+    "outputs/eval/validation_dino_hsl2_theta_dse_hsl.json",
+    "outputs/eval/validation_dino_hsl2_theta_dse_hsl.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl/proposal.md",
+    ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl/implementation.md",
+    ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl/candidate.diff",
+    ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl/scores.json",
+    ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl/scoring_notes.md",
+    ".logbook/history/2026-06-23_18-09-19_layer-mass-weighted-dse-hsl/decision.md"
+  ],
+  "notes": "Accepted layer-mass-weighted DSE-HSL candidate. Candidate was compared against valid cached incumbent iteration and validation artifacts; golden was not run."
+}

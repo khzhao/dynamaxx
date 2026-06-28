@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "late-lead-vertical-dse-cap-release",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_latecap",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "history_path": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release",
+  "history_files": {
+    "proposal": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/proposal.md",
+    "implementation": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/implementation.md",
+    "candidate_diff": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/candidate.diff",
+    "resource_snapshot": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/resource_snapshot.md",
+    "scores": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/scores.json",
+    "scoring_notes": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/scoring_notes.md",
+    "decision": ".logbook/history/2026-06-25_21-06-21_late-lead-vertical-dse-cap-release/decision.md"
+  },
+  "source_files_changed": [
+    "src/dynamaxx/dycore/models/dinosaur/primitive_equations.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "raw_evaluation_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_latecap.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_latecap.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_latecap.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_latecap.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "commands": {
+    "full_pytest": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "summary": "262 passed, 2 skipped in 304.46s"
+    },
+    "candidate_fast": {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_latecap",
+      "exit_status": 0,
+      "primary_score": -0.22415855014566696,
+      "diagnostics_failed": false,
+      "issue_count": 0
+    },
+    "candidate_iteration": {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_latecap --workers 4",
+      "exit_status": 0,
+      "primary_score": -0.2201311388680774,
+      "diagnostics_failed": false,
+      "issue_count": 0
+    },
+    "candidate_validation": {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg_vdse_latecap --workers 4",
+      "exit_status": "not_run",
+      "reason": "Iteration did not promote."
+    }
+  },
+  "decision": {
+    "status": "rejected",
+    "iteration_delta": -0.00042068732323799485,
+    "validation_delta": null,
+    "leaderboard_updated": false,
+    "incumbent_cache_reused": true,
+    "incumbent_rerun": false
+  }
+}

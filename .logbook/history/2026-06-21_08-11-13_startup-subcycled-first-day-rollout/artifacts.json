@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "startup-subcycled-first-day-rollout",
+  "history_path": ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout",
+  "source_artifacts": [
+    ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_startup_subcycle.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_startup_subcycle.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_startup_subcycle.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_startup_subcycle.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout/proposal.md",
+    ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout/implementation.md",
+    ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout/scores.json",
+    ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout/scoring_notes.md",
+    ".logbook/history/2026-06-21_08-11-13_startup-subcycled-first-day-rollout/decision.md"
+  ],
+  "notes": "Rejected candidate. Incumbent iteration metrics were reused from leaderboard cache; validation was skipped because iteration failed promotion."
+}

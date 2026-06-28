@@ -1,0 +1,431 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "midpoint-semilagrangian-theta-departure",
+  "candidate_model_name": "dino_hsl2_theta",
+  "incumbent_model_name": "dino_hsl_theta",
+  "history_path": ".logbook/history/2026-06-22_14-43-00_midpoint-semilagrangian-theta-departure",
+  "evaluated_at": "2026-06-22T17:22:35Z",
+  "role": "Scorer",
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "candidate_factory": "dino_hsl2_theta_model",
+    "incumbent_factory": "dino_hsl_theta_model",
+    "verification_command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import DYCORE_MODEL_FACTORIES\nfor name in ('dino_hsl2_theta', 'dino_hsl_theta'):\n    print(f'{name}: registered={name in DYCORE_MODEL_FACTORIES}')\n    if name in DYCORE_MODEL_FACTORIES:\n        print(f'{name}: factory={DYCORE_MODEL_FACTORIES[name].__name__}')\nPY",
+    "exit_status": 0
+  },
+  "pre_scoring_verification_from_orchestrator": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "223 passed, 2 skipped in 172.28s; not rerun by Scorer."
+    },
+    {
+      "command": "focused pytest",
+      "exit_status": 0,
+      "notes": "157 passed in 163.16s; not rerun by Scorer."
+    },
+    {
+      "command": "ruff check on changed files",
+      "exit_status": 0,
+      "notes": "Passed; not rerun by Scorer."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "notes": "Passed; not rerun by Scorer."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_theta",
+      "exit_status": 0,
+      "notes": "Run by Orchestrator before scoring; artifact reused by Scorer after validation."
+    }
+  ],
+  "commands": [
+    {
+      "command": "sed -n ... roles/PROTOCOL.md roles/SCORER.md roles/ORCHESTRATOR.md",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Read required role files before scoring; all reads completed successfully."
+    },
+    {
+      "command": "uv run python - <<'PY' ... verify DYCORE_MODEL_FACTORIES contains dino_hsl2_theta and dino_hsl_theta ... PY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Both candidate and incumbent were registered."
+    },
+    {
+      "command": "jq/ls artifact inspections for leaderboard, fast artifact, and cached incumbent artifacts",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Fast artifact and incumbent cache artifacts were readable and finite; no fast rerun was needed."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_theta --workers 4",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Candidate iteration only. Completed 229/229 chunks, wrote official JSON/CSV, failed=False, issues=0."
+    },
+    {
+      "command": "uv run python - <<'PY' ... compute candidate/incumbent iteration deltas and guardrails from official artifacts ... PY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Iteration gate calculations used candidate model rows and cached incumbent model rows, excluding persistence rows."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_theta --workers 4",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Candidate validation only. Run because iteration passed the +0.002 gate and guardrails. Completed 46/46 chunks, wrote official JSON/CSV, failed=False, issues=0."
+    },
+    {
+      "command": "uv run python - <<'PY' ... compute candidate/incumbent validation deltas and guardrails from official artifacts ... PY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "notes": "Validation gate calculations used candidate model rows and cached incumbent model rows, excluding persistence rows."
+    }
+  ],
+  "prohibited_commands_not_run": [
+    "uv run dynamaxx-eval iteration --model dino_hsl_theta --workers 4",
+    "uv run dynamaxx-eval validation --model dino_hsl_theta --workers 4",
+    "uv run dynamaxx-eval golden --model dino_hsl2_theta"
+  ],
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "34d20a0afd7133cba41c595072b5c14c8e42a88f",
+    "leaderboard_eval_code_commit": "34d20a0afd7133cba41c595072b5c14c8e42a88f",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "candidate_case_leads": {
+      "lead_hours": [
+        24,
+        48,
+        72,
+        96,
+        120,
+        144,
+        168,
+        192,
+        216,
+        240,
+        264,
+        288,
+        312,
+        336,
+        360
+      ],
+      "lead_days": "1..15",
+      "lead_count": 15
+    }
+  },
+  "worktree_context": {
+    "head_commit": "34d20a0afd7133cba41c595072b5c14c8e42a88f",
+    "leaderboard_incumbent_commit": "34d20a0afd7133cba41c595072b5c14c8e42a88f",
+    "changed_files_observed_by_scorer": [
+      "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+      "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "src/dynamaxx/dycore/models/dinosaur/primitive_equations.py",
+      "src/dynamaxx/dycore/registry.py",
+      "tests/dycore/models/dinosaur/test_dependency.py",
+      "tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "tests/dycore/test_registry.py"
+    ],
+    "evaluation_code_worktree_modified": false,
+    "notes": "Dirty files were candidate dycore/registry/test changes; no source files were edited by Scorer."
+  },
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_theta.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_theta.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_hsl2_theta.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_hsl2_theta.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl_theta.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl_theta.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dino_hsl2_theta",
+    "candidate_validation_run_dir": "outputs/eval/runs/validation_dino_hsl2_theta"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "reused": true,
+      "recomputed": false,
+      "source": ".logbook/leaderboard.json",
+      "json": "outputs/eval/iteration_dino_hsl_theta.json",
+      "csv": "outputs/eval/iteration_dino_hsl_theta.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "fingerprint_data_path_present": true,
+        "fingerprint_protocol_includes_iteration": true,
+        "fingerprint_target_variables_match": true,
+        "fingerprint_lead_days_match": true,
+        "fingerprint_eval_code_commit_matches_head": true,
+        "evaluation_code_worktree_modified": false,
+        "evaluation_code_worktree_modified_files": [],
+        "candidate_source_edits_ignored_for_cache_validity": true,
+        "artifact_exists_and_readable": true,
+        "artifact_contains_incumbent_rows": true,
+        "artifact_model_name_match": true,
+        "artifact_case_name_match": true,
+        "artifact_target_variables_match_candidate": true,
+        "artifact_lead_hours_match_candidate": true,
+        "primary_score_finite": true,
+        "model_record_count": 60,
+        "total_record_count": 120,
+        "diagnostics_failed": false,
+        "issue_count": 0,
+        "finite_rmse_values": true
+      },
+      "notes": "Candidate source edits, including side-by-side registry additions, were not treated as incumbent cache invalidation under roles/SCORER.md."
+    },
+    "validation": {
+      "reused": true,
+      "recomputed": false,
+      "source": ".logbook/leaderboard.json",
+      "json": "outputs/eval/validation_dino_hsl_theta.json",
+      "csv": "outputs/eval/validation_dino_hsl_theta.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "fingerprint_data_path_present": true,
+        "fingerprint_protocol_includes_validation": true,
+        "fingerprint_target_variables_match": true,
+        "fingerprint_lead_days_match": true,
+        "fingerprint_eval_code_commit_matches_head": true,
+        "evaluation_code_worktree_modified": false,
+        "evaluation_code_worktree_modified_files": [],
+        "candidate_source_edits_ignored_for_cache_validity": true,
+        "artifact_exists_and_readable": true,
+        "artifact_contains_incumbent_rows": true,
+        "artifact_model_name_match": true,
+        "artifact_case_name_match": true,
+        "artifact_target_variables_match_candidate": true,
+        "artifact_lead_hours_match_candidate": true,
+        "primary_score_finite": true,
+        "model_record_count": 60,
+        "total_record_count": 120,
+        "diagnostics_failed": false,
+        "issue_count": 0,
+        "finite_rmse_values": true
+      },
+      "notes": "Candidate source edits, including side-by-side registry additions, were not treated as incumbent cache invalidation under roles/SCORER.md."
+    }
+  },
+  "primary_scores": {
+    "candidate_fast": -0.3155237660265679,
+    "candidate_iteration": -0.31282890543336245,
+    "candidate_validation": -0.3072374345999185,
+    "incumbent_iteration": -0.32000443139324114,
+    "incumbent_validation": -0.31443387067049233,
+    "iteration_delta_candidate_minus_incumbent": 0.0071755259598786925,
+    "validation_delta_candidate_minus_incumbent": 0.007196436070573853
+  },
+  "diagnostics": {
+    "candidate_fast": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_validation": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "incumbent_iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "incumbent_validation": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    }
+  },
+  "thresholds": {
+    "iteration_primary_delta_minimum": 0.002,
+    "validation_primary_delta_minimum": 0.001,
+    "early_day_1_to_5_mean_rmse_regression_maximum": 0.02,
+    "worst_variable_lead_rmse_regression_maximum": 0.1
+  },
+  "gate_status": {
+    "fast_artifact_reused": true,
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_supports_acceptance_by_default_gates": true,
+    "scorer_decision": "not_applicable_scorer_does_not_accept_or_reject"
+  },
+  "regressions": {
+    "iteration": {
+      "candidate_model_record_count": 60,
+      "incumbent_model_record_count": 60,
+      "candidate_total_record_count": 120,
+      "incumbent_total_record_count": 120,
+      "persistence_rows_present": true,
+      "calculation_filter": "candidate rows filtered to model_name=dino_hsl2_theta; incumbent rows filtered to model_name=dino_hsl_theta; persistence rows excluded",
+      "missing_record_count": 0,
+      "extra_record_count": 0,
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 4.456612844664318,
+          "incumbent_mean_rmse": 4.471013553459182,
+          "absolute_rmse_delta": -0.014400708794863881,
+          "relative_regression": -0.0032209047507185894,
+          "passes_2_percent_guardrail": true
+        },
+        {
+          "variable": "2 m temperature",
+          "channel_name": "2m_temperature",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 4.822779440662406,
+          "incumbent_mean_rmse": 4.8353532853798145,
+          "absolute_rmse_delta": -0.012573844717408633,
+          "relative_regression": -0.002600398352572694,
+          "passes_2_percent_guardrail": true
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "channel_name": "geopotential_500",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 613.8510255130138,
+          "incumbent_mean_rmse": 617.0171501857016,
+          "absolute_rmse_delta": -3.1661246726877152,
+          "relative_regression": -0.005131339820513607,
+          "passes_2_percent_guardrail": true
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "channel_name": "mean_sea_level_pressure",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 814.9462536112021,
+          "incumbent_mean_rmse": 820.2478873122927,
+          "absolute_rmse_delta": -5.301633701090623,
+          "relative_regression": -0.006463453040351609,
+          "passes_2_percent_guardrail": true
+        }
+      ],
+      "early_mean_guardrail_violation_count": 0,
+      "early_mean_guardrail_violations": [],
+      "worst_rmse_regression_by_variable_and_lead": {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "candidate_rmse": 3.038879992774278,
+        "incumbent_rmse": 3.038294262542436,
+        "absolute_rmse_delta": 0.0005857302318421631,
+        "relative_regression": 0.00019278258826451713,
+        "passes_10_percent_guardrail": true
+      },
+      "per_variable_lead_guardrail_violation_count": 0,
+      "per_variable_lead_guardrail_violations": [],
+      "passes_guardrails": true
+    },
+    "validation": {
+      "candidate_model_record_count": 60,
+      "incumbent_model_record_count": 60,
+      "candidate_total_record_count": 120,
+      "incumbent_total_record_count": 120,
+      "persistence_rows_present": true,
+      "calculation_filter": "candidate rows filtered to model_name=dino_hsl2_theta; incumbent rows filtered to model_name=dino_hsl_theta; persistence rows excluded",
+      "missing_record_count": 0,
+      "extra_record_count": 0,
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 4.414586461646525,
+          "incumbent_mean_rmse": 4.428945167685237,
+          "absolute_rmse_delta": -0.014358706038711588,
+          "relative_regression": -0.0032420148579568177,
+          "passes_2_percent_guardrail": true
+        },
+        {
+          "variable": "2 m temperature",
+          "channel_name": "2m_temperature",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 4.828413567471759,
+          "incumbent_mean_rmse": 4.84163438842265,
+          "absolute_rmse_delta": -0.013220820950890833,
+          "relative_regression": -0.0027306524801840788,
+          "passes_2_percent_guardrail": true
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "channel_name": "geopotential_500",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 603.509605227192,
+          "incumbent_mean_rmse": 606.6437444359568,
+          "absolute_rmse_delta": -3.13413920876485,
+          "relative_regression": -0.005166358736096256,
+          "passes_2_percent_guardrail": true
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "channel_name": "mean_sea_level_pressure",
+          "lead_hours": "24..120",
+          "lead_days": "1..5",
+          "record_count": 5,
+          "candidate_mean_rmse": 792.7462424783995,
+          "incumbent_mean_rmse": 797.6288331289678,
+          "absolute_rmse_delta": -4.882590650568318,
+          "relative_regression": -0.006121381835476923,
+          "passes_2_percent_guardrail": true
+        }
+      ],
+      "early_mean_guardrail_violation_count": 0,
+      "early_mean_guardrail_violations": [],
+      "worst_rmse_regression_by_variable_and_lead": {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "candidate_rmse": 3.021101655451131,
+        "incumbent_rmse": 3.020443183836643,
+        "absolute_rmse_delta": 0.0006584716144879543,
+        "relative_regression": 0.00021800496629489555,
+        "passes_10_percent_guardrail": true
+      },
+      "per_variable_lead_guardrail_violation_count": 0,
+      "per_variable_lead_guardrail_violations": [],
+      "passes_guardrails": true
+    }
+  },
+  "anomalies": [],
+  "lessons": [
+    "Model-specific guardrail comparisons must filter out persistence rows because evaluation artifacts include both model rows and persistence baseline rows.",
+    "The midpoint theta departure candidate improved iteration and validation primary scores with clean diagnostics and no fixed RMSE guardrail violations.",
+    "The accepted incumbent cache remained valid despite candidate source edits; no incumbent evaluation rerun was needed or performed."
+  ]
+}

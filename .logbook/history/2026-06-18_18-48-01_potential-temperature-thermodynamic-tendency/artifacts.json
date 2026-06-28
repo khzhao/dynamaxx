@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "potential-temperature-thermodynamic-tendency",
+  "history_path": ".logbook/history/2026-06-18_18-48-01_potential-temperature-thermodynamic-tendency",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/primitive_equations.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-18_18-48-01_potential-temperature-thermodynamic-tendency/proposal.md",
+    ".logbook/history/2026-06-18_18-48-01_potential-temperature-thermodynamic-tendency/implementation.md",
+    ".logbook/history/2026-06-18_18-48-01_potential-temperature-thermodynamic-tendency/scores.json",
+    ".logbook/history/2026-06-18_18-48-01_potential-temperature-thermodynamic-tendency/scoring_notes.md",
+    ".logbook/history/2026-06-18_18-48-01_potential-temperature-thermodynamic-tendency/decision.md"
+  ],
+  "notes": "Accepted theta-form thermodynamic tendency candidate in commit cb5bbd1c15744b4fc00ecca5de78da188685a33d after iteration delta +0.015447942083573918 and validation delta +0.019234576988685914 with clean diagnostics and no fixed guardrail violations."
+}

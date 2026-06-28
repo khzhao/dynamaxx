@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "moist-virtual-temperature-dynamics",
+  "history_path": ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/test_registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_moist.json",
+    "outputs/eval/fast_dinosaur_moist.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics/proposal.md",
+    ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics/implementation.md",
+    ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics/scores.json",
+    ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics/scoring_notes.md",
+    ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics/decision.md",
+    ".logbook/history/2026-06-16_07-36-31_moist-virtual-temperature-dynamics/artifacts.json"
+  ],
+  "notes": "Candidate source changes were rejected and reverted. Ignored evaluation artifacts are retained for reproducibility."
+}

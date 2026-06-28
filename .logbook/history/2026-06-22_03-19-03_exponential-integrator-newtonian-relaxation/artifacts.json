@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "exponential-integrator-newtonian-relaxation",
+  "history_path": ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation/candidate.diff",
+      "description": "Rollback diff for the rejected source and test implementation."
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation/proposal.md",
+    ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation/implementation.md",
+    ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation/scores.json",
+    ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation/scoring_notes.md",
+    ".logbook/history/2026-06-22_03-19-03_exponential-integrator-newtonian-relaxation/decision.md"
+  ],
+  "notes": "Rejected because iteration delta was -0.00017975977845352542 against the cached incumbent, below the +0.002 promotion threshold. Incumbent metrics were reused from the leaderboard cache; no incumbent rerun was performed."
+}

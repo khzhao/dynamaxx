@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "persistent-mslp-reduction-offset",
+  "history_path": ".logbook/history/2026-06-28_10-12-46_persistent-mslp-reduction-offset",
+  "source_artifacts": [
+    ".logbook/history/2026-06-28_10-12-46_persistent-mslp-reduction-offset/proposal.md",
+    ".logbook/history/2026-06-28_10-12-46_persistent-mslp-reduction-offset/implementation.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_mslp_offset.json",
+    "outputs/eval/fast_dino_ri2m_mslp_offset.csv",
+    "outputs/eval/iteration_dino_ri2m_mslp_offset.json",
+    "outputs/eval/iteration_dino_ri2m_mslp_offset.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-28_10-12-46_persistent-mslp-reduction-offset/scores.json",
+    ".logbook/history/2026-06-28_10-12-46_persistent-mslp-reduction-offset/scoring_notes.md",
+    ".logbook/history/2026-06-28_10-12-46_persistent-mslp-reduction-offset/decision.md"
+  ],
+  "notes": "Rejected after clean fixed iteration produced a near-zero negative primary-score delta. Incumbent metrics were reused from valid leaderboard cache; no incumbent rerun was performed."
+}

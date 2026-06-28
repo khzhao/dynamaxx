@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "moist-virtual-temperature-dynamics",
+  "candidate_model_name": "dinosaur_moist",
+  "incumbent_model_name": "dinosaur",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "3f517232303e37bc947361cb29c214b13b249438",
+    "protocols": ["fast", "iteration", "validation"],
+    "executed_protocols": ["fast"],
+    "not_run_protocols": ["iteration", "validation"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "registered_model_names": ["persistence", "dinosaur", "dinosaur_moist"]
+  },
+  "resources": {
+    "cpu_count": 48,
+    "available_ram_gib": 175,
+    "gpu_count": 4,
+    "gpu_model": "NVIDIA L4",
+    "free_gpu_memory_mib_per_gpu": 22566,
+    "free_disk_tib": 4,
+    "selected_workers_for_full_gates": 4,
+    "resource_notes": "Full gates were not run because the candidate fast diagnostic failed."
+  },
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import dycore_model_names; names = dycore_model_names(); print(names); assert 'dinosaur' in names and 'dinosaur_moist' in names\"",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-16T07:37:49Z",
+      "notes": "Run by Scorer to confirm candidate and incumbent registration through the registry API."
+    },
+    {
+      "command": "uv run pytest tests/dycore/test_registry.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/models/dinosaur/test_primitive_equations.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided implementation record; not rerun by Scorer. Result: 21 passed."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided implementation record; not rerun by Scorer. Result: 87 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_moist",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided implementation record; Scorer verified outputs/eval/fast_dinosaur_moist.json and outputs/eval/fast_dinosaur_moist.csv. The command exited 0 but fixed diagnostics failed."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided implementation record; not rerun by Scorer."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_moist --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run. The candidate fast diagnostic failed, so the iteration gate was not reached."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run. Compatible incumbent artifacts were not required because the candidate fast diagnostic failed."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_moist --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run. Validation was not permitted after the failed fast diagnostic."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run. Validation was not permitted after the failed fast diagnostic."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_moist.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_moist.csv",
+    "candidate_iteration_json": null,
+    "candidate_iteration_csv": null,
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": null,
+    "incumbent_iteration_csv": null,
+    "incumbent_validation_json": null,
+    "incumbent_validation_csv": null
+  },
+  "artifact_checks": {
+    "candidate_fast_json_verified": true,
+    "candidate_fast_csv_verified": true,
+    "candidate_fast_json_record_count": 120,
+    "candidate_fast_csv_line_count": 121
+  },
+  "primary_scores": {
+    "candidate_fast": -1.7976931348623157e+308,
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": null,
+    "incumbent_validation": null,
+    "iteration_delta": null,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": true,
+    "candidate_issue_count": 1,
+    "candidate_issues": [
+      {
+        "protocol": "fast",
+        "code": "nonfinite_forecast",
+        "message": "Forecast contains NaN or Inf values.",
+        "severity": "error",
+        "value": 4713420
+      }
+    ],
+    "incumbent_failed": null,
+    "incumbent_issue_count": null,
+    "incumbent_issues": []
+  },
+  "gate_status": {
+    "unit_tests_passed": true,
+    "fast_passed": false,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_status": "not_run_fast_failed",
+    "validation_status": "not_run_validation_not_allowed_after_fast_failure"
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": []
+  }
+}

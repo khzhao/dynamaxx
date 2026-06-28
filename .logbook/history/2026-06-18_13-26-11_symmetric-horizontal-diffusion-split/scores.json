@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "symmetric-horizontal-diffusion-split",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "30a496b1f2ed8f894511404341c7774288bdb4c8",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\n\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang'\nregistered = set(dycore_model_names())\nmissing = [name for name in (candidate, incumbent) if name not in registered]\nif missing:\n    raise SystemExit(f'missing registrations: {missing}')\nfor name in (candidate, incumbent):\n    model = create_dycore_model(name)\n    print(f'{name}: registered as {type(model).__name__}')\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed candidate and incumbent registrations through the package registry."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not rerun by Scorer; Orchestrator provided pre-existing passing candidate test record: 146 passed, 2 skipped in 71.02s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Completed with failed=False, issues=0, records=120, primary_score=-1.0964177761687355."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Completed with failed=False, issues=0, records=120, primary_score=-1.1242117369530207. Output reported chunks=229 cached=0 pending=229 and effective_workers=4 on 4 GPUs."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run. Validation was allowed only if iteration primary score delta was >= +0.002 and diagnostics/guardrails were clean. Iteration primary delta was -0.000018114769485100268, so the candidate did not promote to validation."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_symmetric_diffusion.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.0964177761687355,
+    "candidate_iteration": -1.1242117369530207,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.1241936221835356,
+    "incumbent_validation": -1.1127999773519712,
+    "iteration_delta": -0.000018114769485100268,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_passed": false,
+    "iteration_diagnostics_passed": true,
+    "iteration_early_day_1_to_5_rmse_guard_passed": true,
+    "iteration_any_variable_lead_rmse_guard_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 8.67176529652168,
+        "incumbent_mean_rmse": 8.669703859411015,
+        "relative_change": 0.0002377748010882197,
+        "failed_gt_2pct": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "candidate_mean_rmse": 7.357167638028957,
+        "incumbent_mean_rmse": 7.356441931023136,
+        "relative_change": 0.0000986491856560523,
+        "failed_gt_2pct": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 1000.2826049056381,
+        "incumbent_mean_rmse": 1000.2811415587845,
+        "relative_change": 0.0000014629355615802808,
+        "failed_gt_2pct": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 735.8901411488262,
+        "incumbent_mean_rmse": 735.903165954637,
+        "relative_change": -0.000017699075657517938,
+        "failed_gt_2pct": false
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 48,
+        "candidate_rmse": 7.325505517442521,
+        "incumbent_rmse": 7.323434956578388,
+        "relative_change": 0.0002827308327868483,
+        "failed_gt_10pct": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 24,
+        "candidate_rmse": 3.880262242164778,
+        "incumbent_rmse": 3.879807291601853,
+        "relative_change": 0.00011726112374454978,
+        "failed_gt_10pct": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 261.484713379163,
+        "incumbent_rmse": 261.47464776901603,
+        "relative_change": 0.000038495549120609596,
+        "failed_gt_10pct": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "candidate_rmse": 404.7080533978496,
+        "incumbent_rmse": 404.69392196036176,
+        "relative_change": 0.00003491882808459579,
+        "failed_gt_10pct": false
+      }
+    ],
+    "any_variable_lead_rmse_regression_gt_10pct": false
+  },
+  "anomalies": {
+    "cache_reuse": "Incumbent iteration and validation artifacts were reused as provided by the Orchestrator. Candidate iteration reported cached=0. Validation incumbent artifacts were not used for a candidate validation comparison because candidate validation was not run.",
+    "resource_limits": "No resource limit failures observed. Iteration used requested_workers=4, effective_workers=4, gpu_count=4.",
+    "failed_or_restarted_commands": "None.",
+    "nonfinite_or_unstable_outputs": "None reported by diagnostics."
+  }
+}

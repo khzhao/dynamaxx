@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "baroclinic-mode-vertical-dse-spinup",
+  "history_path": ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup",
+  "source_artifacts": [
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/proposal.md",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/implementation.md",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/candidate.diff",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/pre_scoring_status.txt",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/resource_snapshot.md"
+  ],
+  "evaluation_artifacts": [
+    {
+      "kind": "candidate_fast_json",
+      "path": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_bm.json"
+    },
+    {
+      "kind": "candidate_fast_csv",
+      "path": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_bm.csv"
+    },
+    {
+      "kind": "candidate_iteration_json",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_bm.json"
+    },
+    {
+      "kind": "candidate_iteration_csv",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_bm.csv"
+    },
+    {
+      "kind": "incumbent_iteration_json_reused",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json"
+    },
+    {
+      "kind": "incumbent_iteration_csv_reused",
+      "path": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+    },
+    {
+      "kind": "incumbent_validation_json_reused_for_reporting",
+      "path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json"
+    },
+    {
+      "kind": "incumbent_validation_csv_reused_for_reporting",
+      "path": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/scores.json",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/scoring_notes.md",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/artifacts.json",
+    ".logbook/history/2026-06-25_17-17-23_baroclinic-mode-vertical-dse-spinup/decision.md"
+  ],
+  "notes": "Candidate iteration was run with workers=4. Incumbent iteration and validation artifacts were reused from .logbook/leaderboard.json. Validation and golden were not run."
+}

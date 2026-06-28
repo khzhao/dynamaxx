@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "eady-limited-baroclinic-heat-flux",
+  "history_path": ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_eady_hfx.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/proposal.md",
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/resource_snapshot.md",
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/implementation.md",
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/scores.json",
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/scoring_notes.md",
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/decision.md",
+    ".logbook/history/2026-06-28_10-27-45_eady-limited-baroclinic-heat-flux/artifacts.json"
+  ],
+  "notes": "Rejected after clean fixed iteration improved by only +0.00011653995377758353, below the +0.002 promotion threshold. Candidate validation and golden were not run. Incumbent iteration metrics were reused from the valid leaderboard cache; no incumbent rerun was performed."
+}

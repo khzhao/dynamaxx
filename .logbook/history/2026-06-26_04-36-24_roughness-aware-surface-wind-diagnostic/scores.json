@@ -1,0 +1,283 @@
+{
+  "schema_version": 1,
+  "scored_at": "2026-06-26T07:31:08Z",
+  "role": "Scorer",
+  "proposal_slug": "roughness-aware-surface-wind-diagnostic",
+  "history_dir": ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_z0_10m",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "worker_count": 4,
+  "validation_allowed_if_iteration_promotes": true,
+  "golden_run": false,
+  "commands_run": [
+    {
+      "command": "sed -n '1,240p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "purpose": "Read shared dycore optimization protocol."
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "purpose": "Read Scorer role instructions."
+    },
+    {
+      "command": "sed -n '241,520p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "purpose": "Read remaining shared protocol."
+    },
+    {
+      "command": "sed -n '1,240p' .logbook/leaderboard.json",
+      "exit_status": 0,
+      "purpose": "Inspect authoritative incumbent cache pointer."
+    },
+    {
+      "command": "ls -la .logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic outputs/eval | sed -n '1,220p'",
+      "exit_status": 0,
+      "purpose": "Confirm history directory and relevant eval output area exist."
+    },
+    {
+      "command": "rg -n \"primary_score|diagnostic|issue|model_name|rmse|lead\" outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json .logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic -S",
+      "exit_status": 0,
+      "purpose": "Initial text inspection of pre-existing fast/incumbent/history artifacts.",
+      "anomaly": "Output was large and truncated by the terminal display; structured JSON parsing below was used for scoring."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore import registry\nfor name in ['dino_hsl2_mass_dse_wtg_vdse_z0_10m', 'dino_hsl2_mass_dse_wtg_vdse_ramp']:\n    names = registry.dycore_model_names()\n    print(f'{name}: registered={name in names}')\n    model = registry.create_dycore_model(name)\n    print(f'{name}: constructed={getattr(model, \"model_name\", name)}')\nPY",
+      "exit_status": 0,
+      "purpose": "Verify candidate and incumbent registration and construction."
+    },
+    {
+      "command": "uv run python - <<'PY'\nimport json, math\nfrom pathlib import Path\npaths = [\n    Path('outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json'),\n    Path('outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json'),\n    Path('outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json'),\n]\nfor path in paths:\n    data = json.loads(path.read_text())\n    records = data.get('records', [])\n    diagnostics = data.get('diagnostics', {})\n    primary = data.get('primary_score')\n    print(path)\n    print('  model_name=', data.get('model_name'))\n    print('  primary_score=', primary, 'finite=', isinstance(primary, (int, float)) and math.isfinite(primary))\n    print('  diagnostics_failed=', diagnostics.get('failed'))\n    print('  issue_count=', len(diagnostics.get('issues', [])))\n    print('  record_count=', len(records))\n    print('  target_variables=', sorted({row.get('variable') for row in records if row.get('model_name') == data.get('model_name')}))\n    print('  lead_hours_min_max=', (min(row.get('lead_hours') for row in records if row.get('model_name') == data.get('model_name')), max(row.get('lead_hours') for row in records if row.get('model_name') == data.get('model_name'))))\nPY",
+      "exit_status": 0,
+      "purpose": "Verify reusable fast and incumbent artifacts are readable, finite, and complete."
+    },
+    {
+      "command": "git rev-parse HEAD",
+      "exit_status": 0,
+      "purpose": "Check current HEAD against leaderboard evaluation code commit.",
+      "stdout_summary": "ff40def55ac707e8915c840b856a0aaa3345b046"
+    },
+    {
+      "command": "git status --short",
+      "exit_status": 0,
+      "purpose": "Inspect worktree state before the long evaluation.",
+      "stdout_summary": "Candidate source/test changes are present; candidate edits do not invalidate the accepted incumbent cache under protocol."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_z0_10m --workers 4",
+      "exit_status": 0,
+      "purpose": "Run fixed candidate iteration evaluation.",
+      "stdout_summary": "Result: case=iteration model=dino_hsl2_mass_dse_wtg_vdse_z0_10m failed=False issues=0 records=120 primary_score=-0.219947 metrics=outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json"
+    },
+    {
+      "command": "uv run python - <<'PY'\nimport json, math\nfrom pathlib import Path\ncandidate_path = Path('outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json')\nincumbent_path = Path('outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json')\nfast_path = Path('outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json')\nfor path in [fast_path, candidate_path, incumbent_path]:\n    data = json.loads(path.read_text())\n    print(path)\n    print('primary_score', repr(data['primary_score']))\n    print('diagnostics_failed', data.get('diagnostics', {}).get('failed'))\n    print('issue_count', len(data.get('diagnostics', {}).get('issues', [])))\n    print('records', len(data.get('records', [])))\n\ncandidate = json.loads(candidate_path.read_text())\nincumbent = json.loads(incumbent_path.read_text())\n\ndef model_records(data):\n    model_name = data['model_name']\n    return [r for r in data['records'] if r.get('model_name') == model_name]\n\ncand_by_key = {(r['variable'], r['lead_hours']): r for r in model_records(candidate)}\ninc_by_key = {(r['variable'], r['lead_hours']): r for r in model_records(incumbent)}\ncommon_keys = sorted(cand_by_key.keys())\nprint('candidate_primary', repr(candidate['primary_score']))\nprint('incumbent_primary', repr(incumbent['primary_score']))\nprint('delta', repr(candidate['primary_score'] - incumbent['primary_score']))\nprint('key_count', len(common_keys))\nprint('early_day_1_5_mean_rmse_guardrail')\nfor variable in sorted({k[0] for k in common_keys}):\n    leads = [24,48,72,96,120]\n    cand_mean = sum(cand_by_key[(variable, lead)]['rmse'] for lead in leads) / len(leads)\n    inc_mean = sum(inc_by_key[(variable, lead)]['rmse'] for lead in leads) / len(leads)\n    rel = (cand_mean - inc_mean) / inc_mean\n    print(variable, repr(cand_mean), repr(inc_mean), repr(rel))\nworst = max(\n    (\n        ((cand_by_key[key]['rmse'] - inc_by_key[key]['rmse']) / inc_by_key[key]['rmse'], key, cand_by_key[key]['rmse'], inc_by_key[key]['rmse'])\n        for key in common_keys\n    ),\n    key=lambda item: item[0],\n)\nprint('worst_regression', worst)\nPY",
+      "exit_status": 0,
+      "purpose": "Parse metrics and compute exact scoring deltas/guardrails."
+    }
+  ],
+  "pre_scoring_records": {
+    "pytest": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "source": "Orchestrator pre-scoring record",
+      "summary": "263 passed, 2 skipped in 455.51s",
+      "rerun_by_scorer": false
+    },
+    "candidate_fast": {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_z0_10m",
+      "exit_status": 0,
+      "source": "Orchestrator pre-scoring record; artifact verified by Scorer",
+      "rerun_by_scorer": false
+    },
+    "registry_check": {
+      "source": "Orchestrator pre-scoring record; also verified by Scorer",
+      "passed": true
+    }
+  },
+  "raw_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "artifact_checks": {
+    "candidate_fast": {
+      "json_exists": true,
+      "csv_exists": true,
+      "json_record_count": 120,
+      "csv_row_count": 120,
+      "primary_score_finite": true
+    },
+    "candidate_iteration": {
+      "json_exists": true,
+      "csv_exists": true,
+      "json_record_count": 120,
+      "csv_row_count": 120,
+      "primary_score_finite": true
+    },
+    "incumbent_iteration": {
+      "json_exists": true,
+      "csv_exists": true,
+      "json_record_count": 120,
+      "csv_row_count": 120,
+      "primary_score_finite": true
+    },
+    "incumbent_validation": {
+      "json_exists": true,
+      "csv_exists": true,
+      "json_record_count": 120,
+      "csv_row_count": 120,
+      "primary_score_finite": true
+    }
+  },
+  "fast": {
+    "candidate_primary_score": -0.22400258588040814,
+    "candidate_diagnostics": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "raw_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json",
+    "raw_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.csv",
+    "verified_existing_artifact": true
+  },
+  "iteration": {
+    "candidate_primary_score": -0.21994736458089423,
+    "incumbent_primary_score": -0.2197104515448394,
+    "primary_delta": -0.00023691303605483105,
+    "candidate_diagnostics": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "incumbent_diagnostics": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_record_count": 120,
+    "incumbent_record_count": 120,
+    "early_day_1_5_mean_rmse_guardrail_by_channel": {
+      "10 m zonal wind": {
+        "candidate_mean_rmse": 4.29446825880518,
+        "incumbent_mean_rmse": 4.291454635917505,
+        "absolute_delta_rmse": 0.003013622887674927,
+        "relative_regression": 0.0007022380855321846,
+        "threshold": 0.02,
+        "passes": true
+      },
+      "2 m temperature": {
+        "candidate_mean_rmse": 4.751335466717757,
+        "incumbent_mean_rmse": 4.751335465357272,
+        "absolute_delta_rmse": 1.3604850579440608e-09,
+        "relative_regression": 2.863374030024968e-10,
+        "threshold": 0.02,
+        "passes": true
+      },
+      "500 hPa geopotential": {
+        "candidate_mean_rmse": 592.5709934659734,
+        "incumbent_mean_rmse": 592.5709106473444,
+        "absolute_delta_rmse": 8.281862903913861e-05,
+        "relative_regression": 1.3976155013864038e-07,
+        "threshold": 0.02,
+        "passes": true
+      },
+      "Mean sea level pressure": {
+        "candidate_mean_rmse": 771.1150517670918,
+        "incumbent_mean_rmse": 771.1150019948005,
+        "absolute_delta_rmse": 4.9772291276894975e-05,
+        "relative_regression": 6.454587337574659e-08,
+        "threshold": 0.02,
+        "passes": true
+      }
+    },
+    "worst_variable_lead_rmse_regression": {
+      "variable": "10 m zonal wind",
+      "lead_hours": 264,
+      "candidate_rmse": 5.485980425994694,
+      "incumbent_rmse": 5.47932500473572,
+      "absolute_delta_rmse": 0.00665542125897467,
+      "relative_regression": 0.001214642543237071,
+      "threshold": 0.1,
+      "passes": true
+    },
+    "gate": {
+      "diagnostics_pass": true,
+      "primary_delta": -0.00023691303605483105,
+      "primary_delta_threshold": 0.002,
+      "primary_delta_pass": false,
+      "early_day_1_5_mean_rmse_guardrail_pass": true,
+      "worst_variable_lead_rmse_guardrail_pass": true,
+      "promotes_to_validation": false
+    },
+    "validation_triggered": false,
+    "validation_skip_reason": "Candidate iteration primary delta -0.00023691303605483105 is below the +0.002 promotion threshold, so validation is not allowed by protocol."
+  },
+  "validation": {
+    "status": "skipped",
+    "reason": "Iteration promotion gate failed; validation allowed only if candidate iteration promotes.",
+    "candidate_primary_score": null,
+    "incumbent_primary_score": -0.21940899263836755,
+    "primary_delta": null,
+    "candidate_diagnostics": null,
+    "incumbent_diagnostics": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "candidate_raw_json": null,
+    "candidate_raw_csv": null
+  },
+  "cache_reuse": {
+    "leaderboard_path": ".logbook/leaderboard.json",
+    "leaderboard_incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+    "leaderboard_incumbent_commit": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "current_head": "ff40def55ac707e8915c840b856a0aaa3345b046",
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "recomputed": false,
+      "json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "validation_checks": [
+        "Requested incumbent equals leaderboard incumbent.",
+        "Leaderboard fingerprint includes iteration protocol.",
+        "Current HEAD equals leaderboard eval_code_commit.",
+        "JSON/CSV artifacts exist and are readable.",
+        "Primary score is finite.",
+        "Artifact contains incumbent model rows and 120 records covering 4 variables and lead hours 24..360.",
+        "Rows required for early day 1-5 and variable-lead RMSE guardrails are present."
+      ],
+      "reason": "Cache valid under roles/SCORER.md; candidate source edits do not invalidate accepted incumbent cache."
+    },
+    "validation": {
+      "incumbent_metrics_reused": true,
+      "recomputed": false,
+      "json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "validation_checks": [
+        "Requested incumbent equals leaderboard incumbent.",
+        "Leaderboard fingerprint includes validation protocol.",
+        "Current HEAD equals leaderboard eval_code_commit.",
+        "JSON/CSV artifacts exist and are readable.",
+        "Primary score is finite.",
+        "Validation comparison was not needed because candidate did not promote from iteration."
+      ],
+      "reason": "Loaded only to verify available comparable baseline; candidate validation was skipped."
+    }
+  },
+  "anomalies": [
+    "Initial rg inspection output was truncated by terminal display because the JSON files are large; structured JSON parsing was used for all scoring values.",
+    "Candidate iteration took a long supervised wall-clock interval but completed successfully with no evaluator failure.",
+    "Worktree contains candidate source/test modifications and an unrelated untracked gifs/ directory; no prohibited source, proposal, tests, or leaderboard edits were made by the Scorer."
+  ],
+  "lessons": [
+    "The roughness-aware 10 m diagnostic was effectively neutral-to-slightly-negative on the iteration primary score and did not improve enough to justify validation.",
+    "The largest RMSE regression was small and localized to 10 m zonal wind at 264 h, but the target wind channel also regressed slightly on early day 1-5 mean RMSE.",
+    "Future output-only wind diagnostic ideas should be screened for aggregate primary-score movement, because small 10 m wind changes can be outweighed by neutral behavior elsewhere."
+  ]
+}

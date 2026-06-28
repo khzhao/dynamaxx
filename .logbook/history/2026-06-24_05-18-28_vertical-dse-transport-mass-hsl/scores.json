@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "vertical-dse-transport-mass-hsl",
+  "candidate_model_name": "dino_mass_dse_vdse",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Recorded from Orchestrator full test gate: 244 passed, 2 skipped; not rerun by Scorer."
+    },
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import create_dycore_model; print(create_dycore_model('dino_mass_dse_vdse').name); print(create_dycore_model('dino_hsl2_mass_dse').name)\"",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed both candidate and incumbent construct from the registry."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_mass_dse_vdse",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate fast completed cleanly: failed=False, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_mass_dse_vdse --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate iteration completed cleanly: failed=False, issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_mass_dse_vdse --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not run because the candidate failed the iteration promotion worst variable+lead RMSE guardrail."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_mass_dse_vdse.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_mass_dse_vdse.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_mass_dse_vdse.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_mass_dse_vdse.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.2017801581629101,
+    "candidate_iteration": -0.206563907329551,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2616483974683927,
+    "incumbent_validation": -0.2600180396322455,
+    "iteration_delta": 0.0550844901388417,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_delta_passed": true,
+    "early_day_1_to_5_mean_rmse_regression_threshold": 0.02,
+    "early_day_1_to_5_mean_rmse_guardrail_passed": true,
+    "worst_variable_lead_rmse_regression_threshold": 0.1,
+    "worst_variable_lead_rmse_guardrail_passed": false,
+    "validation_ran": false,
+    "golden_ran": false
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "variable": "10 m zonal wind",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 4.371016832235197,
+        "candidate_mean_rmse": 4.309151256894787,
+        "relative_regression": -0.014153588905026937,
+        "percent_regression": -1.4153588905026937,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "variable": "2 m temperature",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 4.720167397134263,
+        "candidate_mean_rmse": 4.768261589956953,
+        "relative_regression": 0.010189086270942393,
+        "percent_regression": 1.0189086270942393,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "variable": "500 hPa geopotential",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 603.1650920588065,
+        "candidate_mean_rmse": 607.0554903137597,
+        "relative_regression": 0.006449972497038825,
+        "percent_regression": 0.6449972497038825,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure",
+        "lead_hours": [
+          24,
+          48,
+          72,
+          96,
+          120
+        ],
+        "incumbent_mean_rmse": 782.5186026540035,
+        "candidate_mean_rmse": 762.7523666099953,
+        "relative_regression": -0.025259765041966697,
+        "percent_regression": -2.5259765041966697,
+        "passes_threshold": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "variable": "Mean sea level pressure",
+        "lead_hours": 24,
+        "incumbent_rmse": 380.0773181846907,
+        "candidate_rmse": 426.628518862156,
+        "relative_regression": 0.12247823916407641,
+        "percent_regression": 12.24782391640764,
+        "passes_threshold": false
+      }
+    ],
+    "positive_rmse_regression_count": 22
+  },
+  "cache_reuse": {
+    "incumbent_iteration": {
+      "reused": true,
+      "json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "reason": "Leaderboard incumbent matched requested incumbent; HEAD matched eval_code_commit; fingerprint target variables, lead range, data path, and iteration protocol were compatible; artifact existed, was readable, finite, and contained required model rows."
+    },
+    "incumbent_validation": {
+      "reused": true,
+      "used_for_candidate_comparison": false,
+      "json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "reason": "Leaderboard validation cache was checked and retained for reporting; candidate validation did not run because iteration did not promote."
+    }
+  },
+  "anomalies": [
+    "Candidate iteration had a long quiet startup, but a separate resource check showed all four GPUs at 100% utilization and four active worker processes; the run then completed successfully.",
+    "Candidate iteration was compute-bound but completed as one uninterrupted run with --workers 4 using GPU dispatch: gpu_count=4, effective_workers=4.",
+    "No incumbent rerun was performed because the leaderboard cache satisfied the reuse conditions. Candidate source edits in the current dirty worktree were not treated as cache invalidation."
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "late-tapered-tropical-wtg-relaxation",
+  "history_path": ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation",
+  "source_artifacts": [
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/proposal.md",
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/candidate.diff",
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/implementation.md",
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/resource_snapshot.md",
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/decision.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_wtg_taper.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_wtg_taper.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_wtg_taper.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_wtg_taper.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/scores.json",
+    ".logbook/history/2026-06-26_18-54-23_late-tapered-tropical-wtg-relaxation/scoring_notes.md"
+  ],
+  "notes": "Candidate rejected because iteration delta was -0.0001229271909333196, below the +0.002 promotion threshold. Validation and golden were not run. Cached incumbent iteration artifacts were reused from .logbook/leaderboard.json; the incumbent was not rerun."
+}

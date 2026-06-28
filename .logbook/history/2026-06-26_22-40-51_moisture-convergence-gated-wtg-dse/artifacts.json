@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "moisture-convergence-gated-wtg-dse",
+  "history_path": ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse",
+  "source_artifacts": [
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/proposal.md",
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/candidate.diff",
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/implementation.md",
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/resource_snapshot.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_mfcgate.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_mfcgate.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_mfcgate.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_mfcgate.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/scores.json",
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/scoring_notes.md",
+    ".logbook/history/2026-06-26_22-40-51_moisture-convergence-gated-wtg-dse/decision.md"
+  ],
+  "notes": "Rejected candidate. Validation was skipped because iteration did not promote. Incumbent iteration artifacts were reused from the leaderboard cache; no incumbent rerun was performed."
+}

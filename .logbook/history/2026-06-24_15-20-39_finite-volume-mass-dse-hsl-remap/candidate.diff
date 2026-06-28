@@ -1,0 +1,868 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d3b94b2..6f1d8b9 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+@@ -87,6 +88,7 @@ __all__ = [
+     "digital_filter_dinosaur_dycore_model",
+     "digital_filter_surface_residual_dinosaur_dycore_model",
+     "dry_static_energy_hsl_transport_dinosaur_dycore_model",
++    "finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+     "held_suarez",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index a9c9ddb..39cb40d 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -137,6 +137,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_midpoint_semilagrangian_theta_departure: bool = False
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
++    use_finite_volume_mass_dse_hsl_remap: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -354,6 +355,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mass_weighted_dse_hsl_transport=(
+                     self.use_layer_mass_weighted_dse_hsl_transport
+                 ),
++                use_finite_volume_mass_dse_hsl_remap=(
++                    self.use_finite_volume_mass_dse_hsl_remap
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1102,6 +1106,17 @@ def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return mass-DSE HSL with conserved finite-volume-style scalar remap."""
++    return replace(
++        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_fv_remap",
++        use_finite_volume_mass_dse_hsl_remap=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2269,6 +2284,7 @@ def _primitive_equation(
+     use_midpoint_semilagrangian_theta_departure: bool = False,
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
++    use_finite_volume_mass_dse_hsl_remap: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2292,6 +2308,9 @@ def _primitive_equation(
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_finite_volume_mass_dse_hsl_remap=(
++                use_finite_volume_mass_dse_hsl_remap
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2316,6 +2335,9 @@ def _primitive_equation(
+         use_layer_mass_weighted_dse_hsl_transport=(
+             use_layer_mass_weighted_dse_hsl_transport
+         ),
++        use_finite_volume_mass_dse_hsl_remap=(
++            use_finite_volume_mass_dse_hsl_remap
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 848b142..ca050ff 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -897,6 +897,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_finite_volume_mass_dse_hsl_remap: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1564,6 +1568,157 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             accepted_first_order_horizontal_tendency,
+         )
+ 
++    @jax.named_call
++    def _horizontal_semilagrangian_finite_volume_mass_dse_remap(
++        self,
++        weighted_dse_anomaly: Array,
++        aux_state: DiagnosticStateSigma,
++    ) -> tuple[Array, Array]:
++        """Remap mass-DSE with a layer-integral conserving HSL2 correction.
++
++        This is a narrow finite-volume-style approximation: it keeps the
++        incumbent bounded HSL2 bilinear departure/remap, then applies one
++        constant correction per layer so the global quadrature integral of the
++        remapped weighted scalar equals the pre-remap integral.
++        """
++        (
++            longitude_displacement,
++            latitude_displacement,
++            valid_displacement,
++        ) = self._horizontal_semilagrangian_theta_midpoint_departure_displacement(
++            aux_state,
++            weighted_dse_anomaly.dtype,
++        )
++        remapped_weighted_dse_anomaly = jax.vmap(
++            self._horizontal_semilagrangian_remap_layer
++        )(
++            weighted_dse_anomaly,
++            longitude_displacement,
++            latitude_displacement,
++        )
++        quadrature_weights = jnp.asarray(
++            self.coords.horizontal.quadrature_weights,
++            dtype=weighted_dse_anomaly.dtype,
++        )
++        quadrature_weight_sum = jnp.sum(quadrature_weights)
++        original_integral = jnp.sum(
++            weighted_dse_anomaly * quadrature_weights,
++            axis=(-2, -1),
++        )
++        remapped_integral = jnp.sum(
++            remapped_weighted_dse_anomaly * quadrature_weights,
++            axis=(-2, -1),
++        )
++        layer_correction = (
++            (original_integral - remapped_integral) / quadrature_weight_sum
++        )[:, jnp.newaxis, jnp.newaxis]
++        corrected_weighted_dse_anomaly = (
++            remapped_weighted_dse_anomaly + layer_correction
++        )
++        corrected_integral = jnp.sum(
++            corrected_weighted_dse_anomaly * quadrature_weights,
++            axis=(-2, -1),
++        )
++        layer_minimum = jnp.min(
++            weighted_dse_anomaly,
++            axis=(-2, -1),
++            keepdims=True,
++        )
++        layer_maximum = jnp.max(
++            weighted_dse_anomaly,
++            axis=(-2, -1),
++            keepdims=True,
++        )
++        constant_scale = jnp.maximum(
++            jnp.asarray(1.0, dtype=weighted_dse_anomaly.dtype),
++            jnp.maximum(jnp.abs(layer_minimum), jnp.abs(layer_maximum)),
++        )
++        constant_tolerance = (
++            jnp.asarray(16.0, dtype=weighted_dse_anomaly.dtype)
++            * jnp.finfo(weighted_dse_anomaly.dtype).eps
++            * constant_scale
++        )
++        constant_layer = (layer_maximum - layer_minimum) <= constant_tolerance
++        corrected_weighted_dse_anomaly = jnp.where(
++            constant_layer,
++            weighted_dse_anomaly,
++            corrected_weighted_dse_anomaly,
++        )
++        corrected_integral = jnp.sum(
++            corrected_weighted_dse_anomaly * quadrature_weights,
++            axis=(-2, -1),
++        )
++        integral_scale = jnp.maximum(
++            jnp.asarray(1.0, dtype=weighted_dse_anomaly.dtype),
++            jnp.maximum(jnp.abs(original_integral), jnp.abs(remapped_integral)),
++        )
++        integral_tolerance = (
++            jnp.asarray(512.0, dtype=weighted_dse_anomaly.dtype)
++            * jnp.finfo(weighted_dse_anomaly.dtype).eps
++            * integral_scale
++        )
++        valid_remap = (
++            valid_displacement
++            & jnp.all(jnp.isfinite(weighted_dse_anomaly))
++            & jnp.all(jnp.isfinite(remapped_weighted_dse_anomaly))
++            & jnp.all(jnp.isfinite(quadrature_weights))
++            & jnp.isfinite(quadrature_weight_sum)
++            & (quadrature_weight_sum > 0.0)
++            & jnp.all(jnp.isfinite(layer_correction))
++            & jnp.all(jnp.isfinite(corrected_weighted_dse_anomaly))
++            & jnp.all(
++                jnp.abs(corrected_integral - original_integral)
++                <= integral_tolerance
++            )
++        )
++        safe_corrected_weighted_dse_anomaly = jnp.where(
++            valid_remap,
++            corrected_weighted_dse_anomaly,
++            weighted_dse_anomaly,
++        )
++        return safe_corrected_weighted_dse_anomaly, valid_remap
++
++    @jax.named_call
++    def horizontal_semilagrangian_finite_volume_mass_dse_transport(
++        self,
++        weighted_dse_anomaly: Array,
++        aux_state: DiagnosticStateSigma,
++        incumbent_horizontal_tendency: Array,
++    ) -> Array:
++        """Compute conservative finite-volume-style HSL2 mass-DSE tendency."""
++        remapped_weighted_dse_anomaly, valid_remap = (
++            self._horizontal_semilagrangian_finite_volume_mass_dse_remap(
++                weighted_dse_anomaly,
++                aux_state,
++            )
++        )
++        step = jnp.asarray(
++            self.horizontal_semilagrangian_theta_transport_step,
++            dtype=weighted_dse_anomaly.dtype,
++        )
++        finite_volume_horizontal_tendency = (
++            remapped_weighted_dse_anomaly - weighted_dse_anomaly
++        ) / step
++        finite_candidate = (
++            valid_remap
++            & jnp.isfinite(step)
++            & (step > 0.0)
++            & jnp.all(jnp.isfinite(finite_volume_horizontal_tendency))
++        )
++        horizontal_wind_present = jnp.any(
++            jnp.asarray(
++                [
++                    jnp.any(aux_state.cos_lat_u[0] != 0.0),
++                    jnp.any(aux_state.cos_lat_u[1] != 0.0),
++                ]
++            )
++        )
++        return jnp.where(
++            finite_candidate & horizontal_wind_present,
++            finite_volume_horizontal_tendency,
++            incumbent_horizontal_tendency,
++        )
++
+     @jax.named_call
+     def temperature_tendency_potential_temperature_form(
+         self,
+@@ -1701,7 +1856,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             + self.coords.horizontal.to_nodal(weighted_dse_dt_horizontal_modal)
+         )
+         if self.use_horizontal_semilagrangian_theta_transport:
+-            weighted_dse_dt_horizontal_nodal = (
++            accepted_weighted_dse_dt_horizontal_nodal = (
+                 self.horizontal_semilagrangian_theta_transport(
+                     weighted_dse_anomaly,
+                     aux_state,
+@@ -1709,10 +1864,53 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                 )
+             )
+         else:
+-            weighted_dse_dt_horizontal_nodal = (
++            accepted_weighted_dse_dt_horizontal_nodal = (
+                 incumbent_weighted_dse_dt_horizontal_nodal
+             )
+ 
++        accepted_layer_mass_dse_dt_horizontal_nodal = (
++            accepted_weighted_dse_dt_horizontal_nodal
++            / safe_layer_pressure_thickness
++        )
++        accepted_dT_dt_horizontal_mass_dse_nodal = (
++            accepted_layer_mass_dse_dt_horizontal_nodal / self.physics_specs.Cp
++        )
++        accepted_mass_dse_temperature_tendency = self.coords.horizontal.to_modal(
++            accepted_dT_dt_horizontal_mass_dse_nodal
++            + temperature_vertical_nodal
++            + dT_dt_adiabatic
++        )
++        finite_accepted_mass_dse_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(valid_layer_pressure_thickness),
++                    jnp.all(jnp.isfinite(weighted_dse_anomaly)),
++                    jnp.all(jnp.isfinite(accepted_weighted_dse_dt_horizontal_nodal)),
++                    jnp.all(jnp.isfinite(accepted_layer_mass_dse_dt_horizontal_nodal)),
++                    jnp.all(jnp.isfinite(accepted_dT_dt_horizontal_mass_dse_nodal)),
++                    jnp.all(jnp.isfinite(accepted_mass_dse_temperature_tendency)),
++                ]
++            )
++        )
++        accepted_mass_dse_temperature_tendency = jnp.where(
++            (
++                finite_theta_diagnostics
++                & finite_dse_diagnostics
++                & finite_accepted_mass_dse_diagnostics
++            ),
++            accepted_mass_dse_temperature_tendency,
++            incumbent_dse_temperature_tendency,
++        )
++        if not self.use_finite_volume_mass_dse_hsl_remap:
++            return accepted_mass_dse_temperature_tendency
++
++        weighted_dse_dt_horizontal_nodal = (
++            self.horizontal_semilagrangian_finite_volume_mass_dse_transport(
++                weighted_dse_anomaly,
++                aux_state,
++                accepted_weighted_dse_dt_horizontal_nodal,
++            )
++        )
+         layer_mass_dse_dt_horizontal_nodal = (
+             weighted_dse_dt_horizontal_nodal / safe_layer_pressure_thickness
+         )
+@@ -1743,7 +1941,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                 & finite_mass_dse_diagnostics
+             ),
+             mass_dse_temperature_tendency,
+-            incumbent_dse_temperature_tendency,
++            accepted_mass_dse_temperature_tendency,
+         )
+ 
+     @jax.named_call
+@@ -3170,6 +3368,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_finite_volume_mass_dse_hsl_remap: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3196,6 +3395,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_finite_volume_mass_dse_hsl_remap=(
++                use_finite_volume_mass_dse_hsl_remap
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3228,6 +3430,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_finite_volume_mass_dse_hsl_remap: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3254,6 +3457,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_finite_volume_mass_dse_hsl_remap=(
++                use_finite_volume_mass_dse_hsl_remap
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3283,6 +3489,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
++        use_finite_volume_mass_dse_hsl_remap: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3312,6 +3519,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_layer_mass_weighted_dse_hsl_transport=(
+                 use_layer_mass_weighted_dse_hsl_transport
+             ),
++            use_finite_volume_mass_dse_hsl_remap=(
++                use_finite_volume_mass_dse_hsl_remap
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 1d7cbc9..6a11196 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -206,6 +206,15 @@ def dino_hsl2_mass_dse_model() -> DycoreModel:
+     return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_fv_remap_model() -> DycoreModel:
++    """Return mass-DSE HSL with finite-volume-style remap correction."""
++    from dynamaxx.dycore.models.dinosaur import (
++        finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model,
++    )
++
++    return finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -283,6 +292,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta": dino_hsl2_theta_model,
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
++    "dino_hsl2_mass_dse_fv_remap": dino_hsl2_mass_dse_fv_remap_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index aa6c347..146df21 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -130,6 +130,9 @@ assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name ==
+ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse"
+ )
++assert dinosaur.finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_fv_remap"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -229,6 +232,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_hsl2_mass_dse_fv_remap",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -709,6 +713,25 @@ def test_dinosaur_layer_mass_dse_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_fv_remap_mass_dse_is_registered():
++    """The FV-remap candidate is side-by-side with the mass-DSE incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_fv_remap")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_hsl2_mass_dse_fv_remap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_finite_volume_mass_dse_hsl_remap
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_finite_volume_mass_dse_hsl_remap
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_finite_volume_mass_dse_hsl_remap"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 9ee521a..14795ea 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -73,6 +73,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -613,6 +614,24 @@ def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_fv_remap_factory_preserves_mass_dse_except_selector():
++    """The FV-remap candidate changes only name and remap selector."""
++    model = finite_volume_mass_dse_hsl_remap_dinosaur_dycore_model()
++    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_fv_remap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_finite_volume_mass_dse_hsl_remap
++    assert not incumbent.use_finite_volume_mass_dse_hsl_remap
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_finite_volume_mass_dse_hsl_remap"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4912,6 +4931,229 @@ def test_layer_mass_dse_invalid_pressure_thickness_falls_back_to_dse_hsl(
+     np.testing.assert_array_equal(actual_tendency, expected_tendency)
+ 
+ 
++def test_fv_remap_disabled_selector_is_mass_dse_equivalent():
++    """Explicitly disabling FV remap keeps accepted mass-DSE behavior unchanged."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    disabled_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_finite_volume_mass_dse_hsl_remap=False,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            state,
++            aux_state,
++        )
++    )
++    disabled_tendency = disabled_equation.temperature_tendency_potential_temperature_form(
++        state,
++        aux_state,
++    )
++
++    np.testing.assert_array_equal(disabled_tendency, incumbent_tendency)
++
++
++def test_finite_volume_mass_dse_constant_weighted_scalar_has_zero_tendency():
++    """A constant weighted mass-DSE scalar has no FV-remap HSL tendency."""
++    coords, equation, aux_state, _ = _finite_volume_mass_dse_remap_test_setup()
++    weighted_dse_anomaly = jnp.full(coords.nodal_shape, 12.5, dtype=jnp.float32)
++
++    tendency = equation.horizontal_semilagrangian_finite_volume_mass_dse_transport(
++        weighted_dse_anomaly,
++        aux_state,
++        incumbent_horizontal_tendency=jnp.full_like(weighted_dse_anomaly, 3.0),
++    )
++
++    np.testing.assert_allclose(tendency, 0.0, rtol=0.0, atol=1.0e-6)
++
++
++def test_finite_volume_mass_dse_remap_is_periodic_and_polar_finite():
++    """The FV-remap helper keeps periodic longitude and finite polar rows."""
++    coords, equation, _, _ = (
++        _finite_volume_mass_dse_remap_test_setup(
++            latitude_spacing="equiangular_with_poles",
++        )
++    )
++    longitude = jnp.asarray(coords.horizontal.longitudes, dtype=jnp.float32)[
++        :, jnp.newaxis
++    ]
++    latitude = jnp.asarray(coords.horizontal.latitudes, dtype=jnp.float32)[
++        jnp.newaxis, :
++    ]
++    longitude_wave = jnp.sin(longitude) + 0.25 * jnp.cos(2.0 * longitude)
++    latitude_wave = jnp.cos(latitude)
++    weighted_dse_anomaly = jnp.stack(
++        [
++            2.0 + longitude_wave + 0.2 * latitude_wave,
++            -0.5 + 0.3 * longitude_wave - 0.4 * latitude_wave,
++        ],
++        axis=0,
++    )
++    u_cos_lat = jnp.stack(
++        [
++            jnp.broadcast_to(2.0e-2 + 1.0e-3 * latitude_wave, coords.nodal_shape[1:]),
++            jnp.broadcast_to(-1.0e-2 + 5.0e-4 * latitude_wave, coords.nodal_shape[1:]),
++        ],
++        axis=0,
++    )
++    v_cos_lat = jnp.stack(
++        [
++            jnp.broadcast_to(-1.0e-2 + 6.0e-4 * latitude_wave, coords.nodal_shape[1:]),
++            jnp.broadcast_to(8.0e-3 - 2.0e-4 * latitude_wave, coords.nodal_shape[1:]),
++        ],
++        axis=0,
++    )
++    aux_state = _hsl_theta_aux_state(
++        coords,
++        u_cos_lat=u_cos_lat,
++        v_cos_lat=v_cos_lat,
++        temperature_variation=weighted_dse_anomaly,
++    )
++    remapped_weighted_dse_anomaly, valid_remap = (
++        equation._horizontal_semilagrangian_finite_volume_mass_dse_remap(
++            weighted_dse_anomaly,
++            aux_state,
++        )
++    )
++    tendency = equation.horizontal_semilagrangian_finite_volume_mass_dse_transport(
++        weighted_dse_anomaly,
++        aux_state,
++        incumbent_horizontal_tendency=jnp.zeros_like(weighted_dse_anomaly),
++    )
++    shifted_weighted_dse_anomaly = jnp.roll(weighted_dse_anomaly, shift=3, axis=1)
++    shifted_aux_state = _hsl_theta_aux_state(
++        coords,
++        u_cos_lat=jnp.roll(aux_state.cos_lat_u[0], shift=3, axis=1),
++        v_cos_lat=jnp.roll(aux_state.cos_lat_u[1], shift=3, axis=1),
++        temperature_variation=shifted_weighted_dse_anomaly,
++    )
++    shifted_remapped_weighted_dse_anomaly, shifted_valid_remap = (
++        equation._horizontal_semilagrangian_finite_volume_mass_dse_remap(
++            shifted_weighted_dse_anomaly,
++            shifted_aux_state,
++        )
++    )
++
++    assert bool(valid_remap)
++    assert bool(shifted_valid_remap)
++    assert bool(jnp.isfinite(tendency[:, :, 0]).all())
++    assert bool(jnp.isfinite(tendency[:, :, -1]).all())
++    np.testing.assert_allclose(
++        shifted_remapped_weighted_dse_anomaly,
++        jnp.roll(remapped_weighted_dse_anomaly, shift=3, axis=1),
++        rtol=1.0e-6,
++        atol=2.0e-6,
++    )
++
++
++def test_finite_volume_mass_dse_remap_preserves_layer_global_integral():
++    """The corrected remap preserves each layer's quadrature integral."""
++    coords, equation, aux_state, weighted_dse_anomaly = (
++        _finite_volume_mass_dse_remap_test_setup()
++    )
++
++    remapped_weighted_dse_anomaly, valid_remap = (
++        equation._horizontal_semilagrangian_finite_volume_mass_dse_remap(
++            weighted_dse_anomaly,
++            aux_state,
++        )
++    )
++
++    quadrature_weights = jnp.asarray(
++        coords.horizontal.quadrature_weights,
++        dtype=weighted_dse_anomaly.dtype,
++    )
++    original_integral = jnp.sum(
++        weighted_dse_anomaly * quadrature_weights,
++        axis=(-2, -1),
++    )
++    remapped_integral = jnp.sum(
++        remapped_weighted_dse_anomaly * quadrature_weights,
++        axis=(-2, -1),
++    )
++    assert bool(valid_remap)
++    np.testing.assert_allclose(
++        remapped_integral,
++        original_integral,
++        rtol=1.0e-6,
++        atol=1.0e-5,
++    )
++
++
++def test_fv_remap_invalid_diagnostics_fall_back_to_mass_dse(monkeypatch):
++    """Invalid FV remap diagnostics reproduce accepted mass-DSE tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_finite_volume_mass_dse_hsl_remap=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++    expected_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            state,
++            aux_state,
++        )
++    )
++
++    def nonfinite_fv_remap(weighted_dse_anomaly, aux_state):
++        del aux_state
++        return jnp.full_like(weighted_dse_anomaly, jnp.nan), jnp.asarray(False)
++
++    monkeypatch.setattr(
++        candidate_equation,
++        "_horizontal_semilagrangian_finite_volume_mass_dse_remap",
++        nonfinite_fv_remap,
++    )
++
++    actual_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            state,
++            aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(actual_tendency, expected_tendency)
++
++
+ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     """DSE-HSL changes only the horizontal thermal transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -6413,6 +6655,99 @@ def _hsl_theta_aux_state(
+     )
+ 
+ 
++def _finite_volume_mass_dse_remap_test_setup(
++    *,
++    latitude_spacing: str = "gauss",
++) -> tuple[
++    coordinate_systems.CoordinateSystem,
++    primitive_equations.PrimitiveEquations,
++    primitive_equations.DiagnosticStateSigma,
++    jax.Array,
++]:
++    """Build a synthetic finite-volume mass-DSE remap test case."""
++    physics_specs = units.SimUnits.from_si()
++    horizontal_grid = spherical_harmonic.Grid(
++        longitude_wavenumbers=4,
++        total_wavenumbers=6,
++        longitude_nodes=16,
++        latitude_nodes=9,
++        latitude_spacing=latitude_spacing,
++        radius=physics_specs.radius,
++    )
++    coords = coordinate_systems.CoordinateSystem(
++        horizontal_grid,
++        sigma_coordinates.SigmaCoordinates.equidistant(2),
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=2,
++        temperature_kelvin=250.0,
++    )
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_horizontal_semilagrangian_theta_transport=True,
++        use_midpoint_semilagrangian_theta_departure=True,
++        use_dry_static_energy_hsl_transport=True,
++        use_layer_mass_weighted_dse_hsl_transport=True,
++        use_finite_volume_mass_dse_hsl_remap=True,
++        horizontal_semilagrangian_theta_transport_step=1.0e-3,
++    )
++    longitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[0],
++        dtype=jnp.float32,
++    )[:, jnp.newaxis]
++    latitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[1],
++        dtype=jnp.float32,
++    )[jnp.newaxis, :]
++    weighted_dse_anomaly = jnp.stack(
++        [
++            3.0 + 0.7 * longitude_pattern - 0.2 * latitude_pattern,
++            -1.0 + 0.1 * longitude_pattern + 0.5 * latitude_pattern,
++        ],
++        axis=0,
++    )
++    u_cos_lat = jnp.stack(
++        [
++            jnp.broadcast_to(
++                2.0e-2 + 1.0e-3 * longitude_pattern,
++                coords.horizontal.nodal_shape,
++            ),
++            jnp.broadcast_to(
++                -1.0e-2 + 5.0e-4 * longitude_pattern,
++                coords.horizontal.nodal_shape,
++            ),
++        ],
++        axis=0,
++    )
++    v_cos_lat = jnp.stack(
++        [
++            jnp.broadcast_to(
++                -1.5e-2 + 8.0e-4 * latitude_pattern,
++                coords.horizontal.nodal_shape,
++            ),
++            jnp.broadcast_to(
++                1.0e-2 - 3.0e-4 * latitude_pattern,
++                coords.horizontal.nodal_shape,
++            ),
++        ],
++        axis=0,
++    )
++    aux_state = _hsl_theta_aux_state(
++        coords,
++        u_cos_lat=u_cos_lat,
++        v_cos_lat=v_cos_lat,
++        temperature_variation=weighted_dse_anomaly,
++    )
++    return coords, equation, aux_state, weighted_dse_anomaly
++
++
+ def _dinosaur_state_with_hs_equilibrium_offset(
+     *,
+     coords: coordinate_systems.CoordinateSystem,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 091dbd0..42c8251 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -54,6 +54,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_hsl2_mass_dse_fv_remap",
+     )
+ 
+ 
+@@ -620,6 +621,24 @@ def test_registry_creates_layer_mass_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_fv_remap_mass_dse_candidate_model():
++    """The FV-remap alias adds only the finite-volume remap selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_fv_remap")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_hsl2_mass_dse_fv_remap"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_finite_volume_mass_dse_hsl_remap
++    assert not incumbent.use_finite_volume_mass_dse_hsl_remap
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_finite_volume_mass_dse_hsl_remap"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

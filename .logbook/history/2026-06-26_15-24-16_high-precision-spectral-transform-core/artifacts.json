@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "high-precision-spectral-transform-core",
+  "history_path": ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core",
+  "source_artifacts": [
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/proposal.md",
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/candidate.diff",
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/implementation.md",
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/resource_snapshot.md",
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/pre_scoring_status.txt"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_sht_highprec",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/scores.json",
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/scoring_notes.md",
+    ".logbook/history/2026-06-26_15-24-16_high-precision-spectral-transform-core/decision.md"
+  ],
+  "notes": "Rejected because iteration delta was -0.000015476484493626153 versus the cached incumbent, below the fixed +0.002 promotion threshold. Diagnostics and RMSE guardrails were clean. Validation and golden were not run. Incumbent iteration metrics were reused from the leaderboard cache and not recomputed."
+}

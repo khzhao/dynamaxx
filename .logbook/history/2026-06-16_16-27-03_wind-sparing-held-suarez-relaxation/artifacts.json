@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "wind-sparing-held-suarez-relaxation",
+  "history_path": ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual.csv",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual.json",
+    "outputs/eval/validation_dinosaur_dfi_surface_residual.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation/proposal.md",
+    ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation/implementation.md",
+    ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation/scores.json",
+    ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation/scoring_notes.md",
+    ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation/decision.md",
+    ".logbook/history/2026-06-16_16-27-03_wind-sparing-held-suarez-relaxation/artifacts.json",
+    ".logbook/leaderboard.json"
+  ],
+  "notes": "Accepted as incumbent in commit 4756cc9a4b69c41eec60e2177fb03a73974f0e2d after fixed iteration and validation gates passed."
+}

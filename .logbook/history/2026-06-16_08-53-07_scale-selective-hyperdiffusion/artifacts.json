@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "scale-selective-hyperdiffusion",
+  "history_path": ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/test_registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_hyperdiffusion.json",
+    "outputs/eval/fast_dinosaur_hyperdiffusion.csv",
+    "outputs/eval/iteration_dinosaur_hyperdiffusion.json",
+    "outputs/eval/iteration_dinosaur_hyperdiffusion.csv",
+    "outputs/eval/runs/iteration_dinosaur_hyperdiffusion",
+    "outputs/eval/iteration_dinosaur.json",
+    "outputs/eval/iteration_dinosaur.csv",
+    "outputs/eval/validation_dinosaur.json",
+    "outputs/eval/validation_dinosaur.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion/proposal.md",
+    ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion/implementation.md",
+    ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion/scores.json",
+    ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion/scoring_notes.md",
+    ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion/decision.md",
+    ".logbook/history/2026-06-16_08-53-07_scale-selective-hyperdiffusion/artifacts.json"
+  ],
+  "notes": "Candidate source changes were rejected and reverted. Ignored evaluation artifacts are retained for reproducibility."
+}

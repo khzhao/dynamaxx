@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "land-sea-wind-residual-memory",
+  "history_path": ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory/candidate.diff",
+      "description": "Rollback diff for the rejected source and test implementation."
+    }
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_landsea_surface_landsea_wind.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory/proposal.md",
+    ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory/implementation.md",
+    ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory/scores.json",
+    ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory/scoring_notes.md",
+    ".logbook/history/2026-06-22_01-43-33_land-sea-wind-residual-memory/decision.md"
+  ],
+  "notes": "Rejected because iteration delta was -0.0005121116477311283 against the cached incumbent, below the +0.002 promotion threshold. Incumbent metrics were reused from the leaderboard cache; no incumbent rerun was performed."
+}

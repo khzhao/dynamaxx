@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "vector-wind-pchip-sigma-init",
+  "history_path": ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/vertical_interpolation.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_vertical_interpolation.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_vector_wind_pchip_init.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init/proposal.md",
+    ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init/implementation.md",
+    ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init/scores.json",
+    ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init/scoring_notes.md",
+    ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init/decision.md",
+    ".logbook/history/2026-06-21_02-46-40_vector-wind-pchip-sigma-init/artifacts.json"
+  ],
+  "notes": "Rejected after the iteration gate. Candidate outputs were retained; implementation changes were reverted; leaderboard was not updated."
+}

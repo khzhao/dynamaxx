@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "roughness-aware-surface-wind-diagnostic",
+  "history_path": ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic",
+  "source_artifacts": [
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/proposal.md",
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/candidate.diff",
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/implementation.md",
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/resource_snapshot.md",
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/pre_scoring_status.txt"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_z0_10m.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_z0_10m",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/scores.json",
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/scoring_notes.md",
+    ".logbook/history/2026-06-26_04-36-24_roughness-aware-surface-wind-diagnostic/decision.md"
+  ],
+  "notes": "Rejected because iteration delta was -0.00023691303605483105 versus the cached incumbent, below the +0.002 promotion threshold. Validation and golden were not run. Incumbent iteration metrics were reused from the leaderboard cache and not recomputed."
+}

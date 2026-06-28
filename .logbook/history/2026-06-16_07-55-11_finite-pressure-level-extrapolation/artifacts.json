@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "finite-pressure-level-extrapolation",
+  "history_path": ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/vertical_interpolation.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur.json",
+    "outputs/eval/fast_dinosaur.csv",
+    "outputs/eval/iteration_dinosaur.json",
+    "outputs/eval/iteration_dinosaur.csv",
+    "outputs/eval/validation_dinosaur.json",
+    "outputs/eval/validation_dinosaur.csv",
+    "outputs/eval/runs/iteration_dinosaur",
+    "outputs/eval/runs/validation_dinosaur"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation/proposal.md",
+    ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation/implementation.md",
+    ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation/scores.json",
+    ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation/scoring_notes.md",
+    ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation/decision.md",
+    ".logbook/history/2026-06-16_07-55-11_finite-pressure-level-extrapolation/artifacts.json"
+  ],
+  "notes": "Accepted infrastructure repair. Source change retained in commit 4beb6c221f8655f80b6530713ffc75697e9c654e."
+}

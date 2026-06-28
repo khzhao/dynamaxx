@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "mass-diagnostic-analysis-residuals",
+  "candidate_model_name": "dinosaur_dfi_surface_mass_residual",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual",
+  "baseline_commit": "845de671268f42c6b44b0a60c287e043087364a1",
+  "candidate_commit": null,
+  "scored_at": "2026-06-16T16:20:52Z",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "845de671268f42c6b44b0a60c287e043087364a1",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import dycore_model_names\nrequired = {'dinosaur_dfi_surface_mass_residual', 'dinosaur_dfi_surface_residual'}\nregistered = set(dycore_model_names())\nmissing = sorted(required - registered)\nprint('registered_models=' + ','.join(dycore_model_names()))\nif missing:\n    raise SystemExit('missing registered models: ' + ','.join(missing))\nprint('registration_check=pass')\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed both candidate and incumbent models are registered."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not rerun by Scorer; Orchestrator provided passing full pytest record: exit 0, 102 passed, 2 skipped. roles/SCORER.md permits using this provided passing test record."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_mass_residual",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Not rerun by Scorer; Orchestrator provided passing fast eval record. Scorer verified the artifact with a separate JSON check."
+    },
+    {
+      "command": "uv run python - <<'PY'\nimport json\nfrom pathlib import Path\npath = Path('outputs/eval/fast_dinosaur_dfi_surface_mass_residual.json')\nwith path.open() as handle:\n    data = json.load(handle)\nexpected = 'dinosaur_dfi_surface_mass_residual'\nassert data['model_name'] == expected, data['model_name']\nassert data['diagnostics']['failed'] is False, data['diagnostics']\nprint(f'fast_artifact={path}')\nprint(f\"model_name={data['model_name']}\")\nprint(f\"primary_score={data['primary_score']}\")\nprint(f\"diagnostics_failed={data['diagnostics']['failed']}\")\nprint(f\"diagnostics_issue_count={len(data['diagnostics']['issues'])}\")\nprint('fast_gate_verification=pass')\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified candidate fast artifact model_name, primary score, and clean diagnostics."
+    },
+    {
+      "command": "nproc && free -h && df -h . outputs/eval .logbook",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Observed 48 CPUs, 175 GiB available RAM, and 4.1 TiB available disk on the output filesystem."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_mass_residual --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Completed candidate iteration protocol. Run reported cached=0, pending=229, effective_workers=4, gpu_count=4, failed=False, issues=0."
+    },
+    {
+      "command": "uv run python - <<'PY'\n# Filtered comparison of candidate/incumbent iteration records by exact model_name.\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Computed primary delta and RMSE guardrails using exact model_name filters to exclude persistence rows."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_mass_residual.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_mass_residual.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_mass_residual.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_mass_residual.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.2470991177529807,
+    "candidate_iteration": -1.284988567046514,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2854136202685928,
+    "incumbent_validation": -1.2725740410982802,
+    "iteration_delta": 0.00042505322207886387,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_required": 0.002,
+    "iteration_primary_gate_passed": false,
+    "iteration_diagnostics_gate_passed": true,
+    "iteration_early_mean_rmse_gate_passed": true,
+    "iteration_variable_lead_rmse_gate_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_allowed_by_orchestrator": true,
+    "validation_run": false,
+    "validation_not_run_reason": "Candidate failed the iteration promotion primary-score gate: delta 0.00042505322207886387 < 0.002.",
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 9.191501155496947,
+        "incumbent_mean_rmse": 9.191500982911077,
+        "relative_regression_fraction": 1.877667980982714e-08,
+        "guardrail_threshold_fraction": 0.02,
+        "gate_passed": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "candidate_mean_rmse": 7.807050708472215,
+        "incumbent_mean_rmse": 7.807050586677929,
+        "relative_regression_fraction": 1.5600550464457382e-08,
+        "guardrail_threshold_fraction": 0.02,
+        "gate_passed": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 764.5017376496944,
+        "incumbent_mean_rmse": 766.5217952826715,
+        "relative_regression_fraction": -0.0026353557660185956,
+        "guardrail_threshold_fraction": 0.02,
+        "gate_passed": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 1056.4650701379849,
+        "incumbent_mean_rmse": 1057.7060920239628,
+        "relative_regression_fraction": -0.0011733144919333861,
+        "guardrail_threshold_fraction": 0.02,
+        "gate_passed": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 312,
+        "candidate_rmse": 14.645534984209284,
+        "incumbent_rmse": 14.645527556439532,
+        "relative_regression_fraction": 5.071698321232043e-07,
+        "guardrail_threshold_fraction": 0.1,
+        "gate_passed": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 96,
+        "candidate_rmse": 9.66877974678154,
+        "incumbent_rmse": 9.668779436077765,
+        "relative_regression_fraction": 3.213474644352434e-08,
+        "guardrail_threshold_fraction": 0.1,
+        "gate_passed": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 360,
+        "candidate_rmse": 2163.5769933960482,
+        "incumbent_rmse": 2163.5952734093744,
+        "relative_regression_fraction": -8.448906110495681e-06,
+        "guardrail_threshold_fraction": 0.1,
+        "gate_passed": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 144,
+        "candidate_rmse": 1859.462137073888,
+        "incumbent_rmse": 1859.3833848927804,
+        "relative_regression_fraction": 4.2353923213160284e-05,
+        "guardrail_threshold_fraction": 0.1,
+        "gate_passed": true
+      }
+    ],
+    "global_max_rmse_regression": {
+      "channel_name": "mean_sea_level_pressure",
+      "lead_hours": 144,
+      "candidate_rmse": 1859.462137073888,
+      "incumbent_rmse": 1859.3833848927804,
+      "relative_regression_fraction": 4.2353923213160284e-05,
+      "guardrail_threshold_fraction": 0.1,
+      "gate_passed": true
+    }
+  },
+  "cache_and_resources": {
+    "candidate_iteration_cache_reuse": "none; run reported cached=0 and pending=229",
+    "incumbent_artifact_reuse": "Reused compatible incumbent iteration and validation artifacts provided by Orchestrator from .logbook/leaderboard.json.",
+    "resource_check": "48 CPUs, 175 GiB available RAM, 4.1 TiB free disk.",
+    "resource_anomalies": []
+  },
+  "measurement_lessons": [
+    "Candidate iteration metrics include persistence rows; exact model_name filtering was required for candidate and incumbent comparisons.",
+    "The mass diagnostic residual produced very small RMSE movements relative to the surface residual incumbent; guardrails were clean, but the primary-score gain did not reach the iteration promotion threshold.",
+    "Validation was not run because the iteration primary-score gate failed, even though validation was allowed by the Orchestrator if the gate passed."
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dry-static-energy-hsl-transport",
+  "history_path": ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport",
+  "source_artifacts": [
+    ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport/proposal.md",
+    ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport/implementation.md",
+    ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_theta_dse_hsl.json",
+    "outputs/eval/fast_dino_hsl2_theta_dse_hsl.csv",
+    "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+    "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.csv",
+    "outputs/eval/validation_dino_hsl2_theta_dse_hsl.json",
+    "outputs/eval/validation_dino_hsl2_theta_dse_hsl.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_theta_dse_hsl/manifest.json",
+    "outputs/eval/runs/iteration_dino_hsl2_theta_dse_hsl/chunks/",
+    "outputs/eval/runs/validation_dino_hsl2_theta_dse_hsl/manifest.json",
+    "outputs/eval/runs/validation_dino_hsl2_theta_dse_hsl/chunks/"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport/scores.json",
+    ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport/scoring_notes.md",
+    ".logbook/history/2026-06-23_11-22-34_dry-static-energy-hsl-transport/decision.md"
+  ],
+  "notes": "Accepted because the candidate improved iteration by +0.045455173259026704 and validation by +0.04175545761164218 over cached dino_hsl2_theta incumbent artifacts, with clean diagnostics and no fixed guardrail failures. Incumbent iteration and validation metrics were reused from leaderboard artifacts; no incumbent rerun was performed. Candidate source was committed as a274541cc57f593b8e5796e1df8307e8820c2d6b with the full positive-commit protocol body."
+}

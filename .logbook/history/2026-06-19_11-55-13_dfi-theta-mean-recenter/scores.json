@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dfi-theta-mean-recenter",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter",
+  "scored_at": "2026-06-19T14:44:08Z",
+  "worker_count": 4,
+  "validation_allowed_if_iteration_promotes": true,
+  "golden_run": false,
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "notes": "The first probe used a nonexistent list_dycore_models helper and failed before model checks. The second probe used dycore_model_names and create_dycore_model and confirmed both requested models."
+  },
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "54375ce2994827fcc2dfe09ce0df3924cbaa6c75",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "uncommitted_eval_or_registry_changes": [
+      "src/dynamaxx/dycore/registry.py"
+    ],
+    "uncommitted_incumbent_source_changes": [
+      "src/dynamaxx/dycore/models/dinosaur/adapter.py"
+    ]
+  },
+  "pytest": {
+    "rerun_by_scorer": false,
+    "source": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/implementation.md",
+    "verified_records": [
+      {
+        "command": "python -m compileall -q src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+        "status": "pass"
+      },
+      {
+        "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -k 'dfi_theta or theta_layer_mean_recenter or trajectory_function_applies_theta_recenter_to_rollout_only' tests/dycore/test_registry.py tests/dycore/models/dinosaur/test_dependency.py",
+        "status": "pass",
+        "notes": "9 passed, 108 deselected"
+      },
+      {
+        "command": "uv run pytest tests/dycore/test_registry.py tests/dycore/models/dinosaur/test_dependency.py",
+        "status": "pass",
+        "notes": "34 passed"
+      },
+      {
+        "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py",
+        "status": "pass",
+        "notes": "83 passed"
+      },
+      {
+        "command": "uv run pytest",
+        "status": "pass",
+        "notes": "183 passed, 2 skipped"
+      },
+      {
+        "command": "git diff --check",
+        "status": "pass"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import create_dycore_model, list_dycore_models; candidate='dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta'; incumbent='dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter'; models=set(list_dycore_models()); assert candidate in models, candidate; assert incumbent in models, incumbent; assert create_dycore_model(candidate).name == candidate; assert create_dycore_model(incumbent).name == incumbent; print('registered', candidate, incumbent, sep='\\n')\"",
+      "exit_status": 1,
+      "notes": "Failed because registry exposes dycore_model_names(), not list_dycore_models()."
+    },
+    {
+      "command": "git diff --name-only -- src/dynamaxx/eval src/dynamaxx/dycore/registry.py src/dynamaxx/dycore/models/dinosaur/adapter.py",
+      "exit_status": 0,
+      "notes": "Reported src/dynamaxx/dycore/models/dinosaur/adapter.py and src/dynamaxx/dycore/registry.py."
+    },
+    {
+      "command": "git rev-parse HEAD",
+      "exit_status": 0,
+      "notes": "54375ce2994827fcc2dfe09ce0df3924cbaa6c75"
+    },
+    {
+      "command": "mkdir -p .logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots && cp outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json .logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.json && cp outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv .logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.csv",
+      "exit_status": 0,
+      "notes": "Preserved incumbent leaderboard iteration JSON/CSV before overwriting with the required --restart rerun."
+    },
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import create_dycore_model, dycore_model_names; candidate='dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta'; incumbent='dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter'; models=set(dycore_model_names()); assert candidate in models, candidate; assert incumbent in models, incumbent; assert create_dycore_model(candidate).name == candidate; assert create_dycore_model(incumbent).name == incumbent; print('registered', candidate, incumbent, sep='\\n')\"",
+      "exit_status": 0,
+      "notes": "Confirmed candidate and incumbent are registered and instantiate with matching names."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta",
+      "exit_status": 0,
+      "notes": "failed=False issues=0 records=120 primary_score=-0.5580695796244858"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta --workers 4",
+      "exit_status": 0,
+      "notes": "failed=False issues=0 records=120 primary_score=-0.5721268800247525"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter --workers 4 --restart",
+      "exit_status": 0,
+      "notes": "failed=False issues=0 records=120 primary_score=-0.5719847137456165"
+    },
+    {
+      "command": "uv run python - <<'PY' ... diagnostics and guardrail comparison ... PY",
+      "exit_status": 0,
+      "notes": "Computed primary deltas, diagnostic counts, early lead RMSE guardrails, and variable+lead RMSE guardrails from raw JSON metrics."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv",
+    "incumbent_validation_json": null,
+    "incumbent_validation_csv": null,
+    "cache_snapshot_iteration_incumbent_json": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.json",
+    "cache_snapshot_iteration_incumbent_csv": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.csv"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "reused": false,
+      "recomputed": true,
+      "reason": "Incumbent Metric Reuse conditions failed: the candidate edited incumbent source in place through shared src/dynamaxx/dycore/models/dinosaur/adapter.py, and src/dynamaxx/dycore/registry.py had uncommitted evaluation/registry changes. The incumbent leaderboard artifact path was snapshotted before rerunning.",
+      "snapshot_paths": [
+        ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.json",
+        ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.csv"
+      ],
+      "recompute_command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter --workers 4 --restart"
+    },
+    "validation": {
+      "reused": null,
+      "recomputed": false,
+      "reason": "Validation was not run because the iteration primary promotion gate failed."
+    }
+  },
+  "primary_scores": {
+    "candidate_fast": -0.5580695796244858,
+    "candidate_iteration": -0.5721268800247525,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.5719847137456165,
+    "incumbent_validation": null,
+    "iteration_delta": -0.00014216627913599122,
+    "validation_delta": null
+  },
+  "thresholds": {
+    "iteration_primary_delta_minimum": 0.002,
+    "validation_primary_delta_minimum": 0.001,
+    "early_day_1_to_5_mean_rmse_regression_maximum": 0.02,
+    "variable_lead_rmse_regression_maximum": 0.10
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": null,
+    "incumbent_validation_issue_count": null
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_delta_passed": false,
+    "iteration_diagnostics_passed": true,
+    "iteration_early_day_1_to_5_guardrail_passed": true,
+    "iteration_variable_lead_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_run": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.73633800876283,
+        "incumbent_mean_rmse": 4.735100942685962,
+        "relative_regression": 0.0002612544255848892,
+        "threshold_exceeded": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 865.2511338604363,
+        "incumbent_mean_rmse": 865.1986421441995,
+        "relative_regression": 0.000060670132475904026,
+        "threshold_exceeded": false
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 641.9700247433882,
+        "incumbent_mean_rmse": 641.979219077037,
+        "relative_regression": -0.000014321855561050256,
+        "threshold_exceeded": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 6.590549821299431,
+        "incumbent_mean_rmse": 6.5907108698752666,
+        "relative_regression": -0.000024435691235003,
+        "threshold_exceeded": false
+      }
+    ],
+    "early_day_1_to_5_regressions_over_2pct": [],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 7.432388180513169,
+        "incumbent_rmse": 7.426558928915153,
+        "relative_regression": 0.0007849195911340257,
+        "threshold_exceeded": false
+      }
+    ],
+    "variable_lead_regressions_over_10pct": []
+  },
+  "lessons": [
+    "Applying theta layer-mean recentering during DFI made iteration primary score slightly worse than the freshly rerun current-source incumbent by -0.00014216627913599122.",
+    "The guardrail regressions were tiny and far below thresholds; the failure is the primary iteration promotion gate, not stability or targeted RMSE regressions.",
+    "For candidates that add default-false selectors in shared incumbent adapter code, scorer cache reuse should still be rejected unless immutable pre-implementation incumbent metrics are explicitly provided."
+  ]
+}

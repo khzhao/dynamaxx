@@ -1,0 +1,467 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dry-static-energy-hsl-transport",
+  "candidate_model_name": "dino_hsl2_theta_dse_hsl",
+  "incumbent_model_name": "dino_hsl2_theta",
+  "written_at": "2026-06-23T14:29:22Z",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+    "current_head": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "candidate_constructed_name": "dino_hsl2_theta_dse_hsl",
+    "incumbent_constructed_name": "dino_hsl2_theta"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, registered_model_names\n...\nPY",
+      "exit_status": 1,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Initial registration probe used nonexistent helper registered_model_names and failed before checking models; corrected by the next command."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\n...\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed dino_hsl2_theta and dino_hsl2_theta_dse_hsl are registered and construct successfully."
+    },
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/primitive_equations.py src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified from Orchestrator handoff; not rerun by Scorer."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified from Orchestrator handoff; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -k 'dse_hsl or dry_static or hsl2_theta or hsl_theta' tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified from Orchestrator handoff: 22 passed, 143 deselected; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified from Orchestrator handoff: 231 passed, 2 skipped; not rerun by Scorer."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_theta_dse_hsl",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate fast evaluation completed cleanly: failed=False issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_theta_dse_hsl --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Candidate iteration evaluation completed cleanly: failed=False issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_theta_dse_hsl --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Run only after iteration promotion gate passed; completed cleanly: failed=False issues=0."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_theta_dse_hsl.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_theta_dse_hsl.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_hsl2_theta_dse_hsl.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_hsl2_theta_dse_hsl.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_theta.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.2676447972028953,
+    "candidate_iteration": -0.26737373217433574,
+    "candidate_validation": -0.2654819769882763,
+    "incumbent_iteration": -0.31282890543336245,
+    "incumbent_validation": -0.3072374345999185,
+    "iteration_delta": 0.045455173259026704,
+    "validation_delta": 0.04175545761164218
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "by_protocol": {
+      "candidate_fast": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "candidate_iteration": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "candidate_validation": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "incumbent_iteration": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "incumbent_validation": {
+        "failed": false,
+        "issue_count": 0
+      }
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true,
+    "validation_ran": true,
+    "golden_ran": false
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.017260219338569128,
+        "mean_percent_regression": -1.7260219338569127
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.031446899970722114,
+        "mean_percent_regression": -3.1446899970722115
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.017122744513931126,
+        "mean_percent_regression": -1.7122744513931125
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.01562777971838353,
+        "mean_percent_regression": -1.5627779718383532
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.016781363981750765,
+        "mean_percent_regression": -1.6781363981750765
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.029526475423192748,
+        "mean_percent_regression": -2.9526475423192746
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.016016954141119213,
+        "mean_percent_regression": -1.6016954141119213
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "mean_relative_regression": -0.01562695301177986,
+        "mean_percent_regression": -1.562695301177986
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "protocol": "iteration",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 3.0369778639967904,
+        "incumbent_rmse": 3.038879992774278,
+        "relative_regression": -0.0006259308633478239,
+        "percent_regression": -0.06259308633478239
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 3.019248298573189,
+        "incumbent_rmse": 3.021101655451131,
+        "relative_regression": -0.0006134705446266137,
+        "percent_regression": -0.06134705446266137
+      }
+    ],
+    "iteration_worst_regressions_top_10": [
+      {
+        "protocol": "iteration",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 3.0369778639967904,
+        "incumbent_rmse": 3.038879992774278,
+        "relative_regression": -0.0006259308633478239,
+        "percent_regression": -0.06259308633478239
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 245.13067719687464,
+        "incumbent_rmse": 246.28388574739014,
+        "relative_regression": -0.004682436071754733,
+        "percent_regression": -0.4682436071754733
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 2.5971286183129627,
+        "incumbent_rmse": 2.617219100875863,
+        "relative_regression": -0.0076762708006284635,
+        "percent_regression": -0.7676270800628463
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 48,
+        "lead_days": 2.0,
+        "candidate_rmse": 3.848535842179435,
+        "incumbent_rmse": 3.888826269156523,
+        "relative_regression": -0.01036056233641596,
+        "percent_regression": -1.036056233641596
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 380.01961176477306,
+        "incumbent_rmse": 384.3756441280812,
+        "relative_regression": -0.011332748132856809,
+        "percent_regression": -1.133274813285681
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "geopotential_500",
+        "lead_hours": 48,
+        "lead_days": 2.0,
+        "candidate_rmse": 444.3015955297166,
+        "incumbent_rmse": 450.6895499194834,
+        "relative_regression": -0.014173735314936849,
+        "percent_regression": -1.4173735314936848
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 7.863524773802219,
+        "incumbent_rmse": 7.977439853932127,
+        "relative_regression": -0.014279653900964112,
+        "percent_regression": -1.427965390096411
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "lead_hours": 288,
+        "lead_days": 12.0,
+        "candidate_rmse": 7.666495713193424,
+        "incumbent_rmse": 7.7806054250633565,
+        "relative_regression": -0.014665916806725052,
+        "percent_regression": -1.4665916806725052
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "lead_days": 14.0,
+        "candidate_rmse": 7.810420523014741,
+        "incumbent_rmse": 7.9273129619576,
+        "relative_regression": -0.014745530989354693,
+        "percent_regression": -1.4745530989354694
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "lead_hours": 264,
+        "lead_days": 11.0,
+        "candidate_rmse": 7.577999079941274,
+        "incumbent_rmse": 7.6916893068777705,
+        "relative_regression": -0.014780917741286894,
+        "percent_regression": -1.4780917741286894
+      }
+    ],
+    "validation_worst_regressions_top_10": [
+      {
+        "protocol": "validation",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 3.019248298573189,
+        "incumbent_rmse": 3.021101655451131,
+        "relative_regression": -0.0006134705446266137,
+        "percent_regression": -0.06134705446266137
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 239.9868106036218,
+        "incumbent_rmse": 241.30363748258907,
+        "relative_regression": -0.0054571364638557945,
+        "percent_regression": -0.5457136463855794
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 2.609415949457211,
+        "incumbent_rmse": 2.6283782242974096,
+        "relative_regression": -0.0072144391796076235,
+        "percent_regression": -0.7214439179607623
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 48,
+        "lead_days": 2.0,
+        "candidate_rmse": 3.82386254027657,
+        "incumbent_rmse": 3.862999409925555,
+        "relative_regression": -0.010131212950337868,
+        "percent_regression": -1.013121295033787
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "lead_days": 1.0,
+        "candidate_rmse": 371.6081398315181,
+        "incumbent_rmse": 375.8986504055479,
+        "relative_regression": -0.011414008987265346,
+        "percent_regression": -1.1414008987265345
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 7.8477455069732995,
+        "incumbent_rmse": 7.94717176184925,
+        "relative_regression": -0.012510897946518652,
+        "percent_regression": -1.251089794651865
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_hours": 288,
+        "lead_days": 12.0,
+        "candidate_rmse": 7.653603279286485,
+        "incumbent_rmse": 7.753371810862242,
+        "relative_regression": -0.012867760505949696,
+        "percent_regression": -1.2867760505949697
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "lead_days": 14.0,
+        "candidate_rmse": 7.797633361336744,
+        "incumbent_rmse": 7.900038020143523,
+        "relative_regression": -0.012962552654261585,
+        "percent_regression": -1.2962552654261585
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_hours": 264,
+        "lead_days": 11.0,
+        "candidate_rmse": 7.562465809732163,
+        "incumbent_rmse": 7.663290707712788,
+        "relative_regression": -0.013156867177066517,
+        "percent_regression": -1.3156867177066518
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "lead_hours": 312,
+        "lead_days": 13.0,
+        "candidate_rmse": 7.736391868969465,
+        "incumbent_rmse": 7.839719454273164,
+        "relative_regression": -0.013180010573896069,
+        "percent_regression": -1.3180010573896068
+      }
+    ]
+  },
+  "cache_reuse": {
+    "iteration": {
+      "reused": true,
+      "source": ".logbook/leaderboard.json",
+      "json_artifact": "outputs/eval/iteration_dino_hsl2_theta.json",
+      "csv_artifact": "outputs/eval/iteration_dino_hsl2_theta.csv",
+      "checks": [
+        "requested incumbent matched leaderboard incumbent dino_hsl2_theta",
+        "leaderboard fingerprint data_path, target_variables, lead_days, and protocol were compatible",
+        "current HEAD matched leaderboard eval_code_commit 72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+        "JSON was readable with finite primary_score and 120 records",
+        "CSV was readable with 60 incumbent rows for guardrails",
+        "candidate worktree edits were not treated as incumbent cache invalidation"
+      ]
+    },
+    "validation": {
+      "reused": true,
+      "source": ".logbook/leaderboard.json",
+      "json_artifact": "outputs/eval/validation_dino_hsl2_theta.json",
+      "csv_artifact": "outputs/eval/validation_dino_hsl2_theta.csv",
+      "checks": [
+        "requested incumbent matched leaderboard incumbent dino_hsl2_theta",
+        "leaderboard fingerprint data_path, target_variables, lead_days, and protocol were compatible",
+        "current HEAD matched leaderboard eval_code_commit 72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+        "JSON was readable with finite primary_score and 120 records",
+        "CSV was readable with 60 incumbent rows for guardrails",
+        "candidate worktree edits were not treated as incumbent cache invalidation"
+      ]
+    }
+  }
+}

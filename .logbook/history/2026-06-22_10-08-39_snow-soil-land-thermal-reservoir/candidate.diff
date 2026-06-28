@@ -1,0 +1,1092 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 4ed7418..26e3d46 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -52,6 +52,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    land_soilflux_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+@@ -90,6 +91,7 @@ __all__ = [
+     "hybrid_coordinates",
+     "jax_numpy_utils",
+     "land_sea_surface_temperature_dinosaur_dycore_model",
++    "land_soilflux_dinosaur_dycore_model",
+     "layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "layer_coordinates",
+     "leapfrog_utils",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index a00935c..1f49892 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -74,6 +74,12 @@ _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT = 1.0e-3
+ _OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS = 10_000.0
+ _OCEAN_BULK_SHF_MIN_EFOLDING_DAYS = 6.0
+ _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
++_LAND_SOIL_TEMPERATURE_CHANNEL = "soil_temperature_level_4"
++_SNOW_DEPTH_CHANNEL = "snow_depth"
++_LAND_SOIL_RESERVOIR_MAX_ANCHOR_DEPARTURE_KELVIN = 3.0
++_LAND_SOIL_RESERVOIR_MIN_EFOLDING_DAYS = 12.0
++_LAND_SOIL_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.02
++_LAND_SOIL_RESERVOIR_SNOW_EFOLDING_METERS = 0.05
+ _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
+ _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
+ _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
+@@ -126,6 +132,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_scale_separated_near_surface_residual: bool = False
+     use_land_sea_surface_temperature_residual: bool = False
+     apply_ocean_bulk_sensible_heat_flux: bool = False
++    apply_land_soil_thermal_reservoir: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+     apply_symmetric_exact_coriolis_rotation_split: bool = False
+@@ -175,23 +182,31 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         if (
+             self.use_land_sea_surface_temperature_residual
+             or self.apply_ocean_bulk_sensible_heat_flux
++            or self.apply_land_soil_thermal_reservoir
+         ):
+             land_sea_fraction = _load_land_sea_fraction_for_grid(
+                 longitude=forecast_input.longitude,
+                 latitude=forecast_input.latitude,
+                 initial_time=forecast_input.initial_times[0],
+             )
++        valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
++            land_sea_fraction,
++            (forecast_input.longitude.size, forecast_input.latitude.size),
++        )
+         ocean_bulk_shf_ocean_weight = None
+         if self.apply_ocean_bulk_sensible_heat_flux:
+-            valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
+-                land_sea_fraction,
+-                (forecast_input.longitude.size, forecast_input.latitude.size),
+-            )
+             if valid_land_sea_fraction is not None:
+                 ocean_bulk_shf_ocean_weight = 1.0 - _to_dinosaur_latitude_order(
+                     valid_land_sea_fraction,
+                     grid.latitude_reversed,
+                 )
++        land_soil_reservoir_land_weight = None
++        if self.apply_land_soil_thermal_reservoir:
++            if valid_land_sea_fraction is not None:
++                land_soil_reservoir_land_weight = _to_dinosaur_latitude_order(
++                    valid_land_sea_fraction,
++                    grid.latitude_reversed,
++                )
+ 
+         trajectory_fn = self._trajectory_function(
+             coords=grid.coords,
+@@ -201,6 +216,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             output_count=max(forecast_input.lead_steps) + 1,
+             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
+             ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
++            land_soil_reservoir_land_weight=land_soil_reservoir_land_weight,
+         )
+ 
+         forecasts = []
+@@ -225,6 +241,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
+             )
++            ocean_bulk_shf_temperature_anchor = None
+             if (
+                 self.apply_ocean_bulk_sensible_heat_flux
+                 and ocean_bulk_shf_ocean_weight is not None
+@@ -239,9 +256,34 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         reference_temperature=reference_temperature,
+                     )
+                 )
++            land_soil_reservoir_temperature_anchor = None
++            land_soil_reservoir_snow_coupling = None
++            if (
++                self.apply_land_soil_thermal_reservoir
++                and land_soil_reservoir_land_weight is not None
++            ):
++                land_soil_reservoir_inputs = _land_soil_thermal_reservoir_inputs(
++                    single_state,
++                    dinosaur_state=dinosaur_state,
++                    coords=grid.coords,
++                    latitude_reversed=grid.latitude_reversed,
++                    physics_specs=physics_specs,
++                    reference_temperature=reference_temperature,
++                )
++                if land_soil_reservoir_inputs is not None:
++                    (
++                        land_soil_reservoir_temperature_anchor,
++                        land_soil_reservoir_snow_coupling,
++                    ) = land_soil_reservoir_inputs
++            if (
++                ocean_bulk_shf_ocean_weight is not None
++                or land_soil_reservoir_land_weight is not None
++            ):
+                 _, trajectory = trajectory_fn(
+                     dinosaur_state,
+                     ocean_bulk_shf_temperature_anchor,
++                    land_soil_reservoir_temperature_anchor,
++                    land_soil_reservoir_snow_coupling,
+                 )
+             else:
+                 _, trajectory = trajectory_fn(dinosaur_state)
+@@ -304,6 +346,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         output_count: int,
+         use_humidity_in_dynamics: bool,
+         ocean_bulk_shf_ocean_weight: jax.Array | None = None,
++        land_soil_reservoir_land_weight: jax.Array | None = None,
+     ):
+         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+         use_coriolis_rotation_split = (
+@@ -324,11 +367,17 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             self.apply_ocean_bulk_sensible_heat_flux
+             and ocean_bulk_shf_ocean_weight is not None
+         )
++        use_land_soil_thermal_reservoir = (
++            self.apply_land_soil_thermal_reservoir
++            and land_soil_reservoir_land_weight is not None
++        )
+ 
+         def build_equation(
+             equation_physics_specs: Any,
+             equilibrium_temperature_offset: jax.Array | None = None,
+             ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
++            land_soil_reservoir_temperature_anchor: jax.Array | None = None,
++            land_soil_reservoir_snow_coupling: jax.Array | None = None,
+         ) -> Any:
+             equation = _primitive_equation(
+                 reference_temperature=reference_temperature,
+@@ -363,6 +412,21 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     temperature_anchor=ocean_bulk_shf_temperature_anchor,
+                     step_seconds=step_seconds,
+                 )
++            if (
++                use_land_soil_thermal_reservoir
++                and land_soil_reservoir_temperature_anchor is not None
++                and land_soil_reservoir_snow_coupling is not None
++            ):
++                equation = _compose_land_soil_thermal_reservoir_equation(
++                    equation=equation,
++                    coords=coords,
++                    physics_specs=equation_physics_specs,
++                    reference_temperature=reference_temperature,
++                    land_weight=cast(jax.Array, land_soil_reservoir_land_weight),
++                    temperature_anchor=land_soil_reservoir_temperature_anchor,
++                    snow_coupling_factor=land_soil_reservoir_snow_coupling,
++                    step_seconds=step_seconds,
++                )
+             return equation
+ 
+         step_seconds = _nondimensionalize_seconds(
+@@ -388,11 +452,19 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         def build_trajectory(
+             equilibrium_temperature_offset: jax.Array | None = None,
+             ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
++            land_soil_reservoir_temperature_anchor: jax.Array | None = None,
++            land_soil_reservoir_snow_coupling: jax.Array | None = None,
+         ) -> Any:
+             equation = build_equation(
+                 rollout_physics_specs,
+                 equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 ocean_bulk_shf_temperature_anchor=ocean_bulk_shf_temperature_anchor,
++                land_soil_reservoir_temperature_anchor=(
++                    land_soil_reservoir_temperature_anchor
++                ),
++                land_soil_reservoir_snow_coupling=(
++                    land_soil_reservoir_snow_coupling
++                ),
+             )
+             filters = build_filters(rollout_physics_specs)
+             if (
+@@ -414,7 +486,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 )
+                 dfi_filters = build_filters(physics_specs)
+-            elif use_ocean_bulk_sensible_heat_flux:
++            elif use_ocean_bulk_sensible_heat_flux or use_land_soil_thermal_reservoir:
+                 dfi_equation = build_equation(
+                     rollout_physics_specs,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+@@ -469,11 +541,13 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             return trajectory_fn
+ 
+         if use_analysis_offset_equilibrium:
+-            if use_ocean_bulk_sensible_heat_flux:
++            if use_ocean_bulk_sensible_heat_flux or use_land_soil_thermal_reservoir:
+ 
+                 def trajectory_fn(
+                     dinosaur_state,
+-                    ocean_bulk_shf_temperature_anchor,
++                    ocean_bulk_shf_temperature_anchor=None,
++                    land_soil_reservoir_temperature_anchor=None,
++                    land_soil_reservoir_snow_coupling=None,
+                 ):
+                     equilibrium_temperature_offset = (
+                         _analysis_offset_weak_held_suarez_equilibrium(
+@@ -488,6 +562,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         ocean_bulk_shf_temperature_anchor=(
+                             ocean_bulk_shf_temperature_anchor
+                         ),
++                        land_soil_reservoir_temperature_anchor=(
++                            land_soil_reservoir_temperature_anchor
++                        ),
++                        land_soil_reservoir_snow_coupling=(
++                            land_soil_reservoir_snow_coupling
++                        ),
+                     )
+                     return offset_trajectory_fn(dinosaur_state)
+ 
+@@ -507,18 +587,26 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     )
+                     return offset_trajectory_fn(dinosaur_state)
+ 
+-        elif use_ocean_bulk_sensible_heat_flux:
++        elif use_ocean_bulk_sensible_heat_flux or use_land_soil_thermal_reservoir:
+ 
+             def trajectory_fn(
+                 dinosaur_state,
+-                ocean_bulk_shf_temperature_anchor,
++                ocean_bulk_shf_temperature_anchor=None,
++                land_soil_reservoir_temperature_anchor=None,
++                land_soil_reservoir_snow_coupling=None,
+             ):
+-                ocean_bulk_shf_trajectory_fn = build_trajectory(
++                boundary_forced_trajectory_fn = build_trajectory(
+                     ocean_bulk_shf_temperature_anchor=(
+                         ocean_bulk_shf_temperature_anchor
+                     ),
++                    land_soil_reservoir_temperature_anchor=(
++                        land_soil_reservoir_temperature_anchor
++                    ),
++                    land_soil_reservoir_snow_coupling=(
++                        land_soil_reservoir_snow_coupling
++                    ),
+                 )
+-                return ocean_bulk_shf_trajectory_fn(dinosaur_state)
++                return boundary_forced_trajectory_fn(dinosaur_state)
+ 
+         else:
+             trajectory_fn = build_trajectory()
+@@ -1036,6 +1124,15 @@ def ocean_bulk_sensible_heat_flux_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def land_soilflux_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
++    """Return the ocean-bulk incumbent plus land soil/snow reservoir forcing."""
++    return replace(
++        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model(),
++        name="dino_land_soilflux",
++        apply_land_soil_thermal_reservoir=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1656,6 +1753,203 @@ def _valid_ocean_bulk_shf_temperature_anchor_or_none(
+     return jnp.asarray(candidate, dtype=jnp.float32)
+ 
+ 
++def _land_soil_thermal_reservoir_inputs(
++    initial_state: WeatherState,
++    *,
++    dinosaur_state: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    latitude_reversed: bool,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++) -> tuple[jax.Array, jax.Array] | None:
++    """Return a capped land reservoir anchor and snow coupling, or `None`."""
++    if (
++        _LAND_SOIL_TEMPERATURE_CHANNEL not in initial_state.variables
++        or _SNOW_DEPTH_CHANNEL not in initial_state.variables
++    ):
++        return None
++
++    soil_index = int(
++        initial_state.variable_indices((_LAND_SOIL_TEMPERATURE_CHANNEL,))[0]
++    )
++    soil_temperature = initial_state.values[soil_index] * _unit_factor(
++        physics_specs,
++        "kelvin",
++    )
++    soil_temperature = _to_dinosaur_latitude_order(
++        soil_temperature,
++        latitude_reversed,
++    )
++    soil_temperature = _valid_land_soil_temperature_or_none(
++        soil_temperature,
++        coords.horizontal.nodal_shape,
++    )
++    if soil_temperature is None:
++        return None
++
++    snow_index = int(initial_state.variable_indices((_SNOW_DEPTH_CHANNEL,))[0])
++    snow_depth = _to_dinosaur_latitude_order(
++        initial_state.values[snow_index],
++        latitude_reversed,
++    )
++    snow_depth = _valid_snow_depth_or_none(
++        snow_depth,
++        coords.horizontal.nodal_shape,
++    )
++    if snow_depth is None:
++        return None
++
++    air_anchor = _land_soil_reservoir_air_anchor(
++        initial_state,
++        dinosaur_state=dinosaur_state,
++        coords=coords,
++        latitude_reversed=latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++    if air_anchor is None:
++        return None
++
++    maximum_departure = (
++        _LAND_SOIL_RESERVOIR_MAX_ANCHOR_DEPARTURE_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++    reservoir_anchor = air_anchor + jnp.clip(
++        soil_temperature - air_anchor,
++        -maximum_departure,
++        maximum_departure,
++    )
++    reservoir_anchor = _valid_land_soil_temperature_or_none(
++        reservoir_anchor,
++        coords.horizontal.nodal_shape,
++    )
++    if reservoir_anchor is None:
++        return None
++
++    snow_coupling_factor = _land_soil_snow_coupling_factor(snow_depth)
++    snow_coupling_factor = _valid_land_soil_coupling_factor_or_none(
++        snow_coupling_factor,
++        coords.horizontal.nodal_shape,
++    )
++    if snow_coupling_factor is None:
++        return None
++    return reservoir_anchor, snow_coupling_factor
++
++
++def _land_soil_reservoir_air_anchor(
++    initial_state: WeatherState,
++    *,
++    dinosaur_state: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    latitude_reversed: bool,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++) -> jax.Array | None:
++    """Return lead-zero screen temperature, or the lowest model air layer."""
++    if TWO_METER_TEMPERATURE_VARIABLE in initial_state.variables:
++        temperature_index = int(
++            initial_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
++        )
++        screen_temperature = initial_state.values[temperature_index] * _unit_factor(
++            physics_specs,
++            "kelvin",
++        )
++        screen_temperature = _to_dinosaur_latitude_order(
++            screen_temperature,
++            latitude_reversed,
++        )
++        valid_screen_temperature = _valid_land_soil_temperature_or_none(
++            screen_temperature,
++            coords.horizontal.nodal_shape,
++        )
++        if valid_screen_temperature is not None:
++            return valid_screen_temperature
++
++    full_temperature = (
++        coords.horizontal.to_nodal(dinosaur_state.temperature_variation)
++        + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
++    )
++    return _valid_land_soil_temperature_or_none(
++        full_temperature[-1],
++        coords.horizontal.nodal_shape,
++    )
++
++
++def _land_soil_snow_coupling_factor(snow_depth: jax.Array) -> jax.Array:
++    """Return a bounded snow-insulation factor from water-equivalent snow depth."""
++    snow_depth = jnp.maximum(jnp.asarray(snow_depth, dtype=jnp.float32), 0.0)
++    return jnp.exp(-snow_depth / _LAND_SOIL_RESERVOIR_SNOW_EFOLDING_METERS)
++
++
++def _valid_land_soil_temperature_or_none(
++    temperature: jax.Array | None,
++    spatial_shape: tuple[int, int],
++) -> jax.Array | None:
++    """Return a positive finite temperature field or `None` for fallback."""
++    if temperature is None:
++        return None
++    try:
++        candidate = np.asarray(jax.device_get(temperature), dtype=np.float32)
++    except Exception:
++        return None
++    if candidate.shape != tuple(spatial_shape):
++        return None
++    if candidate.size == 0:
++        return None
++    if not bool(np.isfinite(candidate).all()):
++        return None
++    if float(np.min(candidate)) <= 0.0:
++        return None
++    candidate.setflags(write=False)
++    return jnp.asarray(candidate, dtype=jnp.float32)
++
++
++def _valid_snow_depth_or_none(
++    snow_depth: jax.Array | None,
++    spatial_shape: tuple[int, int],
++) -> jax.Array | None:
++    """Return a finite nonnegative snow-depth field or `None` for fallback."""
++    if snow_depth is None:
++        return None
++    try:
++        candidate = np.asarray(jax.device_get(snow_depth), dtype=np.float32)
++    except Exception:
++        return None
++    if candidate.shape != tuple(spatial_shape):
++        return None
++    if candidate.size == 0:
++        return None
++    if not bool(np.isfinite(candidate).all()):
++        return None
++    if float(np.min(candidate)) < 0.0:
++        return None
++    candidate.setflags(write=False)
++    return jnp.asarray(candidate, dtype=jnp.float32)
++
++
++def _valid_land_soil_coupling_factor_or_none(
++    coupling_factor: jax.Array | None,
++    spatial_shape: tuple[int, int],
++) -> jax.Array | None:
++    """Return a finite `[0, 1]` coupling factor or `None` for fallback."""
++    if coupling_factor is None:
++        return None
++    try:
++        candidate = np.asarray(jax.device_get(coupling_factor), dtype=np.float32)
++    except Exception:
++        return None
++    if candidate.shape != tuple(spatial_shape):
++        return None
++    if candidate.size == 0:
++        return None
++    if not bool(np.isfinite(candidate).all()):
++        return None
++    if float(np.min(candidate)) < 0.0 or float(np.max(candidate)) > 1.0:
++        return None
++    candidate.setflags(write=False)
++    return jnp.asarray(candidate, dtype=jnp.float32)
++
++
+ def _load_land_sea_fraction_for_grid(
+     *,
+     longitude: np.ndarray,
+@@ -2386,6 +2680,100 @@ class _OceanBulkSensibleHeatFluxForcingSigma(time_integration.ExplicitODE):
+         )
+ 
+ 
++class _LandSoilThermalReservoirForcingSigma(time_integration.ExplicitODE):
++    """Slow land-only soil/snow thermal reservoir for the lowest sigma layer."""
++
++    def __init__(
++        self,
++        *,
++        coords: coordinate_systems.CoordinateSystem,
++        physics_specs: Any,
++        reference_temperature: np.ndarray,
++        land_weight: jax.Array,
++        temperature_anchor: jax.Array,
++        snow_coupling_factor: jax.Array,
++        step_seconds: float,
++    ):
++        assert step_seconds > 0.0
++        self.coords = coords
++        self.reference_temperature = jnp.asarray(reference_temperature)
++        self.land_weight = jnp.asarray(land_weight, dtype=jnp.float32)
++        self.temperature_anchor = jnp.asarray(temperature_anchor, dtype=jnp.float32)
++        self.snow_coupling_factor = jnp.asarray(
++            snow_coupling_factor,
++            dtype=jnp.float32,
++        )
++        self.step_seconds = float(step_seconds)
++        self.rate_unit_factor = _unit_factor(physics_specs, "1 / second")
++        self.temperature_unit_factor = _unit_factor(physics_specs, "kelvin")
++
++    def explicit_terms(
++        self,
++        state: primitive_equations.State,
++    ) -> primitive_equations.State:
++        nodal_temperature = (
++            self.coords.horizontal.to_nodal(state.temperature_variation)
++            + self.reference_temperature[:, jnp.newaxis, jnp.newaxis]
++        )
++        current_temperature = nodal_temperature[-1]
++        exchange_rate = (
++            self.rate_unit_factor
++            / (_LAND_SOIL_RESERVOIR_MIN_EFOLDING_DAYS * 24.0 * 3600.0)
++        )
++        temperature_tendency = (
++            self.land_weight
++            * self.snow_coupling_factor
++            * exchange_rate
++            * (self.temperature_anchor - current_temperature)
++        )
++        max_temperature_tendency = (
++            _LAND_SOIL_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++            * self.temperature_unit_factor
++            / self.step_seconds
++        )
++        temperature_tendency = jnp.clip(
++            temperature_tendency,
++            -max_temperature_tendency,
++            max_temperature_tendency,
++        )
++        finite_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(self.land_weight)),
++                    jnp.all(jnp.isfinite(self.temperature_anchor)),
++                    jnp.all(jnp.isfinite(self.snow_coupling_factor)),
++                    jnp.all(jnp.isfinite(current_temperature)),
++                    jnp.all(jnp.isfinite(exchange_rate)),
++                    jnp.all(jnp.isfinite(temperature_tendency)),
++                ]
++            )
++        )
++        temperature_tendency = jnp.where(
++            finite_diagnostics,
++            temperature_tendency,
++            jnp.zeros_like(temperature_tendency),
++        )
++        nodal_temperature_tendency = (
++            jnp.zeros_like(nodal_temperature).at[-1].set(temperature_tendency)
++        )
++        modal_temperature_tendency = self.coords.horizontal.to_modal(
++            nodal_temperature_tendency
++        )
++        modal_temperature_tendency = jnp.where(
++            jnp.all(jnp.isfinite(modal_temperature_tendency)),
++            modal_temperature_tendency,
++            jnp.zeros_like(modal_temperature_tendency),
++        )
++        return primitive_equations.State(
++            vorticity=jnp.zeros_like(state.vorticity),
++            divergence=jnp.zeros_like(state.divergence),
++            temperature_variation=modal_temperature_tendency,
++            log_surface_pressure=jnp.zeros_like(state.log_surface_pressure),
++            tracers=jax.tree_util.tree_map(jnp.zeros_like, state.tracers),
++            sim_time=None if state.sim_time is None else 0.0,
++        )
++
++
+ def _compose_ocean_bulk_sensible_heat_flux_equation(
+     *,
+     equation: Any,
+@@ -2410,6 +2798,32 @@ def _compose_ocean_bulk_sensible_heat_flux_equation(
+     return time_integration.compose_equations([equation, forcing])
+ 
+ 
++def _compose_land_soil_thermal_reservoir_equation(
++    *,
++    equation: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    land_weight: jax.Array,
++    temperature_anchor: jax.Array | None,
++    snow_coupling_factor: jax.Array | None,
++    step_seconds: float,
++) -> Any:
++    """Compose primitive equations with the opt-in land soil reservoir."""
++    if temperature_anchor is None or snow_coupling_factor is None:
++        return equation
++    forcing = _LandSoilThermalReservoirForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        land_weight=land_weight,
++        temperature_anchor=temperature_anchor,
++        snow_coupling_factor=snow_coupling_factor,
++        step_seconds=step_seconds,
++    )
++    return time_integration.compose_equations([equation, forcing])
++
++
+ def _compose_weak_held_suarez_equation(
+     *,
+     equation: Any,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 5b3d876..07feefc 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -170,6 +170,13 @@ def dinosaur_ocean_bulk_sensible_heat_flux_model() -> DycoreModel:
+     return ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
+ 
+ 
++def dino_land_soilflux_model() -> DycoreModel:
++    """Return the ocean-bulk incumbent plus land soil/snow reservoir forcing."""
++    from dynamaxx.dycore.models.dinosaur import land_soilflux_dinosaur_dycore_model
++
++    return land_soilflux_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -243,6 +250,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+     ): dinosaur_ocean_bulk_sensible_heat_flux_model,
++    "dino_land_soilflux": dino_land_soilflux_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index d2530a4..5f63682 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -118,6 +118,7 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
+ )
++assert dinosaur.land_soilflux_dinosaur_dycore_model().name == "dino_land_soilflux"
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -213,6 +214,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
++        "dino_land_soilflux",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 64fc16a..0759a24 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -26,6 +26,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
+     _DRY_AIR_GAS_CONSTANT_SI,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
++    _LAND_SOIL_RESERVOIR_MAX_ANCHOR_DEPARTURE_KELVIN,
++    _LAND_SOIL_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+@@ -40,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _analysis_offset_weak_hs_low_mode_mask,
+     _apply_near_surface_residual_correction,
+     _apply_scale_separated_near_surface_residual_correction,
++    _compose_land_soil_thermal_reservoir_equation,
+     _compose_ocean_bulk_sensible_heat_flux_equation,
+     _compose_weak_held_suarez_equation,
+     _exact_coriolis_rotation_step_filter,
+@@ -48,6 +51,9 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _inner_steps_per_forecast_step,
+     _interp_sigma_to_pressure_by_time,
+     _land_sea_surface_temperature_residual_decays,
++    _land_soil_snow_coupling_factor,
++    _land_soil_thermal_reservoir_inputs,
++    _LandSoilThermalReservoirForcingSigma,
+     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
+     _nondimensionalize_seconds,
+     _ocean_bulk_sensible_heat_flux_temperature_anchor,
+@@ -75,6 +81,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
++    land_soilflux_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+@@ -544,6 +551,22 @@ def test_ocean_bulk_shf_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_land_soilflux_factory_preserves_incumbent_except_selector_and_name():
++    """The short alias preserves ocean-bulk behavior and adds only land forcing."""
++    model = land_soilflux_dinosaur_dycore_model()
++    incumbent = ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
++
++    assert model.name == "dino_land_soilflux"
++    assert len(model.name) < len(incumbent.name)
++    assert model.apply_ocean_bulk_sensible_heat_flux
++    assert model.apply_land_soil_thermal_reservoir
++    assert not incumbent.apply_land_soil_thermal_reservoir
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_land_soil_thermal_reservoir"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4144,6 +4167,268 @@ def test_ocean_bulk_shf_anchor_uses_lead_zero_t2m_before_lowest_layer():
+     )
+ 
+ 
++def test_soil_reservoir_zero_land_weight_reproduces_incumbent_tendency():
++    """Zero land weight adds no explicit tendency to the primitive equations."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    equation = _primitive_equation(
++        reference_temperature=reference_temperature,
++        orography=jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords=coords,
++        physics_specs=cast(Any, physics_specs),
++        include_vertical_advection=False,
++        humidity_key=None,
++    )
++    current_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)[-1]
++        + reference_temperature[-1]
++    )
++    candidate_equation = _compose_land_soil_thermal_reservoir_equation(
++        equation=equation,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        land_weight=jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=current_temperature + 5.0,
++        snow_coupling_factor=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++
++    incumbent_tendency = equation.explicit_terms(state)
++    candidate_tendency = candidate_equation.explicit_terms(state)
++
++    _assert_pytree_allclose(candidate_tendency, incumbent_tendency)
++
++
++def test_soil_reservoir_anchor_caps_deep_soil_and_forces_lowest_temperature():
++    """Snow-free land receives a bounded tendency toward the capped soil anchor."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    current_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)[-1]
++        + reference_temperature[-1]
++    )
++    initial_state = _land_soil_input_state(
++        coords,
++        screen_temperature=current_temperature,
++        soil_temperature=current_temperature + 10.0,
++        snow_depth=jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32),
++    )
++    reservoir_inputs = _land_soil_thermal_reservoir_inputs(
++        initial_state,
++        dinosaur_state=state,
++        coords=coords,
++        latitude_reversed=False,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++    assert reservoir_inputs is not None
++    temperature_anchor, snow_coupling_factor = reservoir_inputs
++
++    expected_anchor = current_temperature + (
++        _LAND_SOIL_RESERVOIR_MAX_ANCHOR_DEPARTURE_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++    np.testing.assert_allclose(temperature_anchor, expected_anchor, atol=1e-6)
++    np.testing.assert_allclose(snow_coupling_factor, 1.0, atol=1e-6)
++
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    forcing = _LandSoilThermalReservoirForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        land_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        temperature_anchor=temperature_anchor,
++        snow_coupling_factor=snow_coupling_factor,
++        step_seconds=step_seconds,
++    )
++    tendency = forcing.explicit_terms(state)
++    nodal_temperature_tendency = coords.horizontal.to_nodal(
++        tendency.temperature_variation
++    )
++    max_increment = (
++        _LAND_SOIL_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++
++    np.testing.assert_array_equal(tendency.vorticity, jnp.zeros_like(state.vorticity))
++    np.testing.assert_array_equal(tendency.divergence, jnp.zeros_like(state.divergence))
++    np.testing.assert_array_equal(
++        tendency.log_surface_pressure,
++        jnp.zeros_like(state.log_surface_pressure),
++    )
++    assert tendency.tracers == {}
++    np.testing.assert_allclose(nodal_temperature_tendency[0], 0.0, atol=1e-7)
++    assert float(jnp.min(nodal_temperature_tendency[-1])) > 0.0
++    assert float(jnp.max(jnp.abs(nodal_temperature_tendency[-1] * step_seconds))) <= (
++        max_increment + 1.0e-6
++    )
++
++
++def test_snow_insulation_monotonically_weakens_soil_reservoir_coupling():
++    """Increasing snow depth reduces the land reservoir temperature tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    current_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)[-1]
++        + reference_temperature[-1]
++    )
++    snow_depths = jnp.asarray([0.0, 0.02, 0.10], dtype=jnp.float32)
++    snow_couplings = _land_soil_snow_coupling_factor(snow_depths)
++
++    assert float(snow_couplings[0]) == pytest.approx(1.0)
++    assert float(snow_couplings[0]) > float(snow_couplings[1])
++    assert float(snow_couplings[1]) > float(snow_couplings[2])
++
++    tendencies = []
++    for snow_coupling in snow_couplings:
++        forcing = _LandSoilThermalReservoirForcingSigma(
++            coords=coords,
++            physics_specs=physics_specs,
++            reference_temperature=reference_temperature,
++            land_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++            temperature_anchor=current_temperature + 3.0,
++            snow_coupling_factor=jnp.full(
++                coords.horizontal.nodal_shape,
++                snow_coupling,
++                dtype=jnp.float32,
++            ),
++            step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        )
++        nodal_temperature_tendency = coords.horizontal.to_nodal(
++            forcing.explicit_terms(state).temperature_variation
++        )
++        tendencies.append(float(jnp.mean(nodal_temperature_tendency[-1])))
++
++    assert tendencies[0] > tendencies[1] > tendencies[2] > 0.0
++
++
++def test_soil_reservoir_missing_invalid_inputs_trigger_incumbent_fallback():
++    """Missing or invalid soil/snow fields prevent land-reservoir composition."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    valid_screen_temperature = jnp.full(
++        coords.horizontal.nodal_shape,
++        280.0,
++        dtype=jnp.float32,
++    )
++    valid_soil_temperature = jnp.full(
++        coords.horizontal.nodal_shape,
++        282.0,
++        dtype=jnp.float32,
++    )
++    valid_snow_depth = jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32)
++
++    missing_snow_state = WeatherState(
++        values=jnp.stack([valid_screen_temperature, valid_soil_temperature], axis=0),
++        variables=("2m_temperature", "soil_temperature_level_4"),
++    )
++    invalid_soil_state = _land_soil_input_state(
++        coords,
++        screen_temperature=valid_screen_temperature,
++        soil_temperature=valid_soil_temperature.at[0, 0].set(jnp.nan),
++        snow_depth=valid_snow_depth,
++    )
++    invalid_snow_state = _land_soil_input_state(
++        coords,
++        screen_temperature=valid_screen_temperature,
++        soil_temperature=valid_soil_temperature,
++        snow_depth=valid_snow_depth.at[0, 0].set(-0.01),
++    )
++
++    for invalid_state in (missing_snow_state, invalid_soil_state, invalid_snow_state):
++        assert (
++            _land_soil_thermal_reservoir_inputs(
++                invalid_state,
++                dinosaur_state=state,
++                coords=coords,
++                latitude_reversed=False,
++                physics_specs=physics_specs,
++                reference_temperature=reference_temperature,
++            )
++            is None
++        )
++
++    equation = _primitive_equation(
++        reference_temperature=reference_temperature,
++        orography=jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords=coords,
++        physics_specs=cast(Any, physics_specs),
++        include_vertical_advection=False,
++        humidity_key=None,
++    )
++
++    assert (
++        _compose_land_soil_thermal_reservoir_equation(
++            equation=equation,
++            coords=coords,
++            physics_specs=physics_specs,
++            reference_temperature=reference_temperature,
++            land_weight=jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32),
++            temperature_anchor=None,
++            snow_coupling_factor=jnp.ones(
++                coords.horizontal.nodal_shape,
++                dtype=jnp.float32,
++            ),
++            step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        )
++        is equation
++    )
++
++
++def test_land_soilflux_composes_rollout_not_dfi(monkeypatch):
++    """The irreversible land reservoir leaves the time-reversed DFI path unchanged."""
++    land_compose_calls = []
++
++    def capture_land_composition(**kwargs):
++        land_compose_calls.append(kwargs)
++        return kwargs["equation"]
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_compose_land_soil_thermal_reservoir_equation",
++        capture_land_composition,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    model = replace(
++        land_soilflux_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=("2m_temperature",),
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state_with_land_soil(init_count=1),
++        lead_steps=(0,),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert forecast.variables == ("2m_temperature",)
++    assert len(land_compose_calls) == 1
++
++
+ def test_ocean_bulk_shf_composes_rollout_not_dfi(monkeypatch):
+     """The ocean SHF term leaves the incumbent DFI equation path unchanged."""
+     ocean_compose_calls = []
+@@ -5125,6 +5410,30 @@ def _structured_initial_state(
+     return WeatherState(values=values, variables=tuple(fields))
+ 
+ 
++def _structured_initial_state_with_land_soil(
++    *, init_count: int, surface_pressure_pa: float = 100_000.0
++) -> WeatherState:
++    base_state = _structured_initial_state(
++        init_count=init_count,
++        surface_pressure_pa=surface_pressure_pa,
++    )
++    screen_temperature = base_state.select(("2m_temperature",)).values[:, 0]
++    soil_temperature = screen_temperature + 1.5
++    snow_depth = jnp.zeros_like(screen_temperature)
++    values = jnp.concatenate(
++        [
++            base_state.values,
++            soil_temperature[:, jnp.newaxis],
++            snow_depth[:, jnp.newaxis],
++        ],
++        axis=1,
++    )
++    return WeatherState(
++        values=values,
++        variables=base_state.variables + ("soil_temperature_level_4", "snow_depth"),
++    )
++
++
+ def _structured_field(
+     state: WeatherState,
+     variable_name: str,
+@@ -5241,6 +5550,20 @@ def _ocean_bulk_shf_test_setup() -> tuple[
+     return coords, physics_specs, reference_temperature, state
+ 
+ 
++def _land_soil_input_state(
++    coords: coordinate_systems.CoordinateSystem,
++    *,
++    screen_temperature: jax.Array,
++    soil_temperature: jax.Array,
++    snow_depth: jax.Array,
++) -> WeatherState:
++    del coords
++    return WeatherState(
++        values=jnp.stack([screen_temperature, soil_temperature, snow_depth], axis=0),
++        variables=("2m_temperature", "soil_temperature_level_4", "snow_depth"),
++    )
++
++
+ def _dinosaur_state_with_hs_equilibrium_offset(
+     *,
+     coords: coordinate_systems.CoordinateSystem,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 4c35f19..664d5d0 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -50,6 +50,7 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
++        "dino_land_soilflux",
+     )
+ 
+ 
+@@ -541,6 +542,27 @@ def test_registry_creates_ocean_bulk_shf_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_dino_land_soilflux_short_alias():
++    """The short land-soil candidate keeps the ocean-bulk incumbent settings."""
++    model = create_dycore_model("dino_land_soilflux")
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
++    )
++
++    assert model.name == "dino_land_soilflux"
++    assert len(model.name) < len(incumbent.name)
++    assert model.apply_ocean_bulk_sensible_heat_flux
++    assert model.apply_land_soil_thermal_reservoir
++    assert not incumbent.apply_land_soil_thermal_reservoir
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_land_soil_thermal_reservoir"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "conservative-pressure-thickness-init-remap",
+  "history_path": ".logbook/history/2026-06-17_08-03-52_conservative-pressure-thickness-init-remap",
+  "source_artifacts": [
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/vertical_interpolation.py"
+    },
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/adapter.py"
+    },
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/models/dinosaur/__init__.py"
+    },
+    {
+      "type": "reverted_source_file",
+      "path": "src/dynamaxx/dycore/registry.py"
+    },
+    {
+      "type": "reverted_test_file",
+      "path": "tests/dycore/models/dinosaur/test_primitive_equations.py"
+    },
+    {
+      "type": "reverted_test_file",
+      "path": "tests/dycore/models/dinosaur/test_dependency.py"
+    },
+    {
+      "type": "reverted_test_file",
+      "path": "tests/dycore/test_registry.py"
+    },
+    {
+      "type": "removed_test_file",
+      "path": "tests/dycore/models/dinosaur/test_vertical_interpolation.py"
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "protocol": "fast",
+      "format": "json",
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_conservative_init.json"
+    },
+    {
+      "protocol": "fast",
+      "format": "csv",
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_conservative_init.csv"
+    },
+    {
+      "protocol": "iteration",
+      "format": "json",
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_conservative_init.json"
+    },
+    {
+      "protocol": "iteration",
+      "format": "csv",
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_conservative_init.csv"
+    }
+  ],
+  "log_artifacts": [
+    {
+      "type": "proposal",
+      "path": ".logbook/history/2026-06-17_08-03-52_conservative-pressure-thickness-init-remap/proposal.md"
+    },
+    {
+      "type": "implementation",
+      "path": ".logbook/history/2026-06-17_08-03-52_conservative-pressure-thickness-init-remap/implementation.md"
+    },
+    {
+      "type": "scores",
+      "path": ".logbook/history/2026-06-17_08-03-52_conservative-pressure-thickness-init-remap/scores.json"
+    },
+    {
+      "type": "scoring_notes",
+      "path": ".logbook/history/2026-06-17_08-03-52_conservative-pressure-thickness-init-remap/scoring_notes.md"
+    },
+    {
+      "type": "decision",
+      "path": ".logbook/history/2026-06-17_08-03-52_conservative-pressure-thickness-init-remap/decision.md"
+    }
+  ],
+  "notes": "Rejected candidate; iteration primary delta was negative, validation was not run, and implementation changes were reverted."
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "gradient-wind-surface-diagnostic",
+  "history_path": ".logbook/history/2026-06-20_17-12-34_gradient-wind-surface-diagnostic",
+  "source_artifacts": [],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_gradient_10m_diag.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_gradient_10m_diag.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_gradient_10m_diag.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_gradient_10m_diag.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-20_17-12-34_gradient-wind-surface-diagnostic/proposal.md",
+    ".logbook/history/2026-06-20_17-12-34_gradient-wind-surface-diagnostic/implementation.md",
+    ".logbook/history/2026-06-20_17-12-34_gradient-wind-surface-diagnostic/scores.json",
+    ".logbook/history/2026-06-20_17-12-34_gradient-wind-surface-diagnostic/scoring_notes.md",
+    ".logbook/history/2026-06-20_17-12-34_gradient-wind-surface-diagnostic/decision.md"
+  ],
+  "notes": "Rejected after iteration delta -0.007979044425046156 and early day-1-through-day-5 10m_u_component_of_wind mean RMSE regression 3.152849%. Validation and golden were not run. Source/test changes were reverted; raw fast and iteration outputs remain under outputs/eval."
+}

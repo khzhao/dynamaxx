@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hypsometric-target-geopotential-diagnostic",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "30a496b1f2ed8f894511404341c7774288bdb4c8",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import dycore_model_names\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang'\nnames = set(dycore_model_names())\nprint('candidate_registered=', candidate in names)\nprint('incumbent_registered=', incumbent in names)\nif candidate not in names or incumbent not in names:\n    raise SystemExit(1)\nPY",
+      "exit_status": 0,
+      "started_at": "2026-06-18T14:53:29Z",
+      "finished_at": "2026-06-18T14:53:29Z",
+      "notes": "Confirmed candidate_registered=True and incumbent_registered=True."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Reused pre-existing Implementer/Main Orchestrator record: 81 passed in 70.44s after one bounded repair."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Reused pre-existing Implementer/Main Orchestrator record: 147 passed, 2 skipped in 77.96s."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Reused pre-existing Implementer/Main Orchestrator record."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-18T14:51:09Z",
+      "notes": "Reused pre-existing Implementer record and verified artifact contents: failed=False, issues=0, records=120, primary_score=-1.0960975078999153."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-18T14:53:30Z",
+      "finished_at": "2026-06-18T15:47:11Z",
+      "notes": "Fresh required Scorer run. Parallel eval chunks=229 cached=0 pending=229 at start; completed and wrote metrics with failed=False, issues=0, records=120, primary_score=-1.124209610114461."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_hypsometric_z.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.0960975078999153,
+    "candidate_iteration": -1.124209610114461,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.1241936221835356,
+    "incumbent_validation": -1.1127999773519712,
+    "iteration_delta": -0.00001598793092548894,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0
+  },
+  "gate_status": {
+    "tests_passed": true,
+    "registration_confirmed": true,
+    "fast_passed": true,
+    "iteration_diagnostics_clean": true,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_delta_passed": false,
+    "iteration_early_day_1_to_5_mean_rmse_guardrail_passed": true,
+    "iteration_variable_and_lead_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_was_allowed_by_orchestrator_if_iteration_passed": true,
+    "validation_run": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 8.669704349126803,
+        "incumbent_mean_rmse": 8.669703859411015,
+        "absolute_delta": 4.89715787921341e-7,
+        "relative_delta": 5.648587262755827e-8,
+        "regression_fraction": 5.648587262755827e-8,
+        "fails_2_percent_guardrail": false
+      },
+      {
+        "variable": "2 m temperature",
+        "channel_name": "2m_temperature",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 7.356441780469521,
+        "incumbent_mean_rmse": 7.356441931023136,
+        "absolute_delta": -1.5055361490823316e-7,
+        "relative_delta": -2.0465547926549612e-8,
+        "regression_fraction": 0.0,
+        "fails_2_percent_guardrail": false
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 743.1253046635959,
+        "incumbent_mean_rmse": 735.903165954637,
+        "absolute_delta": 7.222138708958937,
+        "relative_delta": 0.009813979668901341,
+        "regression_fraction": 0.009813979668901341,
+        "fails_2_percent_guardrail": false
+      },
+      {
+        "variable": "Mean sea level pressure",
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": "24..120",
+        "candidate_mean_rmse": 1000.2811711261796,
+        "incumbent_mean_rmse": 1000.2811415587845,
+        "absolute_delta": 0.00002956739513138018,
+        "relative_delta": 2.955908484419084e-8,
+        "regression_fraction": 2.955908484419084e-8,
+        "fails_2_percent_guardrail": false
+      }
+    ],
+    "mean_rmse_regressions_over_2_percent": [],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 280.78655942377196,
+        "incumbent_rmse": 261.47464776901603,
+        "absolute_delta": 19.31191165475593,
+        "relative_delta": 0.07385768302790055,
+        "regression_fraction": 0.07385768302790055,
+        "fails_10_percent_guardrail": false
+      }
+    ],
+    "variable_and_lead_rmse_regressions_over_10_percent": []
+  },
+  "scoring_decision_scope": "Scorer measurement only. Candidate acceptance or rejection is left to the Orchestrator."
+}

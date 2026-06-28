@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "pressure-thickness-corrected-mass-dse-hsl",
+  "candidate_model_name": "dino_mass_dse_fluxcorr",
+  "incumbent_model_name": "dino_hsl2_mass_dse",
+  "incumbent_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+  "scored_at": "2026-06-24T01:31:30Z",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "2c70bb5b77370a074330c2b46954f74f20771f12",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "run_by": "Orchestrator",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified from Orchestrator handoff: full test gate passed with 243 passed and 2 skipped. Scorer did not rerun full pytest."
+    },
+    {
+      "command": "git rev-parse HEAD",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Reported HEAD 2c70bb5b77370a074330c2b46954f74f20771f12, matching the leaderboard eval_code_commit. Candidate source edits are dirty worktree changes and do not invalidate the accepted incumbent cache."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import DYCORE_REGISTRY\n...\nPY",
+      "exit_status": 1,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Exploratory registry inspection used a non-exported name. Corrected with the public dycore_model_names/create_dycore_model API."
+    },
+    {
+      "command": "python - <<'PY'\n# initial incumbent cache validation draft\n...\nPY",
+      "exit_status": 1,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Exploratory cache validation draft treated target variable descriptors as hashable strings. Corrected by normalizing target variables through channel_name."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\nregistered = set(dycore_model_names())\nfor model_name in ['dino_mass_dse_fluxcorr', 'dino_hsl2_mass_dse']:\n    if model_name not in registered:\n        raise SystemExit(f'missing model registration: {model_name}')\n    model = create_dycore_model(model_name)\n    print(f'{model_name}: registered, constructed name={model.name}')\nPY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed candidate and incumbent are registered and construct successfully."
+    },
+    {
+      "command": "python - <<'PY'\n# validate cached incumbent leaderboard artifacts for iteration and validation\n...\nPY",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed requested incumbent equals leaderboard incumbent, fingerprint is compatible, JSON/CSV artifacts are readable, primary scores are finite, diagnostics are clean, and required model rows are present."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_mass_dse_fluxcorr",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Result: failed=False, issues=0, records=120, primary_score=-0.2680857020215102."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_mass_dse_fluxcorr --workers 4",
+      "exit_status": 0,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Result: failed=False, issues=0, records=120, primary_score=-0.2678206586319622."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_mass_dse_fluxcorr --workers 4",
+      "exit_status": null,
+      "run_by": "Scorer",
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Skipped because the iteration promotion gate failed."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_mass_dse_fluxcorr.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_mass_dse_fluxcorr.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_mass_dse_fluxcorr.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_mass_dse_fluxcorr.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.2680857020215102,
+    "candidate_iteration": -0.2678206586319622,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.2616483974683927,
+    "incumbent_validation": -0.2600180396322455,
+    "iteration_delta": -0.006172261163569502,
+    "iteration_required_delta": 0.002,
+    "iteration_margin_to_required_delta": -0.008172261163569502,
+    "validation_delta": null,
+    "validation_required_delta": 0.001
+  },
+  "diagnostics": {
+    "fast": {
+      "candidate_failed": false,
+      "candidate_issue_count": 0
+    },
+    "iteration": {
+      "candidate_failed": false,
+      "candidate_issue_count": 0,
+      "incumbent_failed": false,
+      "incumbent_issue_count": 0
+    },
+    "validation": {
+      "candidate_failed": null,
+      "candidate_issue_count": null,
+      "incumbent_failed": false,
+      "incumbent_issue_count": 0
+    }
+  },
+  "gate_status": {
+    "pytest_passed": true,
+    "fast_passed": true,
+    "iteration_diagnostics_clean": true,
+    "iteration_primary_delta_gate_passed": false,
+    "iteration_early_rmse_guardrail_passed": true,
+    "iteration_worst_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_ran": false,
+    "validation_acceptance_gate_passed": null,
+    "golden_ran": false
+  },
+  "regressions": {
+    "record_filter": "Guardrail calculations compare only records whose model_name matches the candidate or incumbent; each eval JSON also contains persistence rows.",
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.378427026529581,
+        "incumbent_mean_rmse": 4.371016832235197,
+        "mean_rmse_delta": 0.007410194294383388,
+        "regression_fraction": 0.0016953021639575917,
+        "regression_percent": 0.1695302163957592,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 4.7323452680470375,
+        "incumbent_mean_rmse": 4.720167397134263,
+        "mean_rmse_delta": 0.012177870912774225,
+        "regression_fraction": 0.0025799658970077476,
+        "regression_percent": 0.25799658970077477,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 601.772532602276,
+        "incumbent_mean_rmse": 603.1650920588065,
+        "mean_rmse_delta": -1.3925594565305346,
+        "regression_fraction": -0.002308753399135315,
+        "regression_percent": -0.23087533991353149,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 786.3810134021012,
+        "incumbent_mean_rmse": 782.5186026540035,
+        "mean_rmse_delta": 3.862410748097659,
+        "regression_fraction": 0.004935870834249615,
+        "regression_percent": 0.4935870834249615,
+        "gate_limit_percent": 2.0,
+        "passes": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 1292.3312864839231,
+        "incumbent_rmse": 1274.1359354948697,
+        "rmse_delta": 18.195350989053395,
+        "regression_fraction": 0.014280541410196069,
+        "regression_percent": 1.4280541410196068,
+        "gate_limit_percent": 10.0,
+        "passes": true
+      }
+    ]
+  },
+  "cache_reuse": {
+    "iteration": {
+      "reused": true,
+      "recomputed": false,
+      "json": "outputs/eval/iteration_dino_hsl2_mass_dse.json",
+      "csv": "outputs/eval/iteration_dino_hsl2_mass_dse.csv",
+      "checks": [
+        "requested incumbent equals leaderboard incumbent dino_hsl2_mass_dse",
+        "leaderboard fingerprint includes iteration with matching data_path, target variables, lead_days, and eval_code_commit",
+        "JSON and CSV artifacts exist and are readable",
+        "primary_score is finite",
+        "diagnostics are failed=False with zero issues",
+        "required incumbent model rows are present for guardrail comparisons"
+      ]
+    },
+    "validation": {
+      "reused": true,
+      "recomputed": false,
+      "json": "outputs/eval/validation_dino_hsl2_mass_dse.json",
+      "csv": "outputs/eval/validation_dino_hsl2_mass_dse.csv",
+      "checks": [
+        "requested incumbent equals leaderboard incumbent dino_hsl2_mass_dse",
+        "leaderboard fingerprint includes validation with matching data_path, target variables, lead_days, and eval_code_commit",
+        "JSON and CSV artifacts exist and are readable",
+        "primary_score is finite",
+        "diagnostics are failed=False with zero issues",
+        "required incumbent model rows are present"
+      ],
+      "notes": "Candidate validation was not run because iteration did not promote."
+    }
+  },
+  "anomalies": [
+    "Two exploratory scorer inspection commands exited nonzero before corrected checks: one used a non-exported registry symbol and one treated target variable descriptors as strings.",
+    "The eval JSON records include persistence rows alongside model rows. Final guardrail calculations explicitly filtered records by model_name before comparing candidate and incumbent RMSE.",
+    "No evaluation command failed. No nonfinite outputs or diagnostic issues were reported."
+  ],
+  "lessons": [
+    "The pressure-thickness corrected mass-DSE HSL candidate did not improve the fixed iteration primary score. It underperformed the cached incumbent by -0.006172261163569502, well below the +0.002 promotion threshold.",
+    "RMSE guardrails remained within fixed limits, so the failure mode is broad primary-score degradation rather than a guardrail-breaking localized RMSE spike."
+  ]
+}

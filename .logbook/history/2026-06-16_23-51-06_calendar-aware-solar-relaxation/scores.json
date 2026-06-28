@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "calendar-aware-solar-relaxation",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_seasonal",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4756cc9a4b69c41eec60e2177fb03a73974f0e2d",
+    "worktree_state": "dirty; candidate implementation uncommitted during scoring",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY' ... registration check ... PY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed exact candidate and incumbent registrations through dycore_model_names/create_dycore_model."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Full protocol test run passed: 110 passed, 2 skipped in 58.92s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_seasonal",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-16T23:50:24Z",
+      "notes": "Reused Implementer fast artifact after exact model_name verification: failed=false, zero issues, 60 exact candidate records of 120 total."
+    },
+    {
+      "command": "uv run python - <<'PY' ... artifact verification and guardrail calculation ... PY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified fast, incumbent iteration, incumbent validation, and candidate iteration artifacts with exact model_name filtering."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_seasonal --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-06-16T23:54:05Z",
+      "finished_at": "2026-06-17T00:37:33Z",
+      "notes": "Fresh full iteration run: chunks=229, cached=0, pending=229, gpu dispatch effective_workers=4, failed=false, issues=0."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_seasonal.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_seasonal.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_seasonal.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_seasonal.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dinosaur_dfi_surface_residual_weak_hs_seasonal",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  },
+  "record_counts": {
+    "candidate_fast_total_records": 120,
+    "candidate_fast_exact_model_records": 60,
+    "candidate_iteration_total_records": 120,
+    "candidate_iteration_exact_model_records": 60,
+    "incumbent_iteration_total_records": 120,
+    "incumbent_iteration_exact_model_records": 60,
+    "incumbent_validation_total_records": 120,
+    "incumbent_validation_exact_model_records": 60
+  },
+  "primary_scores": {
+    "candidate_fast": -1.2291930627718617,
+    "candidate_iteration": -1.2621122452124416,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2218408656785489,
+    "incumbent_validation": -1.2103467803549615,
+    "iteration_delta": -0.040271379533892704,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "by_protocol": {
+      "candidate_fast": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "candidate_iteration": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "incumbent_iteration": {
+        "failed": false,
+        "issue_count": 0
+      },
+      "incumbent_validation": {
+        "failed": false,
+        "issue_count": 0
+      }
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "validation_skipped_reason": "Iteration promotion gate failed, so validation was not run.",
+    "iteration_gate": {
+      "required_primary_delta": 0.002,
+      "primary_delta": -0.040271379533892704,
+      "primary_delta_passed": false,
+      "diagnostics_passed": true,
+      "early_mean_rmse_guardrail_passed": false,
+      "variable_lead_rmse_guardrail_passed": false,
+      "passed": false
+    },
+    "validation_gate": {
+      "required_primary_delta": 0.001,
+      "passed": null,
+      "not_run_reason": "Iteration promotion gate failed."
+    }
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 9.271966872933513,
+        "incumbent_mean_rmse": 9.25692289266928,
+        "relative_change": 0.001625159941231271,
+        "threshold": 0.02,
+        "guardrail_failed": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "candidate_mean_rmse": 7.604999420719304,
+        "incumbent_mean_rmse": 7.401365301163406,
+        "relative_change": 0.02751304810261005,
+        "threshold": 0.02,
+        "guardrail_failed": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 769.7368489729279,
+        "incumbent_mean_rmse": 771.9761195101368,
+        "relative_change": -0.0029006992322895,
+        "threshold": 0.02,
+        "guardrail_failed": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 1051.9236615700142,
+        "incumbent_mean_rmse": 1050.7180420326392,
+        "relative_change": 0.0011474244175370915,
+        "threshold": 0.02,
+        "guardrail_failed": false
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 72,
+        "candidate_rmse": 9.623017800282728,
+        "incumbent_rmse": 9.593687062099727,
+        "relative_change": 0.003057295698008865,
+        "threshold": 0.1,
+        "guardrail_failed": false
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "candidate_rmse": 11.784680160133394,
+        "incumbent_rmse": 10.438223540412169,
+        "relative_change": 0.12899288988287547,
+        "threshold": 0.1,
+        "guardrail_failed": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 272.75964759624,
+        "incumbent_rmse": 272.45675197796885,
+        "relative_change": 0.0011117199925205566,
+        "threshold": 0.1,
+        "guardrail_failed": false
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 48,
+        "candidate_rmse": 766.4850463825367,
+        "incumbent_rmse": 764.3949802667889,
+        "relative_change": 0.0027342750406579817,
+        "threshold": 0.1,
+        "guardrail_failed": false
+      }
+    ],
+    "variable_lead_rmse_regressions_over_10_percent": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 312,
+        "candidate_rmse": 11.831540474858265,
+        "incumbent_rmse": 10.677159052377794,
+        "relative_change": 0.10811690795440489
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "candidate_rmse": 11.811426164391357,
+        "incumbent_rmse": 10.559203154291739,
+        "relative_change": 0.118590673159902
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "candidate_rmse": 11.784680160133394,
+        "incumbent_rmse": 10.438223540412169,
+        "relative_change": 0.12899288988287547
+      }
+    ]
+  },
+  "cache_and_resource_notes": {
+    "candidate_fast": "Reused existing fast artifact written 2026-06-16T23:50:24Z after exact-model verification.",
+    "candidate_iteration": "Fresh run with cached=0 and 229 pending chunks at start; GPU dispatch mode=gpu, requested_workers=4, effective_workers=4, gpu_count=4, worker_devices=0:0,1:1,2:2,3:3.",
+    "incumbent": "Reused leaderboard-compatible incumbent iteration and validation artifacts after exact-model verification.",
+    "resource_anomalies": []
+  },
+  "measurement_lessons": [
+    "The seasonal thermal-equilibrium shift was numerically stable and diagnostic-clean, but it worsened primary iteration score by -0.040271379533892704.",
+    "The dominant degradation was 2m_temperature: early day 1-5 mean RMSE regressed by 2.751304810261005%, and day 13-15 variable-lead RMSE regressions exceeded 10%.",
+    "Clean fast diagnostics did not predict iteration promotion for this seasonal forcing change; future Held-Suarez-family changes should inspect 2m_temperature drift before validation."
+  ]
+}

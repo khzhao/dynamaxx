@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "dfi-theta-mean-recenter",
+  "history_path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/proposal.md",
+      "description": "Selected ready proposal copied into immutable history."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/implementation.md",
+      "description": "Implementer record for the side-by-side DFI theta-recenter candidate."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/decision.md",
+      "description": "Orchestrator rejection decision and cleanup record."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.json",
+      "description": "Candidate fast metrics JSON."
+    },
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.csv",
+      "description": "Candidate fast metrics CSV."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.json",
+      "description": "Candidate iteration metrics JSON."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_dfi_theta.csv",
+      "description": "Candidate iteration metrics CSV."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.json",
+      "description": "Accepted incumbent iteration JSON snapshot captured before recomputing incumbent with --restart."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/cache_snapshots/leaderboard_iteration_incumbent_before_rerun.csv",
+      "description": "Accepted incumbent iteration CSV snapshot captured before recomputing incumbent with --restart."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.json",
+      "description": "Incumbent iteration leaderboard artifact restored from the accepted snapshot after rejection."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter.csv",
+      "description": "Incumbent iteration leaderboard CSV restored from the accepted snapshot after rejection."
+    }
+  ],
+  "log_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/scores.json",
+      "description": "Scorer metrics, cache decisions, commands, and guardrails."
+    },
+    {
+      "path": ".logbook/history/2026-06-19_11-55-13_dfi-theta-mean-recenter/scoring_notes.md",
+      "description": "Scorer notes and gate summary."
+    }
+  ],
+  "notes": "Candidate rejected after iteration failed the +0.002 promotion gate. Validation and golden were not run."
+}

@@ -1,0 +1,651 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index e719750..e83bb3e 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -50,6 +50,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     default_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
++    helmholtz_momentum_diffusion_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+@@ -83,6 +84,7 @@ __all__ = [
+     "filtering",
+     "fourier",
+     "held_suarez",
++    "helmholtz_momentum_diffusion_dinosaur_dycore_model",
+     "hydrostatic_temperature_initialization_dinosaur_dycore_model",
+     "horizontal_interpolation",
+     "hybrid_coordinates",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 9d58e73..71ed163 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -100,6 +100,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     apply_spectral_filter: bool = True
+     horizontal_diffusion_order: int = 2
+     horizontal_diffusion_tau_seconds: float | None = None
++    apply_helmholtz_projected_momentum_diffusion: bool = False
+     apply_digital_filter_initialization: bool = False
+     digital_filter_time_span_seconds: float = 6 * 3600.0
+     digital_filter_cutoff_seconds: float = 6 * 3600.0
+@@ -301,15 +302,26 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         def build_filters(filter_physics_specs: Any) -> list[Any]:
+             filters = []
+             if self.apply_spectral_filter:
+-                filters.append(
+-                    _horizontal_diffusion_step_filter(
+-                        coords=coords,
+-                        physics_specs=filter_physics_specs,
+-                        step_seconds=step_seconds,
+-                        tau_seconds=self.horizontal_diffusion_tau_seconds,
+-                        order=self.horizontal_diffusion_order,
++                if self.apply_helmholtz_projected_momentum_diffusion:
++                    filters.append(
++                        _helmholtz_momentum_diffusion_step_filter(
++                            coords=coords,
++                            physics_specs=filter_physics_specs,
++                            step_seconds=step_seconds,
++                            tau_seconds=self.horizontal_diffusion_tau_seconds,
++                            order=self.horizontal_diffusion_order,
++                        )
++                    )
++                else:
++                    filters.append(
++                        _horizontal_diffusion_step_filter(
++                            coords=coords,
++                            physics_specs=filter_physics_specs,
++                            step_seconds=step_seconds,
++                            tau_seconds=self.horizontal_diffusion_tau_seconds,
++                            order=self.horizontal_diffusion_order,
++                        )
+                     )
+-                )
+             return filters
+ 
+         def build_trajectory(
+@@ -888,6 +900,22 @@ def analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def helmholtz_momentum_diffusion_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the incumbent with vector-wind momentum diffusion enabled."""
++    return replace(
++        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
++        name=(
++            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++            "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++        ),
++        apply_helmholtz_projected_momentum_diffusion=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1996,6 +2024,108 @@ def _horizontal_diffusion_step_filter(
+     )
+ 
+ 
++def _helmholtz_momentum_diffusion_step_filter(
++    *,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    step_seconds: float,
++    tau_seconds: float | None,
++    order: int,
++) -> Any:
++    """Return scalar diffusion with vector-wind diffusion for momentum."""
++    scalar_diffusion_filter = _horizontal_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=tau_seconds,
++        order=order,
++    )
++    if tau_seconds is None:
++        resolution_factor = coords.horizontal.latitude_nodes / 128.0
++        tau_hours = 8.6 / (2.4 ** np.log2(resolution_factor))
++        tau_seconds = tau_hours * 3600.0
++    tau = _nondimensionalize_seconds(physics_specs, tau_seconds)
++    eigenvalues = jnp.asarray(coords.horizontal.laplacian_eigenvalues)
++    diffusion_scale = step_seconds / (tau * jnp.abs(eigenvalues[-1]) ** order)
++    modal_scaling = jnp.exp(-diffusion_scale * (-eigenvalues) ** order)
++
++    def finite_or_fallback(candidate: jax.Array, fallback: jax.Array) -> jax.Array:
++        return jnp.where(jnp.all(jnp.isfinite(candidate)), candidate, fallback)
++
++    def helmholtz_momentum_diffusion_filter(prev_state: Any, next_state: Any) -> Any:
++        scalar_filtered_state = scalar_diffusion_filter(prev_state, next_state)
++        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++            coords.horizontal,
++            next_state.vorticity,
++            next_state.divergence,
++        )
++        u_modal = coords.horizontal.to_modal(u_wind)
++        v_modal = coords.horizontal.to_modal(v_wind)
++        u_diffused = coords.horizontal.to_nodal(modal_scaling * u_modal)
++        v_diffused = coords.horizontal.to_nodal(modal_scaling * v_modal)
++        vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
++            coords.horizontal,
++            u_diffused,
++            v_diffused,
++        )
++        # The projected vector path should remain a dissipative wind update.
++        u_projected, v_projected = spherical_harmonic.vor_div_to_uv_nodal(
++            coords.horizontal,
++            vorticity,
++            divergence,
++        )
++        input_wind_energy = jnp.mean(u_wind**2 + v_wind**2)
++        projected_wind_energy = jnp.mean(u_projected**2 + v_projected**2)
++        projected_momentum_is_finite = (
++            jnp.all(jnp.isfinite(u_wind))
++            & jnp.all(jnp.isfinite(v_wind))
++            & jnp.all(jnp.isfinite(u_modal))
++            & jnp.all(jnp.isfinite(v_modal))
++            & jnp.all(jnp.isfinite(u_diffused))
++            & jnp.all(jnp.isfinite(v_diffused))
++            & jnp.all(jnp.isfinite(vorticity))
++            & jnp.all(jnp.isfinite(divergence))
++            & jnp.all(jnp.isfinite(u_projected))
++            & jnp.all(jnp.isfinite(v_projected))
++            & jnp.isfinite(input_wind_energy)
++            & jnp.isfinite(projected_wind_energy)
++        )
++        projected_momentum_is_dissipative = (
++            projected_wind_energy <= input_wind_energy * (1.0 + 1e-6)
++        )
++        use_projected_momentum = (
++            projected_momentum_is_finite & projected_momentum_is_dissipative
++        )
++        scalar_vorticity = finite_or_fallback(
++            scalar_filtered_state.vorticity,
++            next_state.vorticity,
++        )
++        scalar_divergence = finite_or_fallback(
++            scalar_filtered_state.divergence,
++            next_state.divergence,
++        )
++        safe_vorticity = jnp.where(
++            use_projected_momentum,
++            vorticity,
++            scalar_vorticity,
++        )
++        safe_divergence = jnp.where(
++            use_projected_momentum,
++            divergence,
++            scalar_divergence,
++        )
++        return _primitive_equation_state(
++            vorticity=safe_vorticity,
++            divergence=safe_divergence,
++            temperature_variation=scalar_filtered_state.temperature_variation,
++            log_surface_pressure=scalar_filtered_state.log_surface_pressure,
++            tracers=scalar_filtered_state.tracers,
++            sim_time=scalar_filtered_state.sim_time,
++        )
++
++    return helmholtz_momentum_diffusion_filter
++
++
+ def _nondimensionalize_seconds(physics_specs: Any, seconds: float) -> float:
+     """Convert SI seconds to Dinosaur nondimensional time."""
+     unit_registry = cast(Any, scales.units)
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b10f158..7fea1b0 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -152,6 +152,15 @@ def dinosaur_analysis_offset_held_suarez_equilibrium_model() -> DycoreModel:
+     return analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
+ 
+ 
++def dinosaur_helmholtz_momentum_diffusion_model() -> DycoreModel:
++    """Return the analysis-HS dycore with vector-wind momentum diffusion."""
++    from dynamaxx.dycore.models.dinosaur import (
++        helmholtz_momentum_diffusion_dinosaur_dycore_model,
++    )
++
++    return helmholtz_momentum_diffusion_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -213,6 +222,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq"
+     ): dinosaur_analysis_offset_held_suarez_equilibrium_model,
++    (
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++    ): dinosaur_helmholtz_momentum_diffusion_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 9339c84..d80df2d 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -104,6 +104,13 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq"
+ )
++assert (
++    dinosaur.helmholtz_momentum_diffusion_dinosaur_dycore_model().name
++    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++    "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -191,6 +198,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -577,6 +588,38 @@ def test_dinosaur_analysis_offset_hs_eq_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_helmholtz_momentum_diffusion_is_registered():
++    """The vector-momentum diffusion candidate is side-by-side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++    )
++    assert model.apply_helmholtz_projected_momentum_diffusion
++    assert not incumbent.apply_helmholtz_projected_momentum_diffusion
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "apply_helmholtz_projected_momentum_diffusion",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 5540954..c4a893a 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -40,6 +40,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _apply_scale_separated_near_surface_residual_correction,
+     _compose_weak_held_suarez_equation,
+     _exact_coriolis_rotation_step_filter,
++    _helmholtz_momentum_diffusion_step_filter,
+     _horizontal_diffusion_step_filter,
+     _hydrostatic_temperature_from_geopotential_thickness,
+     _inner_steps_per_forecast_step,
+@@ -64,6 +65,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
++    helmholtz_momentum_diffusion_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+@@ -161,6 +163,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.apply_exact_coriolis_rotation_split
+     assert not model.apply_symmetric_exact_coriolis_rotation_split
+     assert not model.apply_theta_layer_mean_recentering
++    assert not model.apply_helmholtz_projected_momentum_diffusion
+     assert model.semi_implicit_offcentering == 0.0
+     assert (
+         model.temperature_tendency_formulation
+@@ -235,6 +238,7 @@ def test_log_pressure_initialization_factory_preserves_incumbent_settings():
+     assert model.apply_spectral_filter
+     assert model.horizontal_diffusion_order == 2
+     assert model.horizontal_diffusion_tau_seconds is None
++    assert not model.apply_helmholtz_projected_momentum_diffusion
+     assert model.include_vertical_advection
+     assert model.reference_temperature_kelvin == 250.0
+     assert model.output_variables is None
+@@ -495,6 +499,28 @@ def test_analysis_offset_hs_eq_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_helmholtz_momentum_diffusion_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the vector-momentum diffusion selector."""
++    model = helmholtz_momentum_diffusion_dinosaur_dycore_model()
++    incumbent = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++    )
++    assert model.apply_helmholtz_projected_momentum_diffusion
++    assert not incumbent.apply_helmholtz_projected_momentum_diffusion
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "apply_helmholtz_projected_momentum_diffusion",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3030,6 +3056,137 @@ def test_equation_and_filter_helpers_match_direct_dinosaur_calls():
+     _assert_pytree_allclose(helper_filter(state, state), direct_filter(state, state))
+ 
+ 
++def test_helmholtz_momentum_diffusion_zero_wind_stays_zero():
++    """Vector-wind diffusion leaves a zero momentum state at rest."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    zero_momentum_state = _primitive_equation_state(
++        vorticity=jnp.zeros_like(state.vorticity),
++        divergence=jnp.zeros_like(state.divergence),
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=state.sim_time,
++    )
++    step_filter = _helmholtz_momentum_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        tau_seconds=None,
++        order=2,
++    )
++
++    filtered = step_filter(zero_momentum_state, zero_momentum_state)
++
++    np.testing.assert_array_equal(
++        filtered.vorticity,
++        zero_momentum_state.vorticity,
++    )
++    np.testing.assert_array_equal(
++        filtered.divergence,
++        zero_momentum_state.divergence,
++    )
++
++
++def test_helmholtz_momentum_diffusion_keeps_finite_scalar_diffusion():
++    """The filter diffuses scalar leaves with the incumbent scalar filter."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    next_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation.at[:, 1, 2].set(
++            jnp.asarray([0.15, -0.12], dtype=jnp.float32)
++        ),
++        log_surface_pressure=state.log_surface_pressure.at[0, 1, 2].set(
++            jnp.float32(0.02)
++        ),
++        tracers={
++            tracer_name: tracer_value.at[:, 1, 2].set(
++                jnp.asarray([0.003, 0.004], dtype=jnp.float32)
++            )
++            for tracer_name, tracer_value in state.tracers.items()
++        },
++        sim_time=state.sim_time,
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    scalar_filter = _horizontal_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=None,
++        order=2,
++    )
++    helmholtz_filter = _helmholtz_momentum_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=None,
++        order=2,
++    )
++
++    scalar_filtered = scalar_filter(state, next_state)
++    helmholtz_filtered = helmholtz_filter(state, next_state)
++
++    assert bool(jnp.all(jnp.isfinite(helmholtz_filtered.vorticity)))
++    assert bool(jnp.all(jnp.isfinite(helmholtz_filtered.divergence)))
++    np.testing.assert_allclose(
++        helmholtz_filtered.temperature_variation,
++        scalar_filtered.temperature_variation,
++    )
++    np.testing.assert_allclose(
++        helmholtz_filtered.log_surface_pressure,
++        scalar_filtered.log_surface_pressure,
++    )
++    assert helmholtz_filtered.tracers.keys() == scalar_filtered.tracers.keys()
++    for tracer_name, tracer_value in helmholtz_filtered.tracers.items():
++        np.testing.assert_allclose(tracer_value, scalar_filtered.tracers[tracer_name])
++    np.testing.assert_array_equal(helmholtz_filtered.sim_time, scalar_filtered.sim_time)
++
++
++def test_helmholtz_momentum_diffusion_falls_back_to_scalar_momentum(monkeypatch):
++    """Nonfinite vector projection falls back to incumbent-filtered momentum."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    scalar_filter = _horizontal_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=None,
++        order=2,
++    )
++
++    def nonfinite_projection(grid, u_nodal, v_nodal, clip=True):
++        del grid, u_nodal, v_nodal, clip
++        return (
++            jnp.full_like(state.vorticity, jnp.nan),
++            jnp.full_like(state.divergence, jnp.inf),
++        )
++
++    monkeypatch.setattr(
++        spherical_harmonic,
++        "uv_nodal_to_vor_div_modal",
++        nonfinite_projection,
++    )
++    helmholtz_filter = _helmholtz_momentum_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=None,
++        order=2,
++    )
++
++    scalar_filtered = scalar_filter(state, state)
++    helmholtz_filtered = helmholtz_filter(state, state)
++
++    np.testing.assert_allclose(
++        helmholtz_filtered.vorticity,
++        scalar_filtered.vorticity,
++    )
++    np.testing.assert_allclose(
++        helmholtz_filtered.divergence,
++        scalar_filtered.divergence,
++    )
++
++
+ def test_exact_coriolis_rotation_filter_preserves_small_angle_kinetic_energy():
+     """The wind-space rotation is skew-symmetric before truncation dominates."""
+     coords, physics_specs, state = _synthetic_coriolis_split_state()
+@@ -4319,6 +4476,93 @@ def test_trajectory_function_applies_theta_recenter_to_rollout_only(monkeypatch)
+     ] == rollout_filter_names[:-1]
+ 
+ 
++def test_trajectory_function_threads_helmholtz_filter_to_rollout_and_dfi(
++    monkeypatch,
++):
++    """The momentum-diffusion selector uses the safe filter in rollout and DFI."""
++    rollout_filter_calls = []
++    dfi_calls = []
++    real_step_with_filters = time_integration.step_with_filters
++
++    def capture_step_with_filters(step_fn, filters):
++        rollout_filter_calls.append(tuple(filters))
++        return real_step_with_filters(step_fn, filters)
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, time_span, cutoff_period, dt
++        dfi_calls.append(tuple(filters))
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "step_with_filters",
++        capture_step_with_filters,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    model = replace(
++        helmholtz_momentum_diffusion_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        include_vertical_advection=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=2,
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=2,
++        temperature_kelvin=model.reference_temperature_kelvin,
++    )
++    dinosaur_state = weather_state_to_dinosaur_state(
++        WeatherState(
++            values=forecast_input.initial_state.values[0],
++            variables=forecast_input.initial_state.variables,
++        ),
++        coords=grid.coords,
++        pressure_levels_hpa=(250, 750),
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=False,
++    )
++
++    trajectory_fn = model._trajectory_function(
++        coords=grid.coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++    trajectory_fn(dinosaur_state)
++
++    assert len(rollout_filter_calls) == 1
++    rollout_filter_names = [filter_fn.__name__ for filter_fn in rollout_filter_calls[0]]
++    assert rollout_filter_names == [
++        "helmholtz_momentum_diffusion_filter",
++        "theta_layer_mean_recenter_filter",
++    ]
++    assert len(dfi_calls) == 1
++    assert [filter_fn.__name__ for filter_fn in dfi_calls[0]] == [
++        "helmholtz_momentum_diffusion_filter"
++    ]
++
++
+ def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 6c6f6c7..37a230d 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -42,6 +42,10 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion",
+     )
+ 
+ 
+@@ -475,6 +479,38 @@ def test_registry_creates_analysis_offset_hs_eq_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_helmholtz_momentum_diffusion_candidate_model():
++    """The vector-momentum diffusion candidate is registered side by side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_helmholtz_momentum_diffusion"
++    )
++    assert model.apply_helmholtz_projected_momentum_diffusion
++    assert not incumbent.apply_helmholtz_projected_momentum_diffusion
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "apply_helmholtz_projected_momentum_diffusion",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

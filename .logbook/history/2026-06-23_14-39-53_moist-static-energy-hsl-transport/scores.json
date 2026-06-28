@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "role": "Scorer",
+  "written_at": "2026-06-23T17:58:01.194221Z",
+  "proposal_slug": "moist-static-energy-hsl-transport",
+  "model_name": "dino_hsl2_mse_hsl",
+  "candidate_model_name": "dino_hsl2_mse_hsl",
+  "incumbent_model_name": "dino_hsl2_theta_dse_hsl",
+  "history_dir": ".logbook/history/2026-06-23_14-39-53_moist-static-energy-hsl-transport",
+  "baseline_commit": "a274541cc57f593b8e5796e1df8307e8820c2d6b",
+  "incumbent_commit": "a274541cc57f593b8e5796e1df8307e8820c2d6b",
+  "tests": {
+    "full_pytest": {
+      "verified_from_orchestrator_record": true,
+      "rerun_by_scorer": false,
+      "record": "full uv run pytest passed with 239 passed and 2 skipped; focused pytest passed with 17 passed and 156 deselected; ruff and git diff --check passed after repair."
+    }
+  },
+  "registration": {
+    "candidate_registered": true,
+    "incumbent_registered": true,
+    "confirmation_command_exit_status": 0
+  },
+  "commands": [
+    {
+      "command": "sed -n '1,240p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "purpose": "Read required protocol instructions."
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "purpose": "Read required scorer instructions."
+    },
+    {
+      "command": "rg -n \"dino_hsl2_mse_hsl|dino_hsl2_theta_dse_hsl\" src tests .logbook/leaderboard.json",
+      "exit_status": 0,
+      "purpose": "Initial registration/source presence check."
+    },
+    {
+      "command": "sed -n '1,220p' .logbook/leaderboard.json",
+      "exit_status": 0,
+      "purpose": "Inspect leaderboard incumbent cache pointer."
+    },
+    {
+      "command": "ls -la .logbook/history/2026-06-23_14-39-53_moist-static-energy-hsl-transport outputs/eval",
+      "exit_status": 0,
+      "purpose": "Confirm history directory and eval output location."
+    },
+    {
+      "command": "git rev-parse HEAD && git status --short",
+      "exit_status": 0,
+      "purpose": "Confirm eval commit and candidate worktree state."
+    },
+    {
+      "command": "jq 'keys, .primary_score, (.records // .metrics // .rows | type), .diagnostics? // empty' outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+      "exit_status": 0,
+      "purpose": "Inspect incumbent iteration artifact structure."
+    },
+    {
+      "command": "jq 'keys, .primary_score, (.records // .metrics // .rows | type), .diagnostics? // empty' outputs/eval/validation_dino_hsl2_theta_dse_hsl.json",
+      "exit_status": 0,
+      "purpose": "Inspect incumbent validation artifact structure."
+    },
+    {
+      "command": "rg -n \"promotion|guardrail|early|worst variable|primary_score|iteration.*pass|validation.*run\" roles .logbook/history -g 'scoring_notes.md' -g 'scores.json' -g '*.md'",
+      "exit_status": 0,
+      "purpose": "Locate fixed gate thresholds and prior scoring patterns."
+    },
+    {
+      "command": "sed -n '1,220p' roles/templates/scoring_notes.md 2>/dev/null || true && ls roles/templates",
+      "exit_status": 0,
+      "purpose": "Inspect score artifact templates."
+    },
+    {
+      "command": "sed -n '340,420p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "purpose": "Read fixed acceptance gate details."
+    },
+    {
+      "command": "uv run python - <<'PY' ... import list_dycore_models ... PY",
+      "exit_status": 1,
+      "purpose": "Registration probe with nonexistent helper; failed before any evaluation and made no changes."
+    },
+    {
+      "command": "sed -n '1,330p' src/dynamaxx/dycore/registry.py",
+      "exit_status": 0,
+      "purpose": "Inspect actual registry API after failed helper probe."
+    },
+    {
+      "command": "uv run python - <<'PY' ... create_dycore_model, dycore_model_names ... PY",
+      "exit_status": 0,
+      "purpose": "Confirm candidate and incumbent registration."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mse_hsl",
+      "exit_status": 0,
+      "purpose": "Run candidate fast sanity gate."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mse_hsl --workers 4",
+      "exit_status": 0,
+      "purpose": "Run candidate iteration protocol."
+    },
+    {
+      "command": "jq '.model_name, .primary_score, .diagnostics, .records[0], (.records | length)' outputs/eval/iteration_dino_hsl2_mse_hsl.json",
+      "exit_status": 0,
+      "purpose": "Inspect candidate iteration artifact."
+    },
+    {
+      "command": "jq '.model_name, .primary_score, .diagnostics, .records[0], (.records | length)' outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+      "exit_status": 0,
+      "purpose": "Inspect incumbent iteration artifact."
+    },
+    {
+      "command": "ls -l outputs/eval/iteration_dino_hsl2_mse_hsl.json outputs/eval/iteration_dino_hsl2_mse_hsl.csv outputs/eval/fast_dino_hsl2_mse_hsl.json outputs/eval/fast_dino_hsl2_mse_hsl.csv outputs/eval/validation_dino_hsl2_theta_dse_hsl.json outputs/eval/validation_dino_hsl2_theta_dse_hsl.csv",
+      "exit_status": 0,
+      "purpose": "Confirm raw metric artifact paths."
+    },
+    {
+      "command": "uv run python - <<'PY' ... write scores.json and scoring_notes.md ... PY",
+      "exit_status": 0,
+      "purpose": "Compute gates and write score artifacts."
+    }
+  ],
+  "raw_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mse_hsl.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mse_hsl.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mse_hsl.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mse_hsl.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_theta_dse_hsl.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_theta_dse_hsl.csv"
+  },
+  "primary_scores": {
+    "fast": {
+      "candidate": -0.26764946011232993
+    },
+    "iteration": {
+      "candidate": -0.2673741387223367,
+      "incumbent": -0.26737373217433574,
+      "delta": -4.0654800093076204e-07,
+      "absolute_delta": 4.0654800093076204e-07,
+      "promotion_threshold": 0.002
+    },
+    "validation": {
+      "candidate": null,
+      "incumbent": -0.2654819769882763,
+      "delta": null,
+      "absolute_delta": null,
+      "acceptance_threshold": 0.001,
+      "not_run_reason": "Iteration promotion gate failed: primary delta -4.0654800093076204e-07 is below +0.002."
+    }
+  },
+  "diagnostics": {
+    "fast": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "iteration": {
+      "failed": false,
+      "issue_count": 0,
+      "issues": []
+    },
+    "validation": {
+      "candidate": null,
+      "not_run_reason": "Iteration promotion gate failed: primary delta -4.0654800093076204e-07 is below +0.002."
+    }
+  },
+  "gates": {
+    "fast_passed": true,
+    "iteration_primary_delta_passed": false,
+    "iteration_diagnostics_passed": true,
+    "iteration_early_day_1_to_5_mean_rmse_guardrail_passed": true,
+    "iteration_variable_lead_rmse_guardrail_passed": true,
+    "iteration_promotion_passed": false,
+    "validation_allowed_if_iteration_passes": true,
+    "validation_ran": false,
+    "validation_skipped_reason": "Iteration promotion gate failed: primary delta -4.0654800093076204e-07 is below +0.002.",
+    "golden_ran": false
+  },
+  "guardrails": {
+    "iteration": {
+      "protocol": "iteration",
+      "candidate_model_records_used": 60,
+      "incumbent_model_records_used": 60,
+      "early_day_1_to_5_mean_rmse_regression_limit": 0.02,
+      "early_day_1_to_5_mean_rmse_guardrail_passed": true,
+      "early_day_1_to_5_mean_rmse_regressions": [
+        {
+          "channel_name": "2m_temperature",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 4.732860661717025,
+          "incumbent_mean_rmse": 4.732861762229853,
+          "relative_regression": -2.3252587624786164e-07,
+          "percent_regression": -2.3252587624786165e-05,
+          "violates_2_percent_guardrail": false
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 785.9715552523046,
+          "incumbent_mean_rmse": 785.9714865405675,
+          "relative_regression": 8.742268421735427e-08,
+          "percent_regression": 8.742268421735428e-06,
+          "violates_2_percent_guardrail": false
+        },
+        {
+          "channel_name": "geopotential_500",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 601.6651491533072,
+          "incumbent_mean_rmse": 601.6651246796225,
+          "relative_regression": 4.0676588473226914e-08,
+          "percent_regression": 4.067658847322691e-06,
+          "violates_2_percent_guardrail": false
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_days": "1..5",
+          "candidate_mean_rmse": 4.378332177140811,
+          "incumbent_mean_rmse": 4.378331916002656,
+          "relative_regression": 5.964329787363336e-08,
+          "percent_regression": 5.964329787363336e-06,
+          "violates_2_percent_guardrail": false
+        }
+      ],
+      "early_day_1_to_5_mean_rmse_violations": [],
+      "worst_early_day_1_to_5_mean_rmse_regression": {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 785.9715552523046,
+        "incumbent_mean_rmse": 785.9714865405675,
+        "relative_regression": 8.742268421735427e-08,
+        "percent_regression": 8.742268421735428e-06,
+        "violates_2_percent_guardrail": false
+      },
+      "variable_lead_rmse_regression_limit": 0.1,
+      "variable_lead_rmse_guardrail_passed": true,
+      "worst_variable_lead_rmse_regression": {
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "lead_day": 14,
+        "candidate_rmse": 7.81043467756656,
+        "incumbent_rmse": 7.810420523014741,
+        "relative_regression": 1.8122650088975332e-06,
+        "percent_regression": 0.00018122650088975333,
+        "violates_10_percent_guardrail": false
+      },
+      "variable_lead_rmse_violations_count": 0,
+      "variable_lead_rmse_violations": [],
+      "top_positive_variable_lead_rmse_regressions": [
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": 336,
+          "lead_day": 14,
+          "candidate_rmse": 7.81043467756656,
+          "incumbent_rmse": 7.810420523014741,
+          "relative_regression": 1.8122650088975332e-06,
+          "percent_regression": 0.00018122650088975333,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": 312,
+          "lead_day": 13,
+          "candidate_rmse": 7.746179559645608,
+          "incumbent_rmse": 7.746166121307075,
+          "relative_regression": 1.7348373791854005e-06,
+          "percent_regression": 0.00017348373791854007,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": 360,
+          "lead_day": 15,
+          "candidate_rmse": 7.8635382846895014,
+          "incumbent_rmse": 7.863524773802219,
+          "relative_regression": 1.7181718976398378e-06,
+          "percent_regression": 0.0001718171897639838,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": 288,
+          "lead_day": 12,
+          "candidate_rmse": 7.666508853825639,
+          "incumbent_rmse": 7.666495713193424,
+          "relative_regression": 1.7140337263390393e-06,
+          "percent_regression": 0.00017140337263390394,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": 288,
+          "lead_day": 12,
+          "candidate_rmse": 5.803810526525507,
+          "incumbent_rmse": 5.803804833502377,
+          "relative_regression": 9.809122280242583e-07,
+          "percent_regression": 9.809122280242583e-05,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": 264,
+          "lead_day": 11,
+          "candidate_rmse": 7.578006179241078,
+          "incumbent_rmse": 7.577999079941274,
+          "relative_regression": 9.36830386113001e-07,
+          "percent_regression": 9.368303861130009e-05,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": 360,
+          "lead_day": 15,
+          "candidate_rmse": 5.7791598467819005,
+          "incumbent_rmse": 5.779156347209768,
+          "relative_regression": 6.055506932626192e-07,
+          "percent_regression": 6.055506932626192e-05,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": 216,
+          "lead_day": 9,
+          "candidate_rmse": 5.898456468358861,
+          "incumbent_rmse": 5.898453095171712,
+          "relative_regression": 5.718765742020439e-07,
+          "percent_regression": 5.718765742020438e-05,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": 264,
+          "lead_day": 11,
+          "candidate_rmse": 5.812931736406388,
+          "incumbent_rmse": 5.812928689510547,
+          "relative_regression": 5.241584757276895e-07,
+          "percent_regression": 5.241584757276895e-05,
+          "violates_10_percent_guardrail": false
+        },
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": 240,
+          "lead_day": 10,
+          "candidate_rmse": 5.834494939250925,
+          "incumbent_rmse": 5.834492220499272,
+          "relative_regression": 4.6597913758271016e-07,
+          "percent_regression": 4.6597913758271015e-05,
+          "violates_10_percent_guardrail": false
+        }
+      ]
+    },
+    "validation": null
+  },
+  "cache_reuse": {
+    "leaderboard_path": ".logbook/leaderboard.json",
+    "iteration": {
+      "protocol": "iteration",
+      "reused": true,
+      "artifact_json": "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json",
+      "artifact_csv": "outputs/eval/iteration_dino_hsl2_theta_dse_hsl.csv",
+      "checks": [
+        "Requested incumbent matches leaderboard incumbent.",
+        "Fingerprint data_path matches requested evaluation data path.",
+        "Fingerprint protocols include iteration.",
+        "Fingerprint target_variables match the fixed target variables.",
+        "Fingerprint lead_days match 1..15.",
+        "Fingerprint eval_code_commit matches current HEAD/eval commit.",
+        "Artifact exists: outputs/eval/iteration_dino_hsl2_theta_dse_hsl.json.",
+        "Artifact model_name matches the incumbent.",
+        "Artifact primary_score is finite: -0.26737373217433574.",
+        "Artifact contains all 60 incumbent guardrail rows.",
+        "All incumbent RMSE guardrail rows are finite."
+      ],
+      "errors": [],
+      "model_rows": 60,
+      "reason": "Leaderboard cache is compatible and was reused."
+    },
+    "validation": {
+      "protocol": "validation",
+      "reused": true,
+      "artifact_json": "outputs/eval/validation_dino_hsl2_theta_dse_hsl.json",
+      "artifact_csv": "outputs/eval/validation_dino_hsl2_theta_dse_hsl.csv",
+      "checks": [
+        "Requested incumbent matches leaderboard incumbent.",
+        "Fingerprint data_path matches requested evaluation data path.",
+        "Fingerprint protocols include validation.",
+        "Fingerprint target_variables match the fixed target variables.",
+        "Fingerprint lead_days match 1..15.",
+        "Fingerprint eval_code_commit matches current HEAD/eval commit.",
+        "Artifact exists: outputs/eval/validation_dino_hsl2_theta_dse_hsl.json.",
+        "Artifact model_name matches the incumbent.",
+        "Artifact primary_score is finite: -0.2654819769882763.",
+        "Artifact contains all 60 incumbent guardrail rows.",
+        "All incumbent RMSE guardrail rows are finite."
+      ],
+      "errors": [],
+      "model_rows": 60,
+      "reason": "Leaderboard cache is compatible and was reused.",
+      "candidate_validation_run": false,
+      "comparison_performed": false,
+      "reason_not_compared": "Iteration promotion gate failed: primary delta -4.0654800093076204e-07 is below +0.002."
+    }
+  },
+  "anomalies": {
+    "failed_or_restarted_commands": [
+      "Initial registration probe failed because list_dycore_models is not present; rerun with dycore_model_names succeeded."
+    ],
+    "resource_failures": [],
+    "nonfinite_or_unstable_outputs": [],
+    "diagnostic_issues": []
+  },
+  "lessons": [
+    "Moist-static-energy HSL transport is numerically stable under fast and iteration but is effectively neutral to slightly negative versus the DSE-HSL incumbent.",
+    "RMSE guardrails are clean; the measured outcome is driven by a tiny negative primary-score delta rather than instability or localized RMSE regression."
+  ],
+  "recommendation_to_orchestrator": "Report measured status as iteration-not-promoted. Do not run validation for this candidate under the fixed gate; Scorer does not accept or reject the candidate."
+}

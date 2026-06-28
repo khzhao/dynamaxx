@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "terrain-aware-surface-pressure-orography",
+  "history_path": ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_terrain.json",
+    "outputs/eval/fast_dinosaur_dfi_terrain.csv",
+    "outputs/eval/iteration_dinosaur_dfi_terrain.json",
+    "outputs/eval/iteration_dinosaur_dfi_terrain.csv",
+    "outputs/eval/validation_dinosaur_dfi_terrain.json",
+    "outputs/eval/validation_dinosaur_dfi_terrain.csv",
+    "outputs/eval/iteration_dinosaur_dfi.json",
+    "outputs/eval/iteration_dinosaur_dfi.csv",
+    "outputs/eval/validation_dinosaur_dfi.json",
+    "outputs/eval/validation_dinosaur_dfi.csv",
+    "outputs/eval/runs/iteration_dinosaur_dfi_terrain",
+    "outputs/eval/runs/validation_dinosaur_dfi_terrain"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography/proposal.md",
+    ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography/implementation.md",
+    ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography/scores.json",
+    ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography/scoring_notes.md",
+    ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography/decision.md",
+    ".logbook/history/2026-06-16_13-17-17_terrain-aware-surface-pressure-orography/artifacts.json"
+  ],
+  "notes": "Rejected model-selection candidate. Source/test changes were reverted. Validation artifact exists as a scorer anomaly after corrected iteration guardrail failure."
+}

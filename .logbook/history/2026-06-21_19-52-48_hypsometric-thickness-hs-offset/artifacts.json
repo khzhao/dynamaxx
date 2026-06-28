@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hypsometric-thickness-hs-offset",
+  "history_path": ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset",
+  "source_artifacts": [
+    ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset/proposal.md",
+    ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset/implementation.md",
+    ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_thickness_hs_eq.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_thickness_hs_eq.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_thickness_hs_eq.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_thickness_hs_eq.csv",
+    "outputs/eval/runs/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_thickness_hs_eq/"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset/scores.json",
+    ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset/scoring_notes.md",
+    ".logbook/history/2026-06-21_19-52-48_hypsometric-thickness-hs-offset/decision.md"
+  ],
+  "notes": "Rejected because candidate iteration primary score delta was -2.770286325448623e-06 versus the valid cached incumbent, below the +0.002 promotion threshold. Incumbent metrics were reused from the leaderboard cache; no incumbent command was run. Candidate validation and golden were not run."
+}

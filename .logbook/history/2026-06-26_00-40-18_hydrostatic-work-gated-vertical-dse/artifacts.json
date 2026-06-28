@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hydrostatic-work-gated-vertical-dse",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_hwg",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "history_path": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse",
+  "history_files": {
+    "proposal": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/proposal.md",
+    "implementation": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/implementation.md",
+    "candidate_diff": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/candidate.diff",
+    "resource_snapshot": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/resource_snapshot.md",
+    "scores": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/scores.json",
+    "scoring_notes": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/scoring_notes.md",
+    "decision": ".logbook/history/2026-06-26_00-40-18_hydrostatic-work-gated-vertical-dse/decision.md"
+  },
+  "source_files_changed": [
+    "src/dynamaxx/dycore/models/dinosaur/primitive_equations.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "raw_evaluation_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_hwg.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_hwg.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_hwg.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_hwg.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "commands": {
+    "full_pytest": {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "summary": "259 passed, 2 skipped in 303.81s"
+    },
+    "candidate_fast": {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_hwg",
+      "exit_status": 0,
+      "primary_score": -0.34772607973591296,
+      "diagnostics_failed": false,
+      "issue_count": 0
+    },
+    "candidate_iteration": {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_hwg --workers 4",
+      "exit_status": 0,
+      "primary_score": -0.34541538912978986,
+      "diagnostics_failed": false,
+      "issue_count": 0
+    },
+    "candidate_validation": {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg_vdse_hwg --workers 4",
+      "exit_status": "not_run",
+      "reason": "Iteration did not promote."
+    }
+  },
+  "decision": {
+    "status": "rejected",
+    "iteration_delta": -0.12570493758495047,
+    "validation_delta": null,
+    "leaderboard_updated": false,
+    "incumbent_cache_reused": true,
+    "incumbent_rerun": false,
+    "validation_run": false,
+    "golden_run": false
+  }
+}

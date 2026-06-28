@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "bounded-screen-temperature-layer-init",
+  "history_path": ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init",
+  "source_artifacts": [
+    ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init/proposal.md",
+    ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init/implementation.md",
+    ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_screen_t_init.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_screen_t_init.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_screen_t_init.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_analysis_hs_eq_screen_t_init.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init/scores.json",
+    ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init/scoring_notes.md",
+    ".logbook/history/2026-06-21_14-20-01_bounded-screen-temperature-layer-init/decision.md"
+  ],
+  "notes": "Rejected because iteration primary delta was -0.007213348608715697 versus the cached incumbent, below the +0.002 promotion threshold. Validation was skipped. Incumbent iteration metrics were reused from the valid leaderboard cache; no incumbent rerun was performed."
+}

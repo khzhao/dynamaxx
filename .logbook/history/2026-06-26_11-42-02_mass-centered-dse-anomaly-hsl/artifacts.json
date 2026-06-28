@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "mass-centered-dse-anomaly-hsl",
+  "history_path": ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl",
+  "source_artifacts": [
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/proposal.md",
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/candidate.diff",
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/implementation.md",
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/resource_snapshot.md",
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/pre_scoring_status.txt"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_masscenter",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/scores.json",
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/scoring_notes.md",
+    ".logbook/history/2026-06-26_11-42-02_mass-centered-dse-anomaly-hsl/decision.md"
+  ],
+  "notes": "Rejected because iteration delta was +0.000026881174071430314 versus the cached incumbent, below the fixed +0.002 promotion threshold. Diagnostics and RMSE guardrails were clean. Validation and golden were not run. Incumbent iteration metrics were reused from the leaderboard cache and not recomputed."
+}

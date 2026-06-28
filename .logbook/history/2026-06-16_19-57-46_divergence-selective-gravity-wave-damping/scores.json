@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "divergence-selective-gravity-wave-damping",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_div_damp",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs",
+  "scored_at": "2026-06-16T20:52:17Z",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4756cc9a4b69c41eec60e2177fb03a73974f0e2d",
+    "working_tree_candidate_changes": true,
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "validation_protocol_skipped": true,
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "worker_count": 4
+  },
+  "registration": {
+    "candidate_registered": true,
+    "candidate_factory_model_name": "dinosaur_dfi_surface_residual_weak_hs_div_damp",
+    "incumbent_registered": true,
+    "incumbent_factory_model_name": "dinosaur_dfi_surface_residual_weak_hs"
+  },
+  "commands": [
+    {
+      "command": "python -m compileall -q src/dynamaxx/dycore/models/dinosaur src/dynamaxx/dycore/registry.py tests/dycore",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run ruff format src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer: unchanged."
+    },
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer: 43 passed."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer: 109 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_div_damp",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; Scorer verified artifact with exact model-name filtering."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\ncandidate = 'dinosaur_dfi_surface_residual_weak_hs_div_damp'\nincumbent = 'dinosaur_dfi_surface_residual_weak_hs'\nregistered = set(dycore_model_names())\nfor name in (candidate, incumbent):\n    assert name in registered, name\n    model = create_dycore_model(name)\n    print(name, 'registered', name in registered)\n    print(name, 'factory_model_name', model.name)\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Scorer registration check through the repository API."
+    },
+    {
+      "command": "nproc",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Resource check: 48 CPUs."
+    },
+    {
+      "command": "free -h",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Resource check: 174 GiB available RAM after the run."
+    },
+    {
+      "command": "df -h . outputs/eval",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Resource check: 4.1 TiB free disk."
+    },
+    {
+      "command": "nvidia-smi --query-gpu=index,name,memory.free,memory.total --format=csv,noheader,nounits",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Resource check: four NVIDIA L4 GPUs with 22566 MiB free each after the run."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_div_damp --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-06-16T20:51:43Z",
+      "notes": "Fresh candidate run: 229 chunks, 0 cached, 4 GPU workers, diagnostics clean."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_div_damp --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Skipped because the iteration primary delta did not meet the +0.002 promotion threshold."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_div_damp.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_div_damp.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_div_damp.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_div_damp.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dinosaur_dfi_surface_residual_weak_hs_div_damp",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  },
+  "filtered_record_counts": {
+    "candidate_fast_candidate_records": 60,
+    "candidate_fast_persistence_records": 60,
+    "candidate_iteration_candidate_records": 60,
+    "candidate_iteration_persistence_records": 60,
+    "incumbent_iteration_incumbent_records": 60,
+    "incumbent_iteration_persistence_records": 60,
+    "common_candidate_incumbent_iteration_records": 60
+  },
+  "primary_scores": {
+    "candidate_fast": -1.1910009401848078,
+    "candidate_iteration": -1.2220454761111341,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2218408656785489,
+    "incumbent_validation": -1.2103467803549615,
+    "iteration_delta": -0.00020461043258523937,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_threshold": 0.002,
+    "iteration_primary_delta": -0.00020461043258523937,
+    "iteration_primary_passed": false,
+    "iteration_diagnostics_clean": true,
+    "iteration_early_mean_rmse_guardrail_passed": true,
+    "iteration_variable_lead_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_primary_threshold": 0.001,
+    "validation_ran": false,
+    "validation_acceptance_gate_passed": null,
+    "validation_skip_reason": "Iteration primary delta was below the +0.002 promotion threshold."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 9.253119791093312,
+        "incumbent_mean_rmse": 9.25692289266928,
+        "absolute_delta": -0.003803101575968632,
+        "relative_delta": -0.00041083863612823013,
+        "regression": 0.0,
+        "threshold": 0.02,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 7.4026605806321,
+        "incumbent_mean_rmse": 7.401365301163406,
+        "absolute_delta": 0.001295279468693869,
+        "relative_delta": 0.00017500547750159967,
+        "regression": 0.00017500547750159967,
+        "threshold": 0.02,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 771.9857182832659,
+        "incumbent_mean_rmse": 771.9761195101368,
+        "absolute_delta": 0.009598773129128968,
+        "relative_delta": 0.000012434028574981326,
+        "regression": 0.000012434028574981326,
+        "threshold": 0.02,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 1050.7454976873676,
+        "incumbent_mean_rmse": 1050.7180420326392,
+        "absolute_delta": 0.02745565472835508,
+        "relative_delta": 0.000026130373354193992,
+        "regression": 0.000026130373354193992,
+        "threshold": 0.02,
+        "passes_threshold": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "lead_days": 14.0,
+        "candidate_rmse": 10.563306255363292,
+        "incumbent_rmse": 10.559203154291739,
+        "absolute_delta": 0.004103101071552912,
+        "relative_delta": 0.00038858055968793437,
+        "regression": 0.00038858055968793437,
+        "threshold": 0.1,
+        "passes_threshold": true
+      }
+    ],
+    "top_positive_rmse_regressions_by_variable_and_lead": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 336,
+        "relative_delta": 0.00038858055968793437
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "relative_delta": 0.0003833636789745132
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 288,
+        "relative_delta": 0.0003758638725075425
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 312,
+        "relative_delta": 0.000367812964896963
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 264,
+        "relative_delta": 0.00036237248160109203
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 240,
+        "relative_delta": 0.0003400902625585456
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 216,
+        "relative_delta": 0.0003392945554081539
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 192,
+        "relative_delta": 0.0003106878525915846
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 168,
+        "relative_delta": 0.0002822026054967175
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 360,
+        "relative_delta": 0.00027997684134528633
+      }
+    ]
+  }
+}

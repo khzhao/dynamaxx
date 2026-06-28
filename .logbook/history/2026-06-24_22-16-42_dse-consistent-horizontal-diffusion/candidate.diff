@@ -1,0 +1,748 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d3b94b2..8a049ff 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    dse_consistent_horizontal_diffusion_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+@@ -87,6 +88,7 @@ __all__ = [
+     "digital_filter_dinosaur_dycore_model",
+     "digital_filter_surface_residual_dinosaur_dycore_model",
+     "dry_static_energy_hsl_transport_dinosaur_dycore_model",
++    "dse_consistent_horizontal_diffusion_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+     "held_suarez",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index a9c9ddb..ef24081 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -12,6 +12,7 @@ import numpy as np
+ 
+ from dynamaxx.dycore.models.dinosaur import (
+     coordinate_systems,
++    filtering,
+     held_suarez,
+     primitive_equations,
+     scales,
+@@ -137,6 +138,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_midpoint_semilagrangian_theta_departure: bool = False
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
++    use_dse_consistent_horizontal_diffusion: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -388,18 +390,35 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         )
+         ode_solver = self._ode_solver()
+ 
+-        def build_filters(filter_physics_specs: Any) -> list[Any]:
++        def build_filters(
++            filter_physics_specs: Any,
++            *,
++            use_dse_consistent_horizontal_diffusion: bool = False,
++        ) -> list[Any]:
+             filters = []
+             if self.apply_spectral_filter:
+-                filters.append(
+-                    _horizontal_diffusion_step_filter(
+-                        coords=coords,
+-                        physics_specs=filter_physics_specs,
+-                        step_seconds=step_seconds,
+-                        tau_seconds=self.horizontal_diffusion_tau_seconds,
+-                        order=self.horizontal_diffusion_order,
++                if use_dse_consistent_horizontal_diffusion:
++                    filters.append(
++                        _dse_consistent_horizontal_diffusion_step_filter(
++                            coords=coords,
++                            physics_specs=filter_physics_specs,
++                            reference_temperature=reference_temperature,
++                            orography=orography,
++                            step_seconds=step_seconds,
++                            tau_seconds=self.horizontal_diffusion_tau_seconds,
++                            order=self.horizontal_diffusion_order,
++                        )
++                    )
++                else:
++                    filters.append(
++                        _horizontal_diffusion_step_filter(
++                            coords=coords,
++                            physics_specs=filter_physics_specs,
++                            step_seconds=step_seconds,
++                            tau_seconds=self.horizontal_diffusion_tau_seconds,
++                            order=self.horizontal_diffusion_order,
++                        )
+                     )
+-                )
+             return filters
+ 
+         def build_trajectory(
+@@ -411,7 +430,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 ocean_bulk_shf_temperature_anchor=ocean_bulk_shf_temperature_anchor,
+             )
+-            filters = build_filters(rollout_physics_specs)
++            filters = build_filters(
++                rollout_physics_specs,
++                use_dse_consistent_horizontal_diffusion=(
++                    self.use_dse_consistent_horizontal_diffusion
++                ),
++            )
+             if (
+                 self.apply_exact_coriolis_rotation_split
+                 and not self.apply_symmetric_exact_coriolis_rotation_split
+@@ -424,7 +448,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     )
+                 )
+             dfi_equation = equation
+-            dfi_filters = list(filters)
++            dfi_filters = build_filters(rollout_physics_specs)
+             if use_coriolis_rotation_split:
+                 dfi_equation = build_equation(
+                     physics_specs,
+@@ -1102,6 +1126,17 @@ def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def dse_consistent_horizontal_diffusion_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return mass-DSE HSL with rollout-only DSE-consistent thermal diffusion."""
++    return replace(
++        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
++        name="dino_mass_dse_diff",
++        use_dse_consistent_horizontal_diffusion=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2546,11 +2581,11 @@ def _horizontal_diffusion_step_filter(
+     order: int,
+ ) -> Any:
+     """Return the horizontal diffusion step filter used by Dinosaur examples."""
+-    if tau_seconds is None:
+-        resolution_factor = coords.horizontal.latitude_nodes / 128.0
+-        tau_hours = 8.6 / (2.4 ** np.log2(resolution_factor))
+-        tau_seconds = tau_hours * 3600.0
+-    tau = _nondimensionalize_seconds(physics_specs, tau_seconds)
++    tau = _horizontal_diffusion_tau(
++        coords=coords,
++        physics_specs=physics_specs,
++        tau_seconds=tau_seconds,
++    )
+     return time_integration.horizontal_diffusion_step_filter(
+         coords.horizontal,
+         dt=step_seconds,
+@@ -2559,6 +2594,148 @@ def _horizontal_diffusion_step_filter(
+     )
+ 
+ 
++def _dse_consistent_horizontal_diffusion_step_filter(
++    *,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    orography: jax.Array,
++    step_seconds: float,
++    tau_seconds: float | None,
++    order: int,
++) -> Any:
++    """Return rollout diffusion that damps thermal DSE anomaly instead of T."""
++    incumbent_filter = _horizontal_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=tau_seconds,
++        order=order,
++    )
++    tau = _horizontal_diffusion_tau(
++        coords=coords,
++        physics_specs=physics_specs,
++        tau_seconds=tau_seconds,
++    )
++    eigenvalues = coords.horizontal.laplacian_eigenvalues
++    scale = step_seconds / (tau * abs(eigenvalues[-1]) ** order)
++    modal_filter = filtering.horizontal_diffusion_filter(
++        coords.horizontal,
++        scale,
++        order,
++    )
++    diagnostic_equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        orography,
++        coords,
++        physics_specs,
++    )
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    quadrature_weight_sum = jnp.sum(quadrature_weights)
++
++    def layer_mean(nodal_field: jax.Array) -> jax.Array:
++        weights = jnp.asarray(quadrature_weights, dtype=nodal_field.dtype)
++        return jnp.sum(nodal_field * weights, axis=(-2, -1)) / quadrature_weight_sum
++
++    def dse_consistent_horizontal_diffusion_filter(
++        prev_state: Any,
++        next_state: Any,
++    ) -> Any:
++        incumbent_state = incumbent_filter(prev_state, next_state)
++        if (
++            next_state.temperature_variation.shape != coords.modal_shape
++            or next_state.log_surface_pressure.shape != coords.surface_modal_shape
++        ):
++            return incumbent_state
++
++        aux_state = primitive_equations.compute_diagnostic_state_sigma(
++            next_state,
++            coords,
++        )
++        dry_static_energy_anomaly, geopotential = (
++            diagnostic_equation.nodal_dry_static_energy_anomaly(aux_state)
++        )
++        if (
++            dry_static_energy_anomaly.shape != coords.nodal_shape
++            or geopotential.shape != coords.nodal_shape
++        ):
++            return incumbent_state
++
++        dry_static_energy_anomaly = (
++            dry_static_energy_anomaly
++            - layer_mean(dry_static_energy_anomaly)[:, jnp.newaxis, jnp.newaxis]
++        )
++        dry_static_energy_modal = coords.horizontal.to_modal(
++            dry_static_energy_anomaly
++        )
++        if dry_static_energy_modal.shape != coords.modal_shape:
++            return incumbent_state
++
++        filtered_dry_static_energy_modal = modal_filter(dry_static_energy_modal)
++        if filtered_dry_static_energy_modal.shape != coords.modal_shape:
++            return incumbent_state
++
++        filtered_dry_static_energy_anomaly = coords.horizontal.to_nodal(
++            filtered_dry_static_energy_modal
++        )
++        if filtered_dry_static_energy_anomaly.shape != coords.nodal_shape:
++            return incumbent_state
++
++        filtered_dry_static_energy_anomaly = (
++            filtered_dry_static_energy_anomaly
++            - layer_mean(filtered_dry_static_energy_anomaly)[:, jnp.newaxis, jnp.newaxis]
++        )
++        temperature_increment = (
++            filtered_dry_static_energy_anomaly - dry_static_energy_anomaly
++        ) / diagnostic_equation.physics_specs.Cp
++        corrected_temperature_variation = (
++            next_state.temperature_variation
++            + coords.horizontal.to_modal(temperature_increment)
++        )
++        finite_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(dry_static_energy_anomaly)),
++                    jnp.all(jnp.isfinite(geopotential)),
++                    jnp.all(jnp.isfinite(dry_static_energy_modal)),
++                    jnp.all(jnp.isfinite(filtered_dry_static_energy_modal)),
++                    jnp.all(jnp.isfinite(filtered_dry_static_energy_anomaly)),
++                    jnp.all(jnp.isfinite(temperature_increment)),
++                    jnp.all(jnp.isfinite(corrected_temperature_variation)),
++                ]
++            )
++        )
++        temperature_variation = jnp.where(
++            finite_diagnostics,
++            corrected_temperature_variation,
++            incumbent_state.temperature_variation,
++        )
++        return _primitive_equation_state(
++            vorticity=incumbent_state.vorticity,
++            divergence=incumbent_state.divergence,
++            temperature_variation=temperature_variation,
++            log_surface_pressure=incumbent_state.log_surface_pressure,
++            tracers=incumbent_state.tracers,
++            sim_time=incumbent_state.sim_time,
++        )
++
++    return dse_consistent_horizontal_diffusion_filter
++
++
++def _horizontal_diffusion_tau(
++    *,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    tau_seconds: float | None,
++) -> float:
++    """Return the nondimensional horizontal diffusion damping timescale."""
++    if tau_seconds is None:
++        resolution_factor = coords.horizontal.latitude_nodes / 128.0
++        tau_hours = 8.6 / (2.4 ** np.log2(resolution_factor))
++        tau_seconds = tau_hours * 3600.0
++    return _nondimensionalize_seconds(physics_specs, tau_seconds)
++
++
+ def _nondimensionalize_seconds(physics_specs: Any, seconds: float) -> float:
+     """Convert SI seconds to Dinosaur nondimensional time."""
+     unit_registry = cast(Any, scales.units)
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 1d7cbc9..3467651 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -206,6 +206,15 @@ def dino_hsl2_mass_dse_model() -> DycoreModel:
+     return layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
+ 
+ 
++def dino_mass_dse_diff_model() -> DycoreModel:
++    """Return mass-DSE HSL with DSE-consistent thermal diffusion."""
++    from dynamaxx.dycore.models.dinosaur import (
++        dse_consistent_horizontal_diffusion_dinosaur_dycore_model,
++    )
++
++    return dse_consistent_horizontal_diffusion_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -283,6 +292,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_theta": dino_hsl2_theta_model,
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
+     "dino_hsl2_mass_dse": dino_hsl2_mass_dse_model,
++    "dino_mass_dse_diff": dino_mass_dse_diff_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index aa6c347..cf082da 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -130,6 +130,10 @@ assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name ==
+ assert dinosaur.layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse"
+ )
++assert (
++    dinosaur.dse_consistent_horizontal_diffusion_dinosaur_dycore_model().name
++    == "dino_mass_dse_diff"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -229,6 +233,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_diff",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -709,6 +714,25 @@ def test_dinosaur_layer_mass_dse_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_dse_diff_is_registered():
++    """The DSE-diff candidate is side-by-side with the mass-DSE incumbent."""
++    model = create_dycore_model("dino_mass_dse_diff")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_diff"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_horizontal_diffusion
++    assert incumbent.use_layer_mass_weighted_dse_hsl_transport
++    assert not incumbent.use_dse_consistent_horizontal_diffusion
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_dse_consistent_horizontal_diffusion"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 9ee521a..9a1c3ce 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -42,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _apply_scale_separated_near_surface_residual_correction,
+     _compose_ocean_bulk_sensible_heat_flux_equation,
+     _compose_weak_held_suarez_equation,
++    _dse_consistent_horizontal_diffusion_step_filter,
+     _exact_coriolis_rotation_step_filter,
+     _horizontal_diffusion_step_filter,
+     _hydrostatic_temperature_from_geopotential_thickness,
+@@ -73,6 +74,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
++    dse_consistent_horizontal_diffusion_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -613,6 +615,25 @@ def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dse_diff_factory_preserves_mass_dse_except_selector():
++    """The DSE diffusion candidate changes only name and its diffusion selector."""
++    model = dse_consistent_horizontal_diffusion_dinosaur_dycore_model()
++    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
++
++    assert model.name == "dino_mass_dse_diff"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_horizontal_diffusion
++    assert not incumbent.use_dse_consistent_horizontal_diffusion
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_dse_consistent_horizontal_diffusion"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3410,6 +3431,81 @@ def test_equation_and_filter_helpers_match_direct_dinosaur_calls():
+     _assert_pytree_allclose(helper_filter(state, state), direct_filter(state, state))
+ 
+ 
++def test_dse_diff_constant_dse_anomaly_has_near_zero_thermal_increment():
++    """A horizontally constant dry static energy anomaly is diffusion-neutral."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    dse_filter, _ = _synthetic_dse_diffusion_filters(coords, physics_specs)
++
++    actual = dse_filter(state, state)
++
++    np.testing.assert_allclose(
++        actual.temperature_variation,
++        state.temperature_variation,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++
++
++def test_dse_diff_leaves_nonthermal_leaves_on_incumbent_diffusion_path():
++    """Only the thermal leaf is replaced by DSE-consistent diffusion."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    dse_filter, incumbent_filter = _synthetic_dse_diffusion_filters(
++        coords,
++        physics_specs,
++    )
++
++    actual = dse_filter(state, state)
++    expected = incumbent_filter(state, state)
++
++    np.testing.assert_allclose(actual.vorticity, expected.vorticity)
++    np.testing.assert_allclose(actual.divergence, expected.divergence)
++    np.testing.assert_allclose(
++        actual.log_surface_pressure,
++        expected.log_surface_pressure,
++    )
++    _assert_pytree_allclose(actual.tracers, expected.tracers)
++    np.testing.assert_allclose(actual.sim_time, expected.sim_time)
++
++
++def test_dse_diff_nonfinite_diagnostic_falls_back_to_incumbent_temperature(
++    monkeypatch,
++):
++    """Invalid DSE diagnostics restore the incumbent temperature diffusion leaf."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    next_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation.at[:, 1, 2].set(
++            jnp.asarray([0.3, -0.2], dtype=jnp.float32)
++        ),
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=state.sim_time,
++    )
++    dse_filter, incumbent_filter = _synthetic_dse_diffusion_filters(
++        coords,
++        physics_specs,
++    )
++
++    def nonfinite_dse_diagnostic(self, aux_state):
++        del self, aux_state
++        return (
++            jnp.full(coords.nodal_shape, jnp.nan, dtype=jnp.float32),
++            jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++        )
++
++    monkeypatch.setattr(
++        primitive_equations.PrimitiveEquations,
++        "nodal_dry_static_energy_anomaly",
++        nonfinite_dse_diagnostic,
++    )
++
++    actual = dse_filter(state, next_state)
++    expected = incumbent_filter(state, next_state)
++
++    _assert_pytree_allclose(actual, expected)
++
++
+ def test_exact_coriolis_rotation_filter_preserves_small_angle_kinetic_energy():
+     """The wind-space rotation is skew-symmetric before truncation dominates."""
+     coords, physics_specs, state = _synthetic_coriolis_split_state()
+@@ -5340,6 +5436,63 @@ def test_dse_hsl_non_jit_forecast_smoke_is_finite(monkeypatch):
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_dse_diff_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The DSE-consistent diffusion candidate runs a finite non-JIT forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        dse_consistent_horizontal_diffusion_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_mass_dse_diff"
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_horizontal_diffusion
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -5637,6 +5790,112 @@ def test_trajectory_function_sets_up_digital_filter_initialization(monkeypatch):
+     _assert_pytree_allclose(first_wrapped_state, initialized_states[0])
+ 
+ 
++def test_dse_diff_trajectory_uses_incumbent_dfi_filters(monkeypatch):
++    """Rollout-only DSE diffusion does not replace the DFI diffusion filter."""
++    rollout_filter_calls = []
++    dfi_calls = []
++    real_step_with_filters = time_integration.step_with_filters
++
++    def capture_step_with_filters(step_fn, filters):
++        rollout_filter_calls.append(tuple(filters))
++        return real_step_with_filters(step_fn, filters)
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        dfi_calls.append(
++            {
++                "equation": equation,
++                "ode_solver": ode_solver,
++                "filters": tuple(filters),
++                "time_span": time_span,
++                "cutoff_period": cutoff_period,
++                "dt": dt,
++            }
++        )
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "step_with_filters",
++        capture_step_with_filters,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    model = replace(
++        dse_consistent_horizontal_diffusion_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        include_vertical_advection=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=2,
++        spectral_wavenumbers=model.spectral_wavenumbers,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=2,
++        temperature_kelvin=model.reference_temperature_kelvin,
++    )
++    dinosaur_state = weather_state_to_dinosaur_state(
++        WeatherState(
++            values=forecast_input.initial_state.values[0],
++            variables=forecast_input.initial_state.variables,
++        ),
++        coords=grid.coords,
++        pressure_levels_hpa=(250, 750),
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=True,
++    )
++
++    trajectory_fn = model._trajectory_function(
++        coords=grid.coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++    trajectory_fn(dinosaur_state)
++
++    assert len(rollout_filter_calls) == 1
++    assert len(rollout_filter_calls[0]) == 2
++    assert rollout_filter_calls[0][0].__name__ == (
++        "dse_consistent_horizontal_diffusion_filter"
++    )
++    assert len(dfi_calls) == 1
++    assert len(dfi_calls[0]["filters"]) == 1
++    step_seconds = _nondimensionalize_seconds(
++        physics_specs,
++        model.inner_step_seconds,
++    )
++    incumbent_filter = _horizontal_diffusion_step_filter(
++        coords=grid.coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=model.horizontal_diffusion_tau_seconds,
++        order=model.horizontal_diffusion_order,
++    )
++    _assert_pytree_allclose(
++        dfi_calls[0]["filters"][0](dinosaur_state, dinosaur_state),
++        incumbent_filter(dinosaur_state, dinosaur_state),
++    )
++
++
+ def test_trajectory_function_threads_offcentered_solver_to_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -6162,6 +6421,35 @@ def _synthetic_coriolis_split_state():
+     )
+ 
+ 
++def _synthetic_dse_diffusion_filters(
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++):
++    step_seconds = _nondimensionalize_seconds(physics_specs, 3600.0)
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
++    dse_filter = _dse_consistent_horizontal_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        orography=orography,
++        step_seconds=step_seconds,
++        tau_seconds=None,
++        order=2,
++    )
++    incumbent_filter = _horizontal_diffusion_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        step_seconds=step_seconds,
++        tau_seconds=None,
++        order=2,
++    )
++    return dse_filter, incumbent_filter
++
++
+ def _linear_implicit_oscillator_equation(
+     frequency: float,
+ ) -> time_integration.ImplicitExplicitODE:
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 091dbd0..bbb3664 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -54,6 +54,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
+         "dino_hsl2_mass_dse",
++        "dino_mass_dse_diff",
+     )
+ 
+ 
+@@ -620,6 +621,25 @@ def test_registry_creates_layer_mass_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_dse_diff_candidate_model():
++    """The DSE-diff alias adds only its thermal diffusion selector."""
++    model = create_dycore_model("dino_mass_dse_diff")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse")
++
++    assert model.name == "dino_mass_dse_diff"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.use_dse_consistent_horizontal_diffusion
++    assert not incumbent.use_dse_consistent_horizontal_diffusion
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_dse_consistent_horizontal_diffusion"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

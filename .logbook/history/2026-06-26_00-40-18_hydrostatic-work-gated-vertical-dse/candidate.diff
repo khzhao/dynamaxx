@@ -1,0 +1,952 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..47d7adc 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -53,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
++    hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+@@ -94,6 +95,7 @@ __all__ = [
+     "held_suarez",
+     "horizontal_semilagrangian_theta_transport_dinosaur_dycore_model",
+     "hydrostatic_temperature_initialization_dinosaur_dycore_model",
++    "hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model",
+     "horizontal_interpolation",
+     "hybrid_coordinates",
+     "jax_numpy_utils",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..01dd1df 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -148,6 +148,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
++    use_hydrostatic_work_gated_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+@@ -370,6 +371,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_pressure_ramped_vertical_dse_increment=(
+                     self.use_pressure_ramped_vertical_dse_increment
+                 ),
++                use_hydrostatic_work_gated_vertical_dse_increment=(
++                    self.use_hydrostatic_work_gated_vertical_dse_increment
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1368,6 +1372,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return pressure-ramped vertical-DSE with a hydrostatic-work mean gate."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_hwg",
++        use_hydrostatic_work_gated_vertical_dse_increment=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2542,6 +2557,7 @@ def _primitive_equation(
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+     use_pressure_ramped_vertical_dse_increment: bool = False,
++    use_hydrostatic_work_gated_vertical_dse_increment: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2568,6 +2584,9 @@ def _primitive_equation(
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_hydrostatic_work_gated_vertical_dse_increment=(
++                use_hydrostatic_work_gated_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2595,6 +2614,9 @@ def _primitive_equation(
+         use_pressure_ramped_vertical_dse_increment=(
+             use_pressure_ramped_vertical_dse_increment
+         ),
++        use_hydrostatic_work_gated_vertical_dse_increment=(
++            use_hydrostatic_work_gated_vertical_dse_increment
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 4c30004..aaa9699 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -55,6 +55,10 @@ PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS = 72.0
+ PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF = 8.0
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO = 16.0
++PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_KEEP = 0.25
++PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_ZERO = 0.75
++PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_LIMIT = 1.0
++PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_EPSILON = 1.0e-12
+ 
+ OrographyInitFn = Callable[..., Array]
+ 
+@@ -272,6 +276,120 @@ def _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+     return area_mean_component + low_mode_anomaly
+ 
+ 
++def _pressure_ramped_vertical_dse_hydrostatic_work_gated_increment(
++    pressure_guarded_increment: Array,
++    layer_pressure_thickness: Array,
++    valid_layer_pressure_thickness: Array,
++) -> tuple[jax.Array, jax.Array]:
++    """Damp column-net vertical-DSE work while preserving vertical residuals."""
++    increment_dtype = pressure_guarded_increment.dtype
++    zero = jnp.asarray(0.0, dtype=increment_dtype)
++    one = jnp.asarray(1.0, dtype=increment_dtype)
++    safe_layer_pressure_thickness = jnp.where(
++        valid_layer_pressure_thickness,
++        layer_pressure_thickness,
++        zero,
++    )
++    column_pressure_thickness = jnp.sum(
++        safe_layer_pressure_thickness,
++        axis=0,
++        keepdims=True,
++    )
++    tiny_pressure_thickness = jnp.asarray(
++        jnp.finfo(layer_pressure_thickness.dtype).tiny,
++        dtype=layer_pressure_thickness.dtype,
++    )
++    valid_column_pressure_thickness = (
++        jnp.isfinite(column_pressure_thickness)
++        & (column_pressure_thickness > tiny_pressure_thickness)
++    )
++    safe_column_pressure_thickness = jnp.where(
++        valid_column_pressure_thickness,
++        column_pressure_thickness,
++        one,
++    )
++    column_mean_increment = (
++        jnp.sum(
++            safe_layer_pressure_thickness * pressure_guarded_increment,
++            axis=0,
++            keepdims=True,
++        )
++        / safe_column_pressure_thickness
++    )
++    vertical_residual_increment = (
++        pressure_guarded_increment - column_mean_increment
++    )
++    mean_square_increment = (
++        jnp.sum(
++            safe_layer_pressure_thickness * pressure_guarded_increment**2,
++            axis=0,
++            keepdims=True,
++        )
++        / safe_column_pressure_thickness
++    )
++    rms_vertical_increment = jnp.sqrt(jnp.maximum(mean_square_increment, zero))
++    epsilon = jnp.asarray(
++        PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_EPSILON,
++        dtype=increment_dtype,
++    )
++    raw_work_ratio = jnp.abs(column_mean_increment) / (
++        rms_vertical_increment + epsilon
++    )
++    bounded_work_ratio = jnp.clip(
++        raw_work_ratio,
++        zero,
++        jnp.asarray(
++            PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_LIMIT,
++            dtype=increment_dtype,
++        ),
++    )
++    ratio_keep = jnp.asarray(
++        PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_KEEP,
++        dtype=increment_dtype,
++    )
++    ratio_zero = jnp.asarray(
++        PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_ZERO,
++        dtype=increment_dtype,
++    )
++    work_fraction = jnp.clip(
++        (bounded_work_ratio - ratio_keep) / (ratio_zero - ratio_keep),
++        zero,
++        one,
++    )
++    smooth_work_fraction = work_fraction * work_fraction * (
++        3.0 - 2.0 * work_fraction
++    )
++    column_mean_weight = one - smooth_work_fraction
++    blended_increment = (
++        vertical_residual_increment + column_mean_weight * column_mean_increment
++    )
++    finite_gate_diagnostics = jnp.all(
++        jnp.asarray(
++            [
++                jnp.all(valid_layer_pressure_thickness),
++                jnp.all(jnp.isfinite(layer_pressure_thickness)),
++                jnp.all(valid_column_pressure_thickness),
++                jnp.all(jnp.isfinite(column_mean_increment)),
++                jnp.all(jnp.isfinite(vertical_residual_increment)),
++                jnp.all(jnp.isfinite(mean_square_increment)),
++                jnp.all(mean_square_increment >= 0.0),
++                jnp.all(jnp.isfinite(raw_work_ratio)),
++                jnp.all(jnp.isfinite(bounded_work_ratio)),
++                jnp.all(bounded_work_ratio >= 0.0),
++                jnp.all(
++                    bounded_work_ratio
++                    <= PRESSURE_RAMPED_VERTICAL_DSE_HYDROSTATIC_WORK_RATIO_LIMIT
++                ),
++                jnp.all(jnp.isfinite(column_mean_weight)),
++                jnp.all(column_mean_weight >= 0.0),
++                jnp.all(column_mean_weight <= 1.0),
++                jnp.all(jnp.isfinite(blended_increment)),
++            ]
++        )
++    )
++    return blended_increment, finite_gate_diagnostics
++
++
+ @tree_math.struct
+ class DiagnosticStateSigma:
+     """Stores nodal diagnostic values used to compute explicit tendencies.
+@@ -990,6 +1108,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_hydrostatic_work_gated_vertical_dse_increment: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1666,6 +1788,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         dry_static_energy_anomaly: Array,
+         geopotential: Array,
+         theta_vertical_temperature_tendency: Array,
++        layer_pressure_thickness: Array,
+         valid_layer_pressure_thickness: Array,
+         finite_theta_diagnostics: Array,
+         finite_dse_diagnostics: Array,
+@@ -1718,15 +1841,16 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             * temperature_unit
+             / safe_step
+         )
+-        capped_increment = jnp.clip(
++        incumbent_capped_increment = jnp.clip(
+             pressure_guarded_increment,
+             -max_temperature_tendency,
+             max_temperature_tendency,
+         )
+-        candidate_temperature_tendency = incumbent_temperature_tendency + (
+-            self.coords.horizontal.to_modal(capped_increment)
++        incumbent_vertical_dse_temperature_tendency = (
++            incumbent_temperature_tendency
++            + self.coords.horizontal.to_modal(incumbent_capped_increment)
+         )
+-        finite_candidate_diagnostics = jnp.all(
++        finite_incumbent_vertical_dse_diagnostics = jnp.all(
+             jnp.asarray(
+                 [
+                     jnp.all(jnp.isfinite(sim_time)),
+@@ -1742,19 +1866,58 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                     jnp.all(jnp.isfinite(dse_vertical_temperature_tendency)),
+                     jnp.all(jnp.isfinite(vertical_temperature_increment)),
+                     jnp.all(jnp.isfinite(low_mode_area_mean)),
+-                    jnp.all(jnp.isfinite(capped_increment)),
+-                    jnp.all(jnp.isfinite(candidate_temperature_tendency)),
++                    jnp.all(jnp.isfinite(incumbent_capped_increment)),
++                    jnp.all(
++                        jnp.isfinite(incumbent_vertical_dse_temperature_tendency)
++                    ),
+                 ]
+             )
+         )
++        if not self.use_hydrostatic_work_gated_vertical_dse_increment:
++            return jnp.where(
++                (
++                    finite_theta_diagnostics
++                    & finite_dse_diagnostics
++                    & finite_mass_dse_diagnostics
++                    & finite_incumbent_vertical_dse_diagnostics
++                ),
++                incumbent_vertical_dse_temperature_tendency,
++                incumbent_temperature_tendency,
++            )
++
++        gated_increment, finite_gate_diagnostics = (
++            _pressure_ramped_vertical_dse_hydrostatic_work_gated_increment(
++                pressure_guarded_increment,
++                layer_pressure_thickness,
++                valid_layer_pressure_thickness,
++            )
++        )
++        gated_capped_increment = jnp.clip(
++            gated_increment,
++            -max_temperature_tendency,
++            max_temperature_tendency,
++        )
++        gated_temperature_tendency = incumbent_temperature_tendency + (
++            self.coords.horizontal.to_modal(gated_capped_increment)
++        )
++        finite_gated_diagnostics = (
++            finite_gate_diagnostics
++            & jnp.all(jnp.isfinite(gated_capped_increment))
++            & jnp.all(jnp.isfinite(gated_temperature_tendency))
++        )
++        selected_vertical_dse_temperature_tendency = jnp.where(
++            finite_gated_diagnostics,
++            gated_temperature_tendency,
++            incumbent_vertical_dse_temperature_tendency,
++        )
+         return jnp.where(
+             (
+                 finite_theta_diagnostics
+                 & finite_dse_diagnostics
+                 & finite_mass_dse_diagnostics
+-                & finite_candidate_diagnostics
++                & finite_incumbent_vertical_dse_diagnostics
+             ),
+-            candidate_temperature_tendency,
++            selected_vertical_dse_temperature_tendency,
+             incumbent_temperature_tendency,
+         )
+ 
+@@ -1949,6 +2112,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             dry_static_energy_anomaly=dry_static_energy_anomaly,
+             geopotential=geopotential,
+             theta_vertical_temperature_tendency=temperature_vertical_nodal,
++            layer_pressure_thickness=layer_pressure_thickness,
+             valid_layer_pressure_thickness=valid_layer_pressure_thickness,
+             finite_theta_diagnostics=finite_theta_diagnostics,
+             finite_dse_diagnostics=finite_dse_diagnostics,
+@@ -3380,6 +3544,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_hydrostatic_work_gated_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3409,6 +3574,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_hydrostatic_work_gated_vertical_dse_increment=(
++                use_hydrostatic_work_gated_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3442,6 +3610,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_hydrostatic_work_gated_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3471,6 +3640,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_hydrostatic_work_gated_vertical_dse_increment=(
++                use_hydrostatic_work_gated_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3501,6 +3673,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_hydrostatic_work_gated_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3533,6 +3706,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_hydrostatic_work_gated_vertical_dse_increment=(
++                use_hydrostatic_work_gated_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..1160e94 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_hwg_model() -> DycoreModel:
++    """Return pressure-ramped vertical-DSE with a hydrostatic-work gate."""
++    from dynamaxx.dycore.models.dinosaur import (
++        hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model,
++    )
++
++    return hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -305,6 +314,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+         dino_hsl2_mass_dse_wtg_vdse_ramp_model
+     ),
++    "dino_hsl2_mass_dse_wtg_vdse_hwg": (
++        dino_hsl2_mass_dse_wtg_vdse_hwg_model
++    ),
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..3313d78 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,10 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert (
++    dinosaur.hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model().name
++    == "dino_hsl2_mass_dse_wtg_vdse_hwg"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +241,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_hwg",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +759,29 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_hydrostatic_work_gated_vertical_dse_wtg_is_registered():
++    """The HWG vertical-DSE candidate is side-by-side with the ramp incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_hwg")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_hwg"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_hydrostatic_work_gated_vertical_dse_increment
++    assert not incumbent.use_hydrostatic_work_gated_vertical_dse_increment
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hydrostatic_work_gated_vertical_dse_increment",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..1172789 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -77,6 +77,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
++    hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
+@@ -655,6 +656,29 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_hydrostatic_work_gate_factory_preserves_ramp_except_selector():
++    """The HWG candidate changes only name and the hydrostatic-work selector."""
++    model = hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_hwg"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_hydrostatic_work_gated_vertical_dse_increment
++    assert not incumbent.use_hydrostatic_work_gated_vertical_dse_increment
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hydrostatic_work_gated_vertical_dse_increment",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -5093,6 +5117,63 @@ def test_pressure_ramped_vertical_dse_weight_endpoints():
+     assert 0.0 < weights_np[2] < 1.0
+ 
+ 
++def _pressure_ramped_vertical_dse_direct_test_context(
++    *,
++    use_hydrostatic_work_gate: bool,
++    sim_hours: float = 72.0,
++):
++    """Build a small full-ramp context for direct vertical-DSE branch tests."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    timed_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(sim_hours * hour, dtype=jnp.float32),
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=True,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_dry_static_energy_hsl_transport=True,
++        use_layer_mass_weighted_dse_hsl_transport=True,
++        use_pressure_ramped_vertical_dse_increment=True,
++        use_hydrostatic_work_gated_vertical_dse_increment=(
++            use_hydrostatic_work_gate
++        ),
++        horizontal_semilagrangian_theta_transport_step=step_seconds,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        timed_state,
++        coords,
++    )
++    layer_pressure_thickness = equation.nodal_sigma_layer_pressure_thickness(
++        timed_state
++    )
++    max_tendency = (
++        primitive_equations.PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++        / step_seconds
++    )
++    return (
++        coords,
++        physics_specs,
++        timed_state,
++        equation,
++        aux_state,
++        layer_pressure_thickness,
++        max_tendency,
++    )
++
++
+ def test_pressure_ramped_vertical_dse_noop_before_ramp():
+     """At 24h and earlier, the selected tendency matches the WTG incumbent path."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5128,6 +5209,11 @@ def test_pressure_ramped_vertical_dse_noop_before_ramp():
+         **common_kwargs,
+         use_pressure_ramped_vertical_dse_increment=True,
+     )
++    gated_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_pressure_ramped_vertical_dse_increment=True,
++        use_hydrostatic_work_gated_vertical_dse_increment=True,
++    )
+     aux_state = primitive_equations.compute_diagnostic_state_sigma(
+         timed_state,
+         coords,
+@@ -5145,8 +5231,13 @@ def test_pressure_ramped_vertical_dse_noop_before_ramp():
+             aux_state,
+         )
+     )
++    gated_tendency = gated_equation.temperature_tendency_potential_temperature_form(
++        timed_state,
++        aux_state,
++    )
+ 
+     np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
++    np.testing.assert_array_equal(gated_tendency, incumbent_tendency)
+ 
+ 
+ def test_pressure_ramped_vertical_dse_missing_time_falls_back(monkeypatch):
+@@ -5189,6 +5280,10 @@ def test_pressure_ramped_vertical_dse_missing_time_falls_back(monkeypatch):
+                 coords.nodal_shape,
+                 dtype=jnp.float32,
+             ),
++            layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
+             valid_layer_pressure_thickness=jnp.zeros(
+                 coords.nodal_shape,
+                 dtype=bool,
+@@ -5252,6 +5347,10 @@ def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+                 coords.nodal_shape,
+                 dtype=jnp.float32,
+             ),
++            layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
+             valid_layer_pressure_thickness=jnp.ones(
+                 coords.nodal_shape,
+                 dtype=bool,
+@@ -5272,6 +5371,216 @@ def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+     assert float(jnp.max(jnp.abs(nodal_tendency))) <= max_tendency * 1.0001
+ 
+ 
++def test_hydrostatic_work_gate_preserves_column_neutral_increment(monkeypatch):
++    """Pressure-weighted column-neutral increments pass through the gate."""
++    (
++        coords,
++        physics_specs,
++        timed_state,
++        ramp_equation,
++        aux_state,
++        layer_pressure_thickness,
++        max_tendency,
++    ) = _pressure_ramped_vertical_dse_direct_test_context(
++        use_hydrostatic_work_gate=False,
++    )
++    gated_equation = _pressure_ramped_vertical_dse_direct_test_context(
++        use_hydrostatic_work_gate=True,
++    )[3]
++    layer_pattern = jnp.linspace(
++        -1.0,
++        1.0,
++        coords.vertical.layers,
++        dtype=jnp.float32,
++    )[:, jnp.newaxis, jnp.newaxis]
++    column_weight_sum = jnp.sum(layer_pressure_thickness, axis=0, keepdims=True)
++    weighted_pattern_mean = (
++        jnp.sum(layer_pressure_thickness * layer_pattern, axis=0, keepdims=True)
++        / column_weight_sum
++    )
++    neutral_increment = (
++        layer_pattern - weighted_pattern_mean
++    ) * jnp.asarray(max_tendency * 0.2, dtype=jnp.float32)
++
++    def neutral_vertical_tendency(unused_sigma_dot, scalar):
++        del unused_sigma_dot, scalar
++        return neutral_increment * physics_specs.Cp
++
++    monkeypatch.setattr(ramp_equation, "_vertical_tendency", neutral_vertical_tendency)
++    monkeypatch.setattr(
++        gated_equation,
++        "_vertical_tendency",
++        neutral_vertical_tendency,
++    )
++    common_kwargs = {
++        "state": timed_state,
++        "aux_state": aux_state,
++        "incumbent_temperature_tendency": jnp.zeros(
++            coords.modal_shape,
++            dtype=jnp.float32,
++        ),
++        "dry_static_energy_anomaly": jnp.ones(coords.nodal_shape, dtype=jnp.float32),
++        "geopotential": jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++        "theta_vertical_temperature_tendency": jnp.zeros(
++            coords.nodal_shape,
++            dtype=jnp.float32,
++        ),
++        "layer_pressure_thickness": layer_pressure_thickness,
++        "valid_layer_pressure_thickness": jnp.ones(
++            coords.nodal_shape,
++            dtype=bool,
++        ),
++        "finite_theta_diagnostics": jnp.asarray(True),
++        "finite_dse_diagnostics": jnp.asarray(True),
++        "finite_mass_dse_diagnostics": jnp.asarray(True),
++    }
++
++    ramp_tendency = (
++        ramp_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            **common_kwargs
++        )
++    )
++    gated_tendency = (
++        gated_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            **common_kwargs
++        )
++    )
++
++    np.testing.assert_allclose(gated_tendency, ramp_tendency, rtol=1e-6, atol=1e-9)
++
++
++def test_hydrostatic_work_gate_damps_column_uniform_increment(monkeypatch):
++    """Column-uniform increments lose their mean before the incumbent cap."""
++    (
++        coords,
++        physics_specs,
++        timed_state,
++        gated_equation,
++        aux_state,
++        layer_pressure_thickness,
++        max_tendency,
++    ) = _pressure_ramped_vertical_dse_direct_test_context(
++        use_hydrostatic_work_gate=True,
++    )
++    uniform_increment = jnp.ones(
++        coords.nodal_shape,
++        dtype=jnp.float32,
++    ) * jnp.asarray(max_tendency * 2.0, dtype=jnp.float32)
++
++    def uniform_vertical_tendency(unused_sigma_dot, scalar):
++        del unused_sigma_dot, scalar
++        return uniform_increment * physics_specs.Cp
++
++    monkeypatch.setattr(
++        gated_equation,
++        "_vertical_tendency",
++        uniform_vertical_tendency,
++    )
++
++    gated_tendency = (
++        gated_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            state=timed_state,
++            aux_state=aux_state,
++            incumbent_temperature_tendency=jnp.zeros(
++                coords.modal_shape,
++                dtype=jnp.float32,
++            ),
++            dry_static_energy_anomaly=jnp.ones(coords.nodal_shape, dtype=jnp.float32),
++            geopotential=jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++            theta_vertical_temperature_tendency=jnp.zeros(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
++            layer_pressure_thickness=layer_pressure_thickness,
++            valid_layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=bool,
++            ),
++            finite_theta_diagnostics=jnp.asarray(True),
++            finite_dse_diagnostics=jnp.asarray(True),
++            finite_mass_dse_diagnostics=jnp.asarray(True),
++        )
++    )
++    nodal_tendency = coords.horizontal.to_nodal(gated_tendency)
++
++    assert bool(jnp.isfinite(nodal_tendency).all())
++    assert float(jnp.max(jnp.abs(nodal_tendency))) <= max_tendency * 1.0001
++    assert float(jnp.max(jnp.abs(nodal_tendency))) < max_tendency * 0.1
++
++
++def test_hydrostatic_work_gate_invalid_diagnostics_use_ramp_branch(monkeypatch):
++    """Gate-specific invalid diagnostics fall back to the incumbent ramp branch."""
++    (
++        coords,
++        physics_specs,
++        timed_state,
++        ramp_equation,
++        aux_state,
++        layer_pressure_thickness,
++        max_tendency,
++    ) = _pressure_ramped_vertical_dse_direct_test_context(
++        use_hydrostatic_work_gate=False,
++    )
++    gated_equation = _pressure_ramped_vertical_dse_direct_test_context(
++        use_hydrostatic_work_gate=True,
++    )[3]
++    uniform_increment = jnp.ones(
++        coords.nodal_shape,
++        dtype=jnp.float32,
++    ) * jnp.asarray(max_tendency * 0.5, dtype=jnp.float32)
++
++    def uniform_vertical_tendency(unused_sigma_dot, scalar):
++        del unused_sigma_dot, scalar
++        return uniform_increment * physics_specs.Cp
++
++    monkeypatch.setattr(ramp_equation, "_vertical_tendency", uniform_vertical_tendency)
++    monkeypatch.setattr(
++        gated_equation,
++        "_vertical_tendency",
++        uniform_vertical_tendency,
++    )
++    common_kwargs = {
++        "state": timed_state,
++        "aux_state": aux_state,
++        "incumbent_temperature_tendency": jnp.zeros(
++            coords.modal_shape,
++            dtype=jnp.float32,
++        ),
++        "dry_static_energy_anomaly": jnp.ones(coords.nodal_shape, dtype=jnp.float32),
++        "geopotential": jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++        "theta_vertical_temperature_tendency": jnp.zeros(
++            coords.nodal_shape,
++            dtype=jnp.float32,
++        ),
++        "valid_layer_pressure_thickness": jnp.ones(
++            coords.nodal_shape,
++            dtype=bool,
++        ),
++        "finite_theta_diagnostics": jnp.asarray(True),
++        "finite_dse_diagnostics": jnp.asarray(True),
++        "finite_mass_dse_diagnostics": jnp.asarray(True),
++    }
++
++    ramp_tendency = (
++        ramp_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            layer_pressure_thickness=layer_pressure_thickness,
++            **common_kwargs,
++        )
++    )
++    fallback_tendency = (
++        gated_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            layer_pressure_thickness=jnp.full(
++                coords.nodal_shape,
++                jnp.inf,
++                dtype=jnp.float32,
++            ),
++            **common_kwargs,
++        )
++    )
++
++    np.testing.assert_allclose(fallback_tendency, ramp_tendency, rtol=1e-6, atol=1e-9)
++
++
+ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     """DSE-HSL changes only the horizontal thermal transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5817,6 +6126,66 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_hydrostatic_work_gate_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The hydrostatic-work-gated vertical-DSE candidate is forecast-finite."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        hydrostatic_work_gated_vertical_dse_wtg_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_hwg"
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_hydrostatic_work_gated_vertical_dse_increment
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..9cae735 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_hwg",
+     )
+ 
+ 
+@@ -660,6 +661,29 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_hydrostatic_work_gated_vertical_dse_candidate_model():
++    """The HWG alias adds only the hydrostatic-work gate selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_hwg")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_hwg"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_hydrostatic_work_gated_vertical_dse_increment
++    assert not incumbent.use_hydrostatic_work_gated_vertical_dse_increment
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "use_hydrostatic_work_gated_vertical_dse_increment",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

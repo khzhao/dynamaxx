@@ -1,0 +1,9 @@
+## kzhao--codex...origin/kzhao--codex [ahead 26]
+ M src/dynamaxx/dycore/models/dinosaur/__init__.py
+ M src/dynamaxx/dycore/models/dinosaur/adapter.py
+ M src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+ M src/dynamaxx/dycore/registry.py
+ M tests/dycore/models/dinosaur/test_dependency.py
+ M tests/dycore/models/dinosaur/test_primitive_equations.py
+ M tests/dycore/test_registry.py
+?? gifs/

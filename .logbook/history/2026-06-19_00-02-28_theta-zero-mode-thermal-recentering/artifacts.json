@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "theta-zero-mode-thermal-recentering",
+  "decision": "accepted",
+  "history_dir": ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering",
+  "baseline_commit": "cb5bbd1c15744b4fc00ecca5de78da188685a33d",
+  "candidate_commit": "c359ee1b016ccd92412585997a799a7c644a65c5",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency",
+  "changed_files": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "history_files": [
+    ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering/proposal.md",
+    ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering/implementation.md",
+    ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering/scores.json",
+    ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering/scoring_notes.md",
+    ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering/decision.md",
+    ".logbook/history/2026-06-19_00-02-28_theta-zero-mode-thermal-recentering/artifacts.json"
+  ],
+  "evaluation_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv",
+    "candidate_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+    "candidate_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency.csv"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "status": "passed"
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "status": "passed"
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter",
+      "exit_status": 0,
+      "status": "passed"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter --workers 4",
+      "exit_status": 0,
+      "status": "passed"
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter --workers 4",
+      "exit_status": 0,
+      "status": "passed"
+    }
+  ],
+  "primary_scores": {
+    "candidate_fast": -0.7992299367936251,
+    "candidate_iteration": -0.8308832822743712,
+    "candidate_validation": -0.8148379476593253,
+    "incumbent_iteration": -0.8348806410796545,
+    "incumbent_validation": -0.8200230307466544,
+    "iteration_delta": 0.003997358805283291,
+    "validation_delta": 0.005185083087329123
+  },
+  "cleanup_status": {
+    "candidate_code": "retained",
+    "leaderboard_updated": true,
+    "source_commit": "c359ee1b016ccd92412585997a799a7c644a65c5",
+    "tracked_worktree_clean_after_commit": true
+  }
+}

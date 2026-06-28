@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "charney-phillips-interface-theta-advection",
+  "candidate_model_name": "dino_hsl2_theta_cpvert",
+  "incumbent_model_name": "dino_hsl2_theta",
+  "scored_at": "2026-06-23T03:39:23Z",
+  "history_directory": ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "72efada4e0afbd8e34e3184dbcef90cb91cc051c",
+    "protocols": [
+      "fast"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "resource_record": {
+    "cpu_count": 48,
+    "available_ram_gib": 172,
+    "gpu_count": 4,
+    "gpu_model": "NVIDIA L4",
+    "gpu_free_memory_mib_each_before_scoring": 22566,
+    "free_disk_gib": 4139,
+    "selected_workers": 4,
+    "worker_rationale": "Conservative under protocol resource policy; iteration and validation were not reached because fast failed."
+  },
+  "test_record": {
+    "source": "Orchestrator-provided post-repair local test record",
+    "rerun_by_scorer": false,
+    "results": [
+      {
+        "command": "uv run ruff check changed files",
+        "status": "passed"
+      },
+      {
+        "command": "git diff --check",
+        "status": "passed"
+      },
+      {
+        "command": "focused pytest selection",
+        "status": "23 passed, 143 deselected in 55.47s"
+      },
+      {
+        "command": "uv run pytest",
+        "status": "232 passed, 2 skipped in 186.73s"
+      }
+    ]
+  },
+  "commands": [
+    {
+      "command": "sed -n '1,240p' roles/PROTOCOL.md",
+      "exit_status": 0,
+      "notes": "Read before scoring."
+    },
+    {
+      "command": "sed -n '1,260p' roles/SCORER.md",
+      "exit_status": 0,
+      "notes": "Read before scoring."
+    },
+    {
+      "command": "sed -n '1,240p' .logbook/leaderboard.json",
+      "exit_status": 0,
+      "notes": "Read incumbent pointer and cached artifact paths."
+    },
+    {
+      "command": "uv run python - <<'PY'\nfrom dynamaxx.dycore.registry import DYCORE_MODEL_FACTORIES\n\nfor model_name in [\"dino_hsl2_theta_cpvert\", \"dino_hsl2_theta\"]:\n    factory = DYCORE_MODEL_FACTORIES.get(model_name)\n    if factory is None:\n        raise SystemExit(f\"{model_name}: not registered\")\n    model = factory()\n    print(f\"{model_name}: registered via {factory.__name__}; created model.name={model.name}\")\nPY",
+      "exit_status": 0,
+      "notes": "Candidate and incumbent registration confirmed."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_theta_cpvert",
+      "exit_status": 0,
+      "notes": "Metric result failed: diagnostics.failed=true, issue_count=2, primary_score=-Infinity."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_theta_cpvert --workers 4",
+      "exit_status": null,
+      "notes": "Skipped by protocol because the repaired candidate failed fast."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_theta_cpvert --workers 4",
+      "exit_status": null,
+      "notes": "Skipped by protocol because iteration was not reached."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_theta_cpvert.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_theta_cpvert.csv",
+    "candidate_iteration_json": null,
+    "candidate_iteration_csv": null,
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_theta.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_theta.csv",
+    "pre_repair_failed_fast_json": ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/fast_failed_pre_repair.json",
+    "pre_repair_failed_fast_csv": ".logbook/history/2026-06-23_03-04-46_charney-phillips-interface-theta-advection/fast_failed_pre_repair.csv"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_reused": true,
+      "rerun_incumbent": false,
+      "json_path": "outputs/eval/iteration_dino_hsl2_theta.json",
+      "csv_path": "outputs/eval/iteration_dino_hsl2_theta.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "artifact_readable": true,
+        "artifact_model_name": "dino_hsl2_theta",
+        "primary_score_finite": true,
+        "diagnostics_failed": false,
+        "diagnostic_issue_count": 0,
+        "csv_total_rows": 120,
+        "csv_filtered_rows_for_incumbent": 60,
+        "filtered_nonfinite_metric_values": 0,
+        "fingerprint_compatible": true
+      },
+      "reason": "Leaderboard incumbent cache is valid; candidate source edits do not invalidate it."
+    },
+    "validation": {
+      "incumbent_reused": true,
+      "rerun_incumbent": false,
+      "json_path": "outputs/eval/validation_dino_hsl2_theta.json",
+      "csv_path": "outputs/eval/validation_dino_hsl2_theta.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "artifact_readable": true,
+        "artifact_model_name": "dino_hsl2_theta",
+        "primary_score_finite": true,
+        "diagnostics_failed": false,
+        "diagnostic_issue_count": 0,
+        "csv_total_rows": 120,
+        "csv_filtered_rows_for_incumbent": 60,
+        "filtered_nonfinite_metric_values": 0,
+        "fingerprint_compatible": true
+      },
+      "reason": "Leaderboard incumbent cache is valid; validation comparison was not reached."
+    }
+  },
+  "primary_scores": {
+    "candidate_fast": "-Infinity",
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.31282890543336245,
+    "incumbent_validation": -0.3072374345999185,
+    "iteration_delta": null,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": true,
+    "candidate_fast_issue_count": 2,
+    "candidate_fast_issues": [
+      {
+        "code": "nonfinite_forecast",
+        "message": "Forecast contains NaN or Inf values.",
+        "severity": "error",
+        "value": 392736960
+      },
+      {
+        "code": "nonfinite_metric",
+        "message": "Metric records contain NaN or Inf values.",
+        "severity": "error",
+        "value": 224
+      }
+    ],
+    "candidate_fast_filtered_model_name": "dino_hsl2_theta_cpvert",
+    "candidate_fast_csv_total_rows": 120,
+    "candidate_fast_csv_filtered_rows": 60,
+    "candidate_fast_filtered_nonfinite_metric_values": 224,
+    "candidate_iteration_failed": null,
+    "candidate_iteration_issue_count": null,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": false,
+    "iteration_ran": false,
+    "iteration_promotes_to_validation": false,
+    "validation_allowed": true,
+    "validation_ran": false,
+    "validation_acceptance_gate_passed": null,
+    "reason": "Candidate fast metrics remained nonfinite after repair, so fixed protocol promotion gates stopped before iteration."
+  },
+  "guardrails": {
+    "iteration_primary_delta_required": 0.002,
+    "iteration_primary_delta": null,
+    "diagnostic_guardrail_clean": false,
+    "early_day_1_to_5_mean_rmse_regressions": [],
+    "worst_variable_lead_rmse_regression": null,
+    "status": "not_evaluated",
+    "reason": "Iteration guardrails cannot be computed because candidate iteration was not run after fast failure."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": []
+  },
+  "anomalies": [
+    "Repaired candidate produced finite day-1 fast candidate metric rows but nonfinite candidate metrics from 48 hours onward.",
+    "The preserved pre-repair fast failure artifacts remain in the history directory for comparison."
+  ]
+}

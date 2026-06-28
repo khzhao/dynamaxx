@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "hydrostatic-balanced-theta-pressure-work",
+  "history_path": ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work",
+  "source_artifacts": [
+    ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work/proposal.md",
+    ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work/implementation.md",
+    ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_theta_pw.json",
+    "outputs/eval/fast_dino_hsl2_theta_pw.csv",
+    "outputs/eval/iteration_dino_hsl2_theta_pw.json",
+    "outputs/eval/iteration_dino_hsl2_theta_pw.csv",
+    "outputs/eval/iteration_dino_hsl2_theta.json",
+    "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "outputs/eval/validation_dino_hsl2_theta.json",
+    "outputs/eval/validation_dino_hsl2_theta.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work/scores.json",
+    ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work/scoring_notes.md",
+    ".logbook/history/2026-06-23_03-46-01_hydrostatic-balanced-theta-pressure-work/decision.md"
+  ],
+  "notes": "Rejected at iteration despite primary delta +0.08765828083613111 because fixed RMSE guardrails failed; validation and golden were not run; cached incumbent artifacts were reused."
+}

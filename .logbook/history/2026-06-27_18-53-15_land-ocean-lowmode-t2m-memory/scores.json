@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "land-ocean-lowmode-t2m-memory",
+  "candidate_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_ramp",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "d1f132fafcad09bcc92cfeedbe3fc2be1b930770",
+    "protocols": ["fast", "iteration", "validation"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python -m compileall -q src/dynamaxx tests",
+      "exit_status": 0,
+      "notes": "Passed before scoring."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "257 passed, 2 skipped in 277.62s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+      "exit_status": 0,
+      "notes": "Candidate fast gate completed with clean diagnostics."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration gate completed with clean diagnostics."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_hsl2_mass_dse_wtg_vdse_t2m_lomem --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate validation gate completed with clean diagnostics."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.21873176048319332,
+    "candidate_iteration": -0.21638012219181893,
+    "candidate_validation": -0.21606470816567627,
+    "incumbent_iteration": -0.2197104515448394,
+    "incumbent_validation": -0.21940899263836755,
+    "iteration_delta": 0.003330329353020467,
+    "validation_delta": 0.003344284472691278
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": false,
+    "candidate_validation_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_reused": true,
+      "artifact": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "reason": "Leaderboard incumbent, fingerprint, protocol, target variables, lead range, metrics, and artifact health were compatible."
+    },
+    "validation": {
+      "incumbent_reused": true,
+      "artifact": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "reason": "Leaderboard incumbent, fingerprint, protocol, target variables, lead range, metrics, and artifact health were compatible."
+    }
+  },
+  "regressions": {
+    "iteration": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "candidate_mean_rmse": 4.29145518367031,
+          "incumbent_mean_rmse": 4.291454635917505,
+          "relative_regression": 1.2763802748061437e-7
+        },
+        {
+          "variable": "2 m temperature",
+          "candidate_mean_rmse": 4.751334895101612,
+          "incumbent_mean_rmse": 4.751335465357272,
+          "relative_regression": -1.2002007931943837e-7
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "candidate_mean_rmse": 592.5714816588231,
+          "incumbent_mean_rmse": 592.5709106473444,
+          "relative_regression": 9.636171274252092e-7
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "candidate_mean_rmse": 771.1149674850349,
+          "incumbent_mean_rmse": 771.1150019948005,
+          "relative_regression": -4.475307258111627e-8
+        }
+      ],
+      "max_rmse_regression_by_variable_and_lead": {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": 24,
+        "candidate_rmse": 245.96258066784665,
+        "incumbent_rmse": 245.96134960647697,
+        "relative_regression": 5.00510088952133e-6
+      }
+    },
+    "validation": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "candidate_mean_rmse": 4.250366839634683,
+          "incumbent_mean_rmse": 4.250368552001074,
+          "relative_regression": -4.0287480251866015e-7
+        },
+        {
+          "variable": "2 m temperature",
+          "candidate_mean_rmse": 4.75677655695888,
+          "incumbent_mean_rmse": 4.756776231662769,
+          "relative_regression": 6.838583432866585e-8
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "candidate_mean_rmse": 583.2276540113284,
+          "incumbent_mean_rmse": 583.2276654167761,
+          "relative_regression": -1.95557384730094e-8
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "candidate_mean_rmse": 753.3206018952862,
+          "incumbent_mean_rmse": 753.3205373003982,
+          "relative_regression": 8.574688314944012e-8
+        }
+      ],
+      "max_rmse_regression_by_variable_and_lead": {
+        "variable": "500 hPa geopotential",
+        "channel_name": "geopotential_500",
+        "lead_hours": 168,
+        "candidate_rmse": 1003.11838031785,
+        "incumbent_rmse": 1003.117501550944,
+        "relative_regression": 8.760358627402098e-7
+      }
+    }
+  }
+}

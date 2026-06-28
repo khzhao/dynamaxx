@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "picard-hsl-theta-departure",
+  "history_path": ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure",
+  "source_artifacts": [
+    ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure/proposal.md",
+    ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure/implementation.md",
+    ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl_picard.json",
+    "outputs/eval/fast_dino_hsl_picard.csv",
+    "outputs/eval/iteration_dino_hsl_picard.json",
+    "outputs/eval/iteration_dino_hsl_picard.csv",
+    "outputs/eval/runs/iteration_dino_hsl_picard",
+    "outputs/eval/iteration_dino_hsl2_theta.json",
+    "outputs/eval/iteration_dino_hsl2_theta.csv",
+    "outputs/eval/validation_dino_hsl2_theta.json",
+    "outputs/eval/validation_dino_hsl2_theta.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure/scores.json",
+    ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure/scoring_notes.md",
+    ".logbook/history/2026-06-22_21-59-29_picard-hsl-theta-departure/decision.md"
+  ],
+  "notes": "Rejected after clean fast and iteration gates because iteration primary delta was -3.9808928495421725e-05 versus cached dino_hsl2_theta, below the +0.002 promotion threshold. Candidate validation was not run. Incumbent metrics were reused from valid leaderboard artifacts; no incumbent rerun was performed."
+}

@@ -1,0 +1,930 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 4a37e09..4520d0c 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -50,6 +50,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     default_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
++    exact_relaxation_held_suarez_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+@@ -81,6 +82,7 @@ __all__ = [
+     "default_dinosaur_dycore_model",
+     "digital_filter_dinosaur_dycore_model",
+     "digital_filter_surface_residual_dinosaur_dycore_model",
++    "exact_relaxation_held_suarez_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+     "held_suarez",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 4769707..a551b1d 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -122,6 +122,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_scale_separated_near_surface_residual: bool = False
+     use_land_sea_surface_temperature_residual: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
++    apply_exact_weak_held_suarez_relaxation: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+     apply_symmetric_exact_coriolis_rotation_split: bool = False
+     temperature_tendency_formulation: str = (
+@@ -283,6 +284,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         def build_equation(
+             equation_physics_specs: Any,
+             equilibrium_temperature_offset: jax.Array | None = None,
++            include_weak_hs_explicit_terms: bool = True,
+         ) -> Any:
+             equation = _primitive_equation(
+                 reference_temperature=reference_temperature,
+@@ -303,6 +305,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
+                     ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    include_explicit_terms=include_weak_hs_explicit_terms,
+                 )
+             return equation
+ 
+@@ -329,9 +332,16 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         def build_trajectory(
+             equilibrium_temperature_offset: jax.Array | None = None,
+         ) -> Any:
++            use_exact_weak_hs_relaxation = (
++                self.apply_weak_held_suarez_relaxation
++                and self.apply_exact_weak_held_suarez_relaxation
++            )
+             equation = build_equation(
+                 rollout_physics_specs,
+                 equilibrium_temperature_offset=equilibrium_temperature_offset,
++                include_weak_hs_explicit_terms=(
++                    not use_exact_weak_hs_relaxation
++                ),
+             )
+             filters = build_filters(rollout_physics_specs)
+             if (
+@@ -351,6 +361,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 dfi_equation = build_equation(
+                     physics_specs,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    include_weak_hs_explicit_terms=(
++                        not use_exact_weak_hs_relaxation
++                    ),
+                 )
+                 dfi_filters = build_filters(physics_specs)
+             if self.apply_theta_layer_mean_recentering:
+@@ -371,6 +384,44 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     physics_specs=physics_specs,
+                     step_seconds=step_seconds,
+                 )
++            if use_exact_weak_hs_relaxation:
++                explicit_equation = build_equation(
++                    rollout_physics_specs,
++                    equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    include_weak_hs_explicit_terms=True,
++                )
++                fallback_step_fn = ode_solver(
++                    explicit_equation,
++                    time_step=step_seconds,
++                )
++                if filters:
++                    fallback_step_fn = time_integration.step_with_filters(
++                        fallback_step_fn,
++                        filters,
++                    )
++                if self.apply_symmetric_exact_coriolis_rotation_split:
++                    fallback_step_fn = _symmetric_exact_coriolis_rotation_step(
++                        fallback_step_fn,
++                        coords=coords,
++                        physics_specs=physics_specs,
++                        step_seconds=step_seconds,
++                    )
++                forcing = _weak_held_suarez_forcing_sigma(
++                    coords=coords,
++                    physics_specs=rollout_physics_specs,
++                    reference_temperature=reference_temperature,
++                    kf_per_day=self.weak_held_suarez_kf_per_day,
++                    ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
++                    ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
++                    equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    include_explicit_terms=False,
++                )
++                step_fn = _strang_exact_weak_held_suarez_relaxation_step(
++                    dynamics_step=step_fn,
++                    fallback_step=fallback_step_fn,
++                    forcing=forcing,
++                    step_seconds=step_seconds,
++                )
+             trajectory_fn = time_integration.trajectory_from_step(
+                 step_fn,
+                 outer_steps=output_count,
+@@ -386,14 +437,80 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     physics_specs,
+                     self.digital_filter_cutoff_seconds,
+                 )
+-                initialize_state = time_integration.digital_filter_initialization(
+-                    dfi_equation,
+-                    ode_solver,
+-                    dfi_filters,
+-                    time_span=digital_filter_time_span,
+-                    cutoff_period=digital_filter_cutoff_period,
+-                    dt=step_seconds,
+-                )
++                if use_exact_weak_hs_relaxation:
++                    dfi_explicit_equation = build_equation(
++                        physics_specs,
++                        equilibrium_temperature_offset=equilibrium_temperature_offset,
++                        include_weak_hs_explicit_terms=True,
++                    )
++                    dfi_forcing = _weak_held_suarez_forcing_sigma(
++                        coords=coords,
++                        physics_specs=physics_specs,
++                        reference_temperature=reference_temperature,
++                        kf_per_day=self.weak_held_suarez_kf_per_day,
++                        ka_timescale_days=self.weak_held_suarez_ka_timescale_days,
++                        ks_timescale_days=self.weak_held_suarez_ks_timescale_days,
++                        equilibrium_temperature_offset=equilibrium_temperature_offset,
++                        include_explicit_terms=False,
++                    )
++                    dfi_forward_step = _filtered_ode_step(
++                        dfi_equation,
++                        ode_solver=ode_solver,
++                        filters=dfi_filters,
++                        step_seconds=step_seconds,
++                    )
++                    dfi_fallback_forward_step = _filtered_ode_step(
++                        dfi_explicit_equation,
++                        ode_solver=ode_solver,
++                        filters=dfi_filters,
++                        step_seconds=step_seconds,
++                    )
++                    dfi_forward_step = (
++                        _strang_exact_weak_held_suarez_relaxation_step(
++                            dynamics_step=dfi_forward_step,
++                            fallback_step=dfi_fallback_forward_step,
++                            forcing=dfi_forcing,
++                            step_seconds=step_seconds,
++                        )
++                    )
++                    dfi_backward_step = _filtered_ode_step(
++                        time_integration.TimeReversedImExODE(dfi_equation),
++                        ode_solver=ode_solver,
++                        filters=dfi_filters,
++                        step_seconds=step_seconds,
++                    )
++                    dfi_fallback_backward_step = _filtered_ode_step(
++                        time_integration.TimeReversedImExODE(dfi_explicit_equation),
++                        ode_solver=ode_solver,
++                        filters=dfi_filters,
++                        step_seconds=step_seconds,
++                    )
++                    dfi_backward_step = (
++                        _strang_exact_weak_held_suarez_relaxation_step(
++                            dynamics_step=dfi_backward_step,
++                            fallback_step=dfi_fallback_backward_step,
++                            forcing=dfi_forcing,
++                            step_seconds=-step_seconds,
++                        )
++                    )
++                    initialize_state = (
++                        time_integration.digital_filter_initialization_from_steps(
++                            forward_step=dfi_forward_step,
++                            backward_step=dfi_backward_step,
++                            time_span=digital_filter_time_span,
++                            cutoff_period=digital_filter_cutoff_period,
++                            dt=step_seconds,
++                        )
++                    )
++                else:
++                    initialize_state = time_integration.digital_filter_initialization(
++                        dfi_equation,
++                        ode_solver,
++                        dfi_filters,
++                        time_span=digital_filter_time_span,
++                        cutoff_period=digital_filter_cutoff_period,
++                        dt=step_seconds,
++                    )
+                 base_trajectory_fn = trajectory_fn
+ 
+                 def initialized_trajectory_fn(dinosaur_state):
+@@ -918,6 +1035,22 @@ def land_sea_surface_temperature_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def exact_relaxation_held_suarez_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the incumbent with exact weak-HS relaxation splitting."""
++    return replace(
++        land_sea_surface_temperature_dinosaur_dycore_model(),
++        name=(
++            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++            "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++        ),
++        apply_exact_weak_held_suarez_relaxation=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2054,10 +2187,12 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
+         self,
+         *args: Any,
+         equilibrium_temperature_offset: jax.Array | None = None,
++        include_explicit_terms: bool = True,
+         **kwargs: Any,
+     ):
+         super().__init__(*args, **kwargs)
+         self.equilibrium_temperature_offset = equilibrium_temperature_offset
++        self.include_explicit_terms = include_explicit_terms
+ 
+     def _equilibrium_temperature(
+         self,
+@@ -2072,6 +2207,8 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
+         self,
+         state: primitive_equations.State,
+     ) -> primitive_equations.State:
++        if not self.include_explicit_terms:
++            return _zero_primitive_equation_state_like(state)
+         aux_state = primitive_equations.compute_diagnostic_state_sigma(
+             state=state,
+             coords=self.coords,
+@@ -2103,9 +2240,20 @@ class _TracerSafeHeldSuarezForcingSigma(held_suarez.HeldSuarezForcingSigma):
+         )
+ 
+ 
+-def _compose_weak_held_suarez_equation(
++def _zero_primitive_equation_state_like(state: Any) -> Any:
++    """Return a state-shaped zero tendency, preserving tracer leaves."""
++    return primitive_equations.State(
++        vorticity=jnp.zeros_like(state.vorticity),
++        divergence=jnp.zeros_like(state.divergence),
++        temperature_variation=jnp.zeros_like(state.temperature_variation),
++        log_surface_pressure=jnp.zeros_like(state.log_surface_pressure),
++        tracers=jax.tree_util.tree_map(jnp.zeros_like, state.tracers),
++        sim_time=None if state.sim_time is None else 0.0,
++    )
++
++
++def _weak_held_suarez_forcing_sigma(
+     *,
+-    equation: Any,
+     coords: coordinate_systems.CoordinateSystem,
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+@@ -2113,13 +2261,14 @@ def _compose_weak_held_suarez_equation(
+     ka_timescale_days: float,
+     ks_timescale_days: float,
+     equilibrium_temperature_offset: jax.Array | None = None,
+-) -> Any:
+-    """Compose primitive equations with the fixed weak Held-Suarez forcing."""
++    include_explicit_terms: bool = True,
++) -> _TracerSafeHeldSuarezForcingSigma:
++    """Build the fixed weak Held-Suarez forcing used by registered candidates."""
+     assert ka_timescale_days > 0.0
+     assert ks_timescale_days > 0.0
+     unit_registry = cast(Any, scales.units)
+     day = unit_registry.day
+-    forcing = _TracerSafeHeldSuarezForcingSigma(
++    return _TracerSafeHeldSuarezForcingSigma(
+         coords=coords,
+         physics_specs=physics_specs,
+         reference_temperature=reference_temperature,
+@@ -2127,10 +2276,132 @@ def _compose_weak_held_suarez_equation(
+         ka=1 / (float(ka_timescale_days) * day),
+         ks=1 / (float(ks_timescale_days) * day),
+         equilibrium_temperature_offset=equilibrium_temperature_offset,
++        include_explicit_terms=include_explicit_terms,
++    )
++
++
++def _compose_weak_held_suarez_equation(
++    *,
++    equation: Any,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    kf_per_day: float,
++    ka_timescale_days: float,
++    ks_timescale_days: float,
++    equilibrium_temperature_offset: jax.Array | None = None,
++    include_explicit_terms: bool = True,
++) -> Any:
++    """Compose primitive equations with the fixed weak Held-Suarez forcing."""
++    forcing = _weak_held_suarez_forcing_sigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        kf_per_day=kf_per_day,
++        ka_timescale_days=ka_timescale_days,
++        ks_timescale_days=ks_timescale_days,
++        equilibrium_temperature_offset=equilibrium_temperature_offset,
++        include_explicit_terms=include_explicit_terms,
+     )
+     return time_integration.compose_equations([equation, forcing])
+ 
+ 
++def _filtered_ode_step(
++    equation: Any,
++    *,
++    ode_solver: Any,
++    filters: list[Any],
++    step_seconds: float,
++) -> Any:
++    """Build an ODE step and apply the same post-step filters as rollout."""
++    step_fn = ode_solver(equation, time_step=step_seconds)
++    if filters:
++        step_fn = time_integration.step_with_filters(step_fn, filters)
++    return step_fn
++
++
++def _exact_weak_held_suarez_relaxation_step(
++    state: Any,
++    *,
++    forcing: _TracerSafeHeldSuarezForcingSigma,
++    step_seconds: float,
++) -> Any:
++    """Apply the analytic local weak-HS relaxation/drag update."""
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        state=state,
++        coords=forcing.coords,
++    )
++    reference_temperature = jnp.asarray(forcing.reference_temperature)[
++        :, jnp.newaxis, jnp.newaxis
++    ]
++    nodal_temperature = reference_temperature + aux_state.temperature_variation
++    nodal_surface_pressure = jnp.exp(
++        forcing.coords.horizontal.to_nodal(state.log_surface_pressure)
++    )
++    equilibrium_temperature = forcing._equilibrium_temperature(
++        nodal_surface_pressure
++    )
++    temperature_decay = jnp.exp(-forcing.kt() * step_seconds)
++    relaxed_temperature = equilibrium_temperature + (
++        nodal_temperature - equilibrium_temperature
++    ) * temperature_decay
++    temperature_variation = forcing.coords.horizontal.to_modal(
++        relaxed_temperature - reference_temperature
++    )
++
++    vorticity = state.vorticity
++    divergence = state.divergence
++    if bool(np.any(np.asarray(forcing.kv()) != 0.0)):
++        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++            forcing.coords.horizontal,
++            state.vorticity,
++            state.divergence,
++        )
++        velocity_decay = jnp.exp(-forcing.kv() * step_seconds)
++        vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
++            forcing.coords.horizontal,
++            u_wind * velocity_decay,
++            v_wind * velocity_decay,
++        )
++
++    return _primitive_equation_state(
++        vorticity=vorticity,
++        divergence=divergence,
++        temperature_variation=temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=state.sim_time,
++    )
++
++
++def _strang_exact_weak_held_suarez_relaxation_step(
++    *,
++    dynamics_step: Any,
++    fallback_step: Any,
++    forcing: _TracerSafeHeldSuarezForcingSigma,
++    step_seconds: float,
++) -> Any:
++    """Wrap a dynamics step in exact half-step weak-HS relaxation."""
++
++    def candidate_step(state: Any) -> Any:
++        half_relaxed_state = _exact_weak_held_suarez_relaxation_step(
++            state,
++            forcing=forcing,
++            step_seconds=0.5 * step_seconds,
++        )
++        dynamics_state = dynamics_step(half_relaxed_state)
++        return _exact_weak_held_suarez_relaxation_step(
++            dynamics_state,
++            forcing=forcing,
++            step_seconds=0.5 * step_seconds,
++        )
++
++    return time_integration._guarded_nonfinite_fallback_step(
++        candidate_step,
++        fallback_step,
++    )
++
++
+ def _horizontal_diffusion_step_filter(
+     *,
+     coords: coordinate_systems.CoordinateSystem,
+diff --git a/src/dynamaxx/dycore/models/dinosaur/time_integration.py b/src/dynamaxx/dycore/models/dinosaur/time_integration.py
+index 9eb09b5..7a567dc 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/time_integration.py
++++ b/src/dynamaxx/dycore/models/dinosaur/time_integration.py
+@@ -838,12 +838,30 @@ def digital_filter_initialization(
+       Digital Filter. Mon. Weather Rev. 120, 1019–1034 (1992)
+       https://doi.org/10.1175/1520-0493(1992)120<1019:IOTHMU>2.0.CO;2
+     """
++    forward_step = step_with_filters(ode_solver(equation, dt), filters)
++    backward_step = step_with_filters(
++        ode_solver(TimeReversedImExODE(equation), dt), filters
++    )
++    return digital_filter_initialization_from_steps(
++        forward_step=forward_step,
++        backward_step=backward_step,
++        time_span=time_span,
++        cutoff_period=cutoff_period,
++        dt=dt,
++    )
++
++
++def digital_filter_initialization_from_steps(
++    *,
++    forward_step: StateFn,
++    backward_step: StateFn,
++    time_span: float,
++    cutoff_period: float,
++    dt: float,
++) -> StateFn:
++    """Create DFI from precomposed forward and backward step functions."""
+ 
+     def f(state):
+-        forward_step = step_with_filters(ode_solver(equation, dt), filters)
+-        backward_step = step_with_filters(
+-            ode_solver(TimeReversedImExODE(equation), dt), filters
+-        )
+         # for times [1, ..., N] and [-1, ..., -N]
+         weights = _dfi_lanczos_weights(time_span, cutoff_period, dt)
+         init_weight = 1.0  # for time=0
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b14bcfc..1963ac7 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -161,6 +161,15 @@ def dinosaur_land_sea_surface_temperature_model() -> DycoreModel:
+     return land_sea_surface_temperature_dinosaur_dycore_model()
+ 
+ 
++def dinosaur_exact_relaxation_held_suarez_model() -> DycoreModel:
++    """Return the land-sea incumbent with exact weak-HS relaxation splitting."""
++    from dynamaxx.dycore.models.dinosaur import (
++        exact_relaxation_held_suarez_dinosaur_dycore_model,
++    )
++
++    return exact_relaxation_held_suarez_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -228,6 +237,12 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface"
+     ): dinosaur_land_sea_surface_temperature_model,
++    (
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++    ): dinosaur_exact_relaxation_held_suarez_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index efd7bae..15a767b 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -111,6 +111,13 @@ assert (
+     "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+     "scale_surface_residual_analysis_hs_eq_landsea_surface"
+ )
++assert (
++    dinosaur.exact_relaxation_held_suarez_dinosaur_dycore_model().name
++    == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++    "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++    "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++    "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -202,6 +209,10 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -617,6 +628,35 @@ def test_dinosaur_land_sea_surface_temperature_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_exact_relaxation_held_suarez_is_registered():
++    """The exact weak-HS relaxation candidate is side-by-side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++    )
++    assert model.apply_exact_weak_held_suarez_relaxation
++    assert not incumbent.apply_exact_weak_held_suarez_relaxation
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_exact_weak_held_suarez_relaxation"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 1be478d..c3c8a38 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -41,6 +41,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _apply_scale_separated_near_surface_residual_correction,
+     _compose_weak_held_suarez_equation,
+     _exact_coriolis_rotation_step_filter,
++    _exact_weak_held_suarez_relaxation_step,
+     _horizontal_diffusion_step_filter,
+     _hydrostatic_temperature_from_geopotential_thickness,
+     _inner_steps_per_forecast_step,
+@@ -55,6 +56,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _scale_separated_residual_low_mode_mask,
+     _split_near_surface_residual_by_scale,
+     _stability_aware_near_surface_residual_decay_hours,
++    _strang_exact_weak_held_suarez_relaxation_step,
+     _surface_layer_richardson_10m_wind,
+     _symmetric_exact_coriolis_rotation_step,
+     _theta_layer_mean_recenter_step_filter,
+@@ -67,6 +69,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_dinosaur_dycore_model,
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dinosaur_state_to_weather_state,
++    exact_relaxation_held_suarez_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+     land_sea_surface_temperature_dinosaur_dycore_model,
+@@ -161,6 +164,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.use_scale_separated_near_surface_residual
+     assert not model.use_land_sea_surface_temperature_residual
+     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert not model.apply_exact_weak_held_suarez_relaxation
+     assert not model.use_log_pressure_initialization
+     assert not model.apply_weak_held_suarez_relaxation
+     assert not model.apply_exact_coriolis_rotation_split
+@@ -519,6 +523,25 @@ def test_land_sea_surface_temperature_factory_preserves_incumbent_except_selecto
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_exact_relaxation_hs_factory_preserves_incumbent_except_selector():
++    """The candidate changes only name and the exact weak-HS selector."""
++    model = exact_relaxation_held_suarez_dinosaur_dycore_model()
++    incumbent = land_sea_surface_temperature_dinosaur_dycore_model()
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++    )
++    assert model.apply_exact_weak_held_suarez_relaxation
++    assert not incumbent.apply_exact_weak_held_suarez_relaxation
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_exact_weak_held_suarez_relaxation"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -3772,6 +3795,151 @@ def test_weak_held_suarez_zero_offset_reproduces_incumbent_tendency():
+     _assert_pytree_allclose(zero_offset_tendency, incumbent_tendency)
+ 
+ 
++def test_exact_weak_held_suarez_relaxation_matches_analytic_temperature():
++    """The exact weak-HS step relaxes temperature to Teq with exp(-kt dt)."""
++    coords, physics_specs, reference_temperature = _analysis_offset_test_setup(
++        layer_count=2
++    )
++    equilibrium_offset = jnp.full(coords.nodal_shape, 0.25, dtype=jnp.float32)
++    state = _dinosaur_state_with_hs_equilibrium_offset(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        equilibrium_offset=equilibrium_offset,
++    )
++    forcing = _TracerSafeHeldSuarezForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        kf=0.0 / scales.units.day,
++        ka=1 / (160.0 * scales.units.day),
++        ks=1 / (16.0 * scales.units.day),
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 6.0 * SECONDS_PER_HOUR)
++    surface_pressure = jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
++    equilibrium_temperature = forcing.equilibrium_temperature(surface_pressure)
++
++    relaxed_state = _exact_weak_held_suarez_relaxation_step(
++        state,
++        forcing=forcing,
++        step_seconds=step_seconds,
++    )
++
++    relaxed_temperature = (
++        coords.horizontal.to_nodal(relaxed_state.temperature_variation)
++        + reference_temperature[:, np.newaxis, np.newaxis]
++    )
++    initial_temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)
++        + reference_temperature[:, np.newaxis, np.newaxis]
++    )
++    expected_temperature = equilibrium_temperature + (
++        (initial_temperature - equilibrium_temperature)
++        * jnp.exp(-forcing.kt() * step_seconds)
++    )
++    np.testing.assert_allclose(
++        relaxed_temperature,
++        expected_temperature,
++        rtol=2e-5,
++        atol=2e-5,
++    )
++    np.testing.assert_array_equal(relaxed_state.vorticity, state.vorticity)
++    np.testing.assert_array_equal(relaxed_state.divergence, state.divergence)
++    np.testing.assert_array_equal(
++        relaxed_state.log_surface_pressure,
++        state.log_surface_pressure,
++    )
++
++
++def test_exact_weak_held_suarez_relaxation_matches_explicit_small_step():
++    """For small dt, the exact update matches the incumbent explicit tendency."""
++    coords, physics_specs, reference_temperature = _analysis_offset_test_setup(
++        layer_count=2
++    )
++    state = _dinosaur_state_with_hs_equilibrium_offset(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        equilibrium_offset=jnp.full(coords.nodal_shape, 0.25, dtype=jnp.float32),
++    )
++    forcing = _TracerSafeHeldSuarezForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        kf=0.0 / scales.units.day,
++        ka=1 / (160.0 * scales.units.day),
++        ks=1 / (16.0 * scales.units.day),
++    )
++    small_step_seconds = _nondimensionalize_seconds(physics_specs, 1.0)
++
++    exact_state = _exact_weak_held_suarez_relaxation_step(
++        state,
++        forcing=forcing,
++        step_seconds=small_step_seconds,
++    )
++    explicit_tendency = forcing.explicit_terms(state)
++    expected_temperature_variation = (
++        state.temperature_variation
++        + small_step_seconds * explicit_tendency.temperature_variation
++    )
++
++    np.testing.assert_allclose(
++        exact_state.temperature_variation,
++        expected_temperature_variation,
++        rtol=2e-5,
++        atol=5e-5,
++    )
++
++
++def test_exact_weak_held_suarez_step_falls_back_on_nonfinite_candidate():
++    """A nonfinite exact candidate returns the incumbent explicit step result."""
++    coords, physics_specs, state = _synthetic_coriolis_split_state()
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    forcing = _TracerSafeHeldSuarezForcingSigma(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        kf=0.0 / scales.units.day,
++        ka=1 / (160.0 * scales.units.day),
++        ks=1 / (16.0 * scales.units.day),
++    )
++    fallback_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation + jnp.float32(0.125),
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=state.sim_time,
++    )
++
++    def nonfinite_dynamics_step(input_state):
++        return _primitive_equation_state(
++            vorticity=input_state.vorticity,
++            divergence=input_state.divergence,
++            temperature_variation=jnp.full_like(
++                input_state.temperature_variation,
++                jnp.nan,
++            ),
++            log_surface_pressure=input_state.log_surface_pressure,
++            tracers=input_state.tracers,
++            sim_time=input_state.sim_time,
++        )
++
++    step_fn = _strang_exact_weak_held_suarez_relaxation_step(
++        dynamics_step=nonfinite_dynamics_step,
++        fallback_step=lambda input_state: fallback_state,
++        forcing=forcing,
++        step_seconds=0.1,
++    )
++
++    next_state = step_fn(state)
++
++    _assert_pytree_allclose(next_state, fallback_state)
++
++
+ def test_analysis_offset_hs_eq_mask_uses_fixed_wavenumber_cutoffs():
+     """The analysis-offset mask keeps the area mean and fixed low-order modes."""
+     horizontal_grid = _residual_split_test_grid()
+@@ -4018,6 +4186,99 @@ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+         assert bool(jnp.isfinite(forcing.equilibrium_temperature_offset).all())
+ 
+ 
++def test_exact_relaxation_hs_trajectory_uses_wrapped_dfi_steps(monkeypatch):
++    """The exact-HS candidate composes both DFI directions from wrapped steps."""
++    dfi_step_calls = []
++
++    def fake_digital_filter_initialization_from_steps(
++        *,
++        forward_step,
++        backward_step,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        dfi_step_calls.append(
++            {
++                "forward_step": forward_step,
++                "backward_step": backward_step,
++                "time_span": time_span,
++                "cutoff_period": cutoff_period,
++                "dt": dt,
++            }
++        )
++        return lambda dinosaur_state: dinosaur_state
++
++    def fail_digital_filter_initialization(*args, **kwargs):
++        del args, kwargs
++        raise AssertionError("exact-HS DFI must use precomposed step wrappers")
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization_from_steps",
++        fake_digital_filter_initialization_from_steps,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fail_digital_filter_initialization,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1), lead_steps=(0,)
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    dinosaur_state = weather_state_to_dinosaur_state(
++        WeatherState(
++            values=forecast_input.initial_state.values[0],
++            variables=forecast_input.initial_state.variables,
++        ),
++        coords=grid.coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=False,
++        use_log_pressure_initialization=True,
++        use_hydrostatic_temperature_initialization=True,
++        use_layer_mean_hydrostatic_temperature_initialization=True,
++    )
++    model = replace(
++        exact_relaxation_held_suarez_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    trajectory_fn = model._trajectory_function(
++        coords=grid.coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++
++    trajectory_fn(dinosaur_state)
++
++    assert len(dfi_step_calls) == 1
++    assert dfi_step_calls[0]["forward_step"] is not dfi_step_calls[0]["backward_step"]
++    assert dfi_step_calls[0]["dt"] == _nondimensionalize_seconds(
++        physics_specs,
++        3600.0,
++    )
++
++
+ def test_trajectory_function_matches_direct_dinosaur_package_call():
+     """The wrapper trajectory uses the same Dinosaur calls as a direct setup."""
+     model = DinosaurPrimitiveEquationsDycoreModel(
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index bc2ef52..ffe0ad3 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -46,6 +46,10 @@ def test_registry_lists_default_dycore_models():
+         "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
+         "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
+         "scale_surface_residual_analysis_hs_eq_landsea_surface",
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax",
+     )
+ 
+ 
+@@ -508,6 +512,35 @@ def test_registry_creates_land_sea_surface_temperature_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_exact_relaxation_hs_candidate_model():
++    """The exact weak-HS relaxation candidate is registered side by side."""
++    model = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++    )
++    incumbent = create_dycore_model(
++        "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface"
++    )
++
++    assert (
++        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
++        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
++        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
++        "scale_surface_residual_analysis_hs_eq_landsea_surface_exprelax"
++    )
++    assert model.apply_exact_weak_held_suarez_relaxation
++    assert not incumbent.apply_exact_weak_held_suarez_relaxation
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_exact_weak_held_suarez_relaxation"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

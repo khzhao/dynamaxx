@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "midpoint-timed-vertical-dse-ramp",
+  "history_path": ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp",
+  "source_artifacts": [
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/proposal.md",
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_midtime.json",
+    "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp_midtime.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_midtime.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_midtime.csv",
+    "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp_midtime"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/resource_snapshot.md",
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/implementation.md",
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/scores.json",
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/scoring_notes.md",
+    ".logbook/history/2026-06-27_08-30-56_midpoint-timed-vertical-dse-ramp/decision.md"
+  ],
+  "notes": "Rejected after clean fast and iteration because iteration delta +0.000049149082688604295 was below the +0.002 promotion threshold. Validation was not run. Incumbent scores were loaded from the valid leaderboard cache; no incumbent rerun occurred."
+}

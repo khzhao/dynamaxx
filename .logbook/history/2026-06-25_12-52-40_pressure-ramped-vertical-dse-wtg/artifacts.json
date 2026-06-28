@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "history_directory": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg",
+  "written_by": "Scorer",
+  "artifacts": {
+    "history": {
+      "proposal": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/proposal.md",
+      "implementation": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/implementation.md",
+      "scores": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/scores.json",
+      "scoring_notes": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/scoring_notes.md",
+      "candidate_diff": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/candidate.diff",
+      "resource_snapshot": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/resource_snapshot.md",
+      "pre_scoring_status": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/pre_scoring_status.txt",
+      "decision": ".logbook/history/2026-06-25_12-52-40_pressure-ramped-vertical-dse-wtg/decision.md"
+    },
+    "candidate": {
+      "fast_json": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "fast_csv": "outputs/eval/fast_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "iteration_run_dir": "outputs/eval/runs/iteration_dino_hsl2_mass_dse_wtg_vdse_ramp",
+      "validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.json",
+      "validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_ramp.csv",
+      "validation_run_dir": "outputs/eval/runs/validation_dino_hsl2_mass_dse_wtg_vdse_ramp"
+    },
+    "incumbent_reused_from_leaderboard": {
+      "iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.json",
+      "iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg.csv",
+      "validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.json",
+      "validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg.csv"
+    }
+  }
+}

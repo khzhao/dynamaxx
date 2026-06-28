@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "monotone-shear-10m-wind-diagnostic",
+  "decision": "rejected",
+  "history_dir": ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic",
+  "baseline_commit": "c359ee1b016ccd92412585997a799a7c644a65c5",
+  "scoring_commit": "8ead91209dfbd2abc3ffc31082653cf29aa962dd",
+  "candidate_commit": null,
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter",
+  "changed_files_reverted": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "history_files": [
+    ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic/proposal.md",
+    ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic/implementation.md",
+    ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic/scores.json",
+    ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic/scoring_notes.md",
+    ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic/decision.md",
+    ".logbook/history/2026-06-19_01-53-13_monotone-shear-10m-wind-diagnostic/artifacts.json"
+  ],
+  "evaluation_artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind.json",
+    "candidate_fast_csv": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter.csv"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "status": "reused_passed"
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "status": "reused_passed"
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind",
+      "exit_status": 0,
+      "status": "reused_passed"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind --workers 4",
+      "exit_status": 0,
+      "status": "passed"
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_monotone_10m_wind --workers 4",
+      "exit_status": null,
+      "status": "not_run_iteration_gate_failed"
+    }
+  ],
+  "primary_scores": {
+    "candidate_fast": -0.7990725366440742,
+    "candidate_iteration": -0.8309040873499036,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.8308832822743712,
+    "incumbent_validation": -0.8148379476593253,
+    "iteration_delta": -0.000020805075532370765,
+    "validation_delta": null
+  },
+  "cache_reuse": {
+    "incumbent_iteration_reused": true,
+    "incumbent_validation_reused": false,
+    "incumbent_validation_reason": "Candidate validation was not run because the iteration promotion gate failed.",
+    "iteration_reuse_reason": "All updated Scorer incumbent metric reuse checks passed."
+  },
+  "cleanup_status": {
+    "candidate_code": "reverted",
+    "leaderboard_updated": false,
+    "tracked_worktree_clean_after_rollback": true
+  }
+}

@@ -1,0 +1,1120 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 1effc9e..73d89d0 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -57,6 +57,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    quasi_monotone_theta_remap_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+@@ -102,6 +103,7 @@ __all__ = [
+     "primitive_equations",
+     "primitive_equations_states",
+     "pytree_utils",
++    "quasi_monotone_theta_remap_dinosaur_dycore_model",
+     "radiation",
+     "richardson_10m_wind_diagnostic_dinosaur_dycore_model",
+     "scales",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7d87761..17bab35 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -135,6 +135,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     apply_theta_layer_mean_recentering: bool = False
+     use_horizontal_semilagrangian_theta_transport: bool = False
+     use_midpoint_semilagrangian_theta_departure: bool = False
++    use_quasi_monotone_theta_remap: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -346,6 +347,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_midpoint_semilagrangian_theta_departure=(
+                     self.use_midpoint_semilagrangian_theta_departure
+                 ),
++                use_quasi_monotone_theta_remap=self.use_quasi_monotone_theta_remap,
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1072,6 +1074,17 @@ def midpoint_semilagrangian_theta_departure_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def quasi_monotone_theta_remap_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return midpoint HSL theta with bounded qmono theta anomaly remapping."""
++    return replace(
++        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
++        name="dino_hsl_qmono",
++        use_quasi_monotone_theta_remap=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2237,6 +2250,7 @@ def _primitive_equation(
+     ),
+     use_horizontal_semilagrangian_theta_transport: bool = False,
+     use_midpoint_semilagrangian_theta_departure: bool = False,
++    use_quasi_monotone_theta_remap: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2254,6 +2268,7 @@ def _primitive_equation(
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_quasi_monotone_theta_remap=use_quasi_monotone_theta_remap,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2272,6 +2287,7 @@ def _primitive_equation(
+         use_midpoint_semilagrangian_theta_departure=(
+             use_midpoint_semilagrangian_theta_departure
+         ),
++        use_quasi_monotone_theta_remap=use_quasi_monotone_theta_remap,
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 6327433..294b9a3 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -153,6 +153,133 @@ def _safe_pressure_for_potential_temperature(
+     return jnp.where(valid_pressure, pressure, reference_pressure)
+ 
+ 
++def _pchip_limited_derivative(
++    previous_delta: Array,
++    current_delta: Array,
++    previous_spacing: Array,
++    current_spacing: Array,
++) -> tuple[Array, Array]:
++    """Return a shape-preserving interior derivative and finite diagnostic."""
++    finite_inputs = (
++        jnp.isfinite(previous_delta)
++        & jnp.isfinite(current_delta)
++        & jnp.isfinite(previous_spacing)
++        & jnp.isfinite(current_spacing)
++        & (previous_spacing > 0)
++        & (current_spacing > 0)
++    )
++    same_sign = (
++        ((previous_delta > 0) & (current_delta > 0))
++        | ((previous_delta < 0) & (current_delta < 0))
++    )
++    active = finite_inputs & same_sign
++    safe_previous_delta = jnp.where(
++        active,
++        previous_delta,
++        jnp.ones_like(previous_delta),
++    )
++    safe_current_delta = jnp.where(
++        active,
++        current_delta,
++        jnp.ones_like(current_delta),
++    )
++    safe_previous_spacing = jnp.where(
++        finite_inputs,
++        previous_spacing,
++        jnp.ones_like(previous_spacing),
++    )
++    safe_current_spacing = jnp.where(
++        finite_inputs,
++        current_spacing,
++        jnp.ones_like(current_spacing),
++    )
++    previous_weight = 2.0 * safe_current_spacing + safe_previous_spacing
++    current_weight = safe_current_spacing + 2.0 * safe_previous_spacing
++    raw_derivative = (previous_weight + current_weight) / (
++        previous_weight / safe_previous_delta
++        + current_weight / safe_current_delta
++    )
++    derivative = jnp.where(
++        active & jnp.isfinite(raw_derivative),
++        raw_derivative,
++        jnp.zeros_like(raw_derivative),
++    )
++    finite_derivative = finite_inputs & jnp.isfinite(derivative)
++    return derivative, finite_derivative
++
++
++def _monotone_cubic_hermite_interpolate(
++    left_neighbor_value: Array,
++    left_value: Array,
++    right_value: Array,
++    right_neighbor_value: Array,
++    previous_spacing: Array,
++    interval_spacing: Array,
++    next_spacing: Array,
++    interval_weight: Array,
++) -> tuple[Array, Array]:
++    """Interpolate one interval with local PCHIP-style endpoint derivatives."""
++    finite_previous_spacing = (
++        jnp.isfinite(previous_spacing) & (previous_spacing > 0)
++    )
++    finite_interval_spacing = (
++        jnp.isfinite(interval_spacing) & (interval_spacing > 0)
++    )
++    finite_next_spacing = jnp.isfinite(next_spacing) & (next_spacing > 0)
++    safe_previous_spacing = jnp.where(
++        finite_previous_spacing,
++        previous_spacing,
++        jnp.ones_like(previous_spacing),
++    )
++    safe_interval_spacing = jnp.where(
++        finite_interval_spacing,
++        interval_spacing,
++        jnp.ones_like(interval_spacing),
++    )
++    safe_next_spacing = jnp.where(
++        finite_next_spacing,
++        next_spacing,
++        jnp.ones_like(next_spacing),
++    )
++    previous_delta = (left_value - left_neighbor_value) / safe_previous_spacing
++    interval_delta = (right_value - left_value) / safe_interval_spacing
++    next_delta = (right_neighbor_value - right_value) / safe_next_spacing
++    left_derivative, finite_left_derivative = _pchip_limited_derivative(
++        previous_delta,
++        interval_delta,
++        previous_spacing,
++        interval_spacing,
++    )
++    right_derivative, finite_right_derivative = _pchip_limited_derivative(
++        interval_delta,
++        next_delta,
++        interval_spacing,
++        next_spacing,
++    )
++
++    weight = jnp.clip(interval_weight, 0.0, 1.0)
++    weight_squared = weight * weight
++    weight_cubed = weight_squared * weight
++    left_basis = 2.0 * weight_cubed - 3.0 * weight_squared + 1.0
++    left_slope_basis = weight_cubed - 2.0 * weight_squared + weight
++    right_basis = -2.0 * weight_cubed + 3.0 * weight_squared
++    right_slope_basis = weight_cubed - weight_squared
++    interpolated_value = (
++        left_basis * left_value
++        + left_slope_basis * safe_interval_spacing * left_derivative
++        + right_basis * right_value
++        + right_slope_basis * safe_interval_spacing * right_derivative
++    )
++    finite_value = (
++        finite_left_derivative
++        & finite_right_derivative
++        & finite_interval_spacing
++        & jnp.isfinite(weight)
++        & jnp.isfinite(interpolated_value)
++    )
++    return interpolated_value, finite_value
++
++
+ @jax.named_call
+ def potential_temperature_from_temperature(
+     temperature: Array,
+@@ -889,6 +1016,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_quasi_monotone_theta_remap: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1440,6 +1571,206 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         )
+         return south * (1.0 - latitude_index_weight) + north * latitude_index_weight
+ 
++    @jax.named_call
++    def _horizontal_semilagrangian_quasi_monotone_candidate_layer(
++        self,
++        scalar_layer: Array,
++        longitude_displacement: Array,
++        latitude_displacement: Array,
++    ) -> tuple[Array, Array, Array]:
++        """Return bounded quasi-monotone candidate values and validity masks."""
++        horizontal_grid = self.coords.horizontal
++        longitude_values = jnp.asarray(
++            horizontal_grid.longitudes,
++            dtype=scalar_layer.dtype,
++        )
++        latitude_values = jnp.asarray(
++            horizontal_grid.latitudes,
++            dtype=scalar_layer.dtype,
++        )
++        longitude_mesh, latitude_mesh = jnp.meshgrid(
++            longitude_values,
++            latitude_values,
++            indexing="ij",
++        )
++        longitude_count, latitude_count = horizontal_grid.nodal_shape
++        longitude_spacing = jnp.asarray(
++            2.0 * np.pi / longitude_count,
++            dtype=scalar_layer.dtype,
++        )
++        longitude_origin = longitude_values[0]
++        departure_longitude = (
++            jnp.mod(
++                longitude_mesh - longitude_displacement - longitude_origin,
++                2.0 * np.pi,
++            )
++            + longitude_origin
++        )
++        longitude_index = (departure_longitude - longitude_origin) / longitude_spacing
++        longitude_index_floor = jnp.floor(longitude_index).astype(jnp.int32)
++        longitude_index_weight = longitude_index - longitude_index_floor
++        longitude_index_floor = jnp.mod(longitude_index_floor, longitude_count)
++        longitude_index_ceil = jnp.mod(longitude_index_floor + 1, longitude_count)
++        longitude_index_prev = jnp.mod(longitude_index_floor - 1, longitude_count)
++        longitude_index_next = jnp.mod(longitude_index_floor + 2, longitude_count)
++
++        departure_latitude = jnp.clip(
++            latitude_mesh - latitude_displacement,
++            latitude_values[0],
++            latitude_values[-1],
++        )
++        latitude_index_floor = (
++            jnp.searchsorted(latitude_values, departure_latitude, side="right") - 1
++        )
++        latitude_index_floor = jnp.clip(
++            latitude_index_floor,
++            0,
++            latitude_count - 2,
++        ).astype(jnp.int32)
++        latitude_index_ceil = latitude_index_floor + 1
++        latitude_index_prev = jnp.clip(
++            latitude_index_floor - 1,
++            0,
++            latitude_count - 1,
++        ).astype(jnp.int32)
++        latitude_index_next = jnp.clip(
++            latitude_index_floor + 2,
++            0,
++            latitude_count - 1,
++        ).astype(jnp.int32)
++        latitude_lower = latitude_values[latitude_index_floor]
++        latitude_upper = latitude_values[latitude_index_ceil]
++        latitude_prev = latitude_values[latitude_index_prev]
++        latitude_next = latitude_values[latitude_index_next]
++        latitude_spacing_prev = latitude_lower - latitude_prev
++        latitude_spacing_center = latitude_upper - latitude_lower
++        latitude_spacing_next = latitude_next - latitude_upper
++        latitude_index_weight = (departure_latitude - latitude_lower) / (
++            latitude_upper - latitude_lower
++        )
++
++        unit_spacing = jnp.ones_like(longitude_index_weight)
++
++        def longitude_interpolated_row(latitude_index: Array) -> tuple[Array, Array]:
++            west_neighbor = scalar_layer[longitude_index_prev, latitude_index]
++            west = scalar_layer[longitude_index_floor, latitude_index]
++            east = scalar_layer[longitude_index_ceil, latitude_index]
++            east_neighbor = scalar_layer[longitude_index_next, latitude_index]
++            return _monotone_cubic_hermite_interpolate(
++                west_neighbor,
++                west,
++                east,
++                east_neighbor,
++                unit_spacing,
++                unit_spacing,
++                unit_spacing,
++                longitude_index_weight,
++            )
++
++        row_prev, finite_row_prev = longitude_interpolated_row(latitude_index_prev)
++        row_lower, finite_row_lower = longitude_interpolated_row(latitude_index_floor)
++        row_upper, finite_row_upper = longitude_interpolated_row(latitude_index_ceil)
++        row_next, finite_row_next = longitude_interpolated_row(latitude_index_next)
++        qmono_value, finite_latitude_value = _monotone_cubic_hermite_interpolate(
++            row_prev,
++            row_lower,
++            row_upper,
++            row_next,
++            latitude_spacing_prev,
++            latitude_spacing_center,
++            latitude_spacing_next,
++            latitude_index_weight,
++        )
++
++        longitude_stencil = jnp.stack(
++            (
++                longitude_index_prev,
++                longitude_index_floor,
++                longitude_index_ceil,
++                longitude_index_next,
++            ),
++            axis=0,
++        )
++        latitude_stencil = jnp.stack(
++            (
++                latitude_index_prev,
++                latitude_index_floor,
++                latitude_index_ceil,
++                latitude_index_next,
++            ),
++            axis=0,
++        )
++        stencil_values = scalar_layer[
++            longitude_stencil[:, jnp.newaxis, :, :],
++            latitude_stencil[jnp.newaxis, :, :, :],
++        ]
++        local_minimum = jnp.min(stencil_values, axis=(0, 1))
++        local_maximum = jnp.max(stencil_values, axis=(0, 1))
++        bounded_qmono_value = jnp.clip(qmono_value, local_minimum, local_maximum)
++        valid_stencil = (
++            (latitude_index_floor > 0)
++            & (latitude_index_ceil < latitude_count - 1)
++            & jnp.all(jnp.isfinite(stencil_values), axis=(0, 1))
++        )
++        finite_qmono_value = (
++            finite_row_prev
++            & finite_row_lower
++            & finite_row_upper
++            & finite_row_next
++            & finite_latitude_value
++            & jnp.isfinite(bounded_qmono_value)
++        )
++        finite_qmono_diagnostics = jnp.all(
++            jnp.where(valid_stencil, finite_qmono_value, True)
++        )
++        return bounded_qmono_value, valid_stencil, finite_qmono_diagnostics
++
++    @jax.named_call
++    def _horizontal_semilagrangian_quasi_monotone_remap_layer(
++        self,
++        scalar_layer: Array,
++        longitude_displacement: Array,
++        latitude_displacement: Array,
++    ) -> Array:
++        """Remap one layer with bounded qmono values and exact bilinear fallback."""
++        bilinear_value = self._horizontal_semilagrangian_remap_layer(
++            scalar_layer,
++            longitude_displacement,
++            latitude_displacement,
++        )
++        qmono_value, valid_stencil, finite_qmono_diagnostics = (
++            self._horizontal_semilagrangian_quasi_monotone_candidate_layer(
++                scalar_layer,
++                longitude_displacement,
++                latitude_displacement,
++            )
++        )
++        remapped_value = jnp.where(valid_stencil, qmono_value, bilinear_value)
++        finite_remap = finite_qmono_diagnostics & jnp.all(
++            jnp.isfinite(remapped_value)
++        )
++        return jnp.where(finite_remap, remapped_value, bilinear_value)
++
++    @jax.named_call
++    def _horizontal_semilagrangian_theta_remap_layer(
++        self,
++        scalar_layer: Array,
++        longitude_displacement: Array,
++        latitude_displacement: Array,
++    ) -> Array:
++        """Remap theta anomaly with the selected scalar interpolation."""
++        if not self.use_quasi_monotone_theta_remap:
++            return self._horizontal_semilagrangian_remap_layer(
++                scalar_layer,
++                longitude_displacement,
++                latitude_displacement,
++            )
++        return self._horizontal_semilagrangian_quasi_monotone_remap_layer(
++            scalar_layer,
++            longitude_displacement,
++            latitude_displacement,
++        )
++
+     @jax.named_call
+     def horizontal_semilagrangian_theta_transport(
+         self,
+@@ -1457,7 +1788,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             theta_anomaly.dtype,
+         )
+         first_order_remapped_theta_anomaly = jax.vmap(
+-            self._horizontal_semilagrangian_remap_layer
++            self._horizontal_semilagrangian_theta_remap_layer
+         )(
+             theta_anomaly,
+             first_order_longitude_displacement,
+@@ -1499,9 +1830,9 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             aux_state,
+             theta_anomaly.dtype,
+         )
+-        remapped_theta_anomaly = jax.vmap(self._horizontal_semilagrangian_remap_layer)(
+-            theta_anomaly, longitude_displacement, latitude_displacement
+-        )
++        remapped_theta_anomaly = jax.vmap(
++            self._horizontal_semilagrangian_theta_remap_layer
++        )(theta_anomaly, longitude_displacement, latitude_displacement)
+         midpoint_horizontal_tendency = (remapped_theta_anomaly - theta_anomaly) / step
+         finite_candidate = (
+             valid_displacement
+@@ -3000,6 +3331,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_quasi_monotone_theta_remap: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3020,6 +3352,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_quasi_monotone_theta_remap=use_quasi_monotone_theta_remap,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3050,6 +3383,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_quasi_monotone_theta_remap: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3070,6 +3404,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_quasi_monotone_theta_remap=use_quasi_monotone_theta_remap,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3097,6 +3432,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         ),
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
++        use_quasi_monotone_theta_remap: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3120,6 +3456,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_midpoint_semilagrangian_theta_departure=(
+                 use_midpoint_semilagrangian_theta_departure
+             ),
++            use_quasi_monotone_theta_remap=use_quasi_monotone_theta_remap,
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 6ec50ce..d09e9b0 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -188,6 +188,15 @@ def dino_hsl2_theta_model() -> DycoreModel:
+     return midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl_qmono_model() -> DycoreModel:
++    """Return midpoint HSL theta with bounded qmono theta anomaly remapping."""
++    from dynamaxx.dycore.models.dinosaur import (
++        quasi_monotone_theta_remap_dinosaur_dycore_model,
++    )
++
++    return quasi_monotone_theta_remap_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -263,6 +272,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     ): dinosaur_ocean_bulk_sensible_heat_flux_model,
+     "dino_hsl_theta": dino_hsl_theta_model,
+     "dino_hsl2_theta": dino_hsl2_theta_model,
++    "dino_hsl_qmono": dino_hsl_qmono_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 3bd5a3c..a6d514c 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -124,6 +124,9 @@ assert dinosaur.horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(
+ assert dinosaur.midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().name == (
+     "dino_hsl2_theta"
+ )
++assert dinosaur.quasi_monotone_theta_remap_dinosaur_dycore_model().name == (
++    "dino_hsl_qmono"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -221,6 +224,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
++        "dino_hsl_qmono",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -665,6 +669,24 @@ def test_dinosaur_ocean_bulk_shf_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_qmono_hsl_theta_is_registered():
++    """The qmono HSL theta alias is side-by-side with the HSL2 incumbent."""
++    model = create_dycore_model("dino_hsl_qmono")
++    incumbent = create_dycore_model("dino_hsl2_theta")
++
++    assert model.name == "dino_hsl_qmono"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_quasi_monotone_theta_remap
++    assert incumbent.use_horizontal_semilagrangian_theta_transport
++    assert incumbent.use_midpoint_semilagrangian_theta_departure
++    assert not incumbent.use_quasi_monotone_theta_remap
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_quasi_monotone_theta_remap"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index fc5fe53..629e87e 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -80,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    quasi_monotone_theta_remap_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+@@ -175,6 +176,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.apply_symmetric_exact_coriolis_rotation_split
+     assert not model.apply_theta_layer_mean_recentering
+     assert not model.use_midpoint_semilagrangian_theta_departure
++    assert not model.use_quasi_monotone_theta_remap
+     assert model.semi_implicit_offcentering == 0.0
+     assert (
+         model.temperature_tendency_formulation
+@@ -576,6 +578,25 @@ def test_hsl2_theta_factory_preserves_hsl_theta_except_midpoint_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_qmono_hsl_theta_factory_preserves_hsl2_theta_except_remap_selector():
++    """The qmono alias changes only name and the theta scalar remap selector."""
++    model = quasi_monotone_theta_remap_dinosaur_dycore_model()
++    incumbent = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl_qmono"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_quasi_monotone_theta_remap
++    assert incumbent.use_horizontal_semilagrangian_theta_transport
++    assert incumbent.use_midpoint_semilagrangian_theta_departure
++    assert not incumbent.use_quasi_monotone_theta_remap
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_quasi_monotone_theta_remap"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4357,6 +4378,88 @@ def test_hsl2_theta_midpoint_displacement_is_finite_and_bounded():
+     assert float(jnp.max(jnp.abs(tendency))) > 0.0
+ 
+ 
++def test_qmono_theta_remap_matches_bilinear_for_constant_and_linear_fields():
++    """Bounded qmono remap preserves constant and linear latitude fields."""
++    equation, coords = _qmono_hsl_theta_remap_test_equation()
++    longitude_count, _ = coords.horizontal.nodal_shape
++    longitude_spacing = 2.0 * np.pi / longitude_count
++    latitude_spacing = float(
++        jnp.min(jnp.diff(jnp.asarray(coords.horizontal.latitudes)))
++    )
++    longitude_displacement = jnp.full(
++        coords.horizontal.nodal_shape,
++        0.25 * longitude_spacing,
++        dtype=jnp.float32,
++    )
++    latitude_displacement = jnp.full(
++        coords.horizontal.nodal_shape,
++        0.35 * latitude_spacing,
++        dtype=jnp.float32,
++    )
++    latitude_values = jnp.asarray(coords.horizontal.latitudes, dtype=jnp.float32)
++    scalar_layers = (
++        jnp.full(coords.horizontal.nodal_shape, 7.5, dtype=jnp.float32),
++        2.0 + 0.75 * latitude_values[jnp.newaxis, :],
++    )
++
++    for scalar_layer in scalar_layers:
++        expected_remap = equation._horizontal_semilagrangian_remap_layer(
++            scalar_layer,
++            longitude_displacement,
++            latitude_displacement,
++        )
++        actual_remap = equation._horizontal_semilagrangian_theta_remap_layer(
++            scalar_layer,
++            longitude_displacement,
++            latitude_displacement,
++        )
++
++        np.testing.assert_allclose(actual_remap, expected_remap, rtol=1.0e-6)
++
++
++def test_qmono_theta_remap_is_bounded_by_local_stencil_extrema():
++    """Sharp fronts do not create theta values outside the local qmono stencil."""
++    equation, coords = _qmono_hsl_theta_remap_test_equation()
++    longitude_count, latitude_count = coords.horizontal.nodal_shape
++    longitude_index = jnp.arange(longitude_count, dtype=jnp.float32)[:, jnp.newaxis]
++    latitude_index = jnp.arange(latitude_count, dtype=jnp.float32)[jnp.newaxis, :]
++    sharp_front = jnp.where(
++        longitude_index < longitude_count // 2,
++        -4.0,
++        11.0,
++    ) + 0.25 * latitude_index
++    longitude_spacing = 2.0 * np.pi / longitude_count
++    latitude_spacing = float(
++        jnp.min(jnp.diff(jnp.asarray(coords.horizontal.latitudes)))
++    )
++    longitude_displacement = jnp.full(
++        coords.horizontal.nodal_shape,
++        0.45 * longitude_spacing,
++        dtype=jnp.float32,
++    )
++    latitude_displacement = jnp.full(
++        coords.horizontal.nodal_shape,
++        -0.4 * latitude_spacing,
++        dtype=jnp.float32,
++    )
++
++    remapped_front = equation._horizontal_semilagrangian_theta_remap_layer(
++        sharp_front,
++        longitude_displacement,
++        latitude_displacement,
++    )
++    local_minimum, local_maximum = _qmono_local_stencil_extrema(
++        equation,
++        sharp_front,
++        longitude_displacement,
++        latitude_displacement,
++    )
++
++    assert bool(jnp.isfinite(remapped_front).all())
++    assert bool(jnp.all(remapped_front >= local_minimum - 1.0e-6))
++    assert bool(jnp.all(remapped_front <= local_maximum + 1.0e-6))
++
++
+ def test_hsl_theta_nonfinite_remap_falls_back_to_incumbent_theta_transport():
+     """A nonfinite wind diagnostic selects the incumbent theta horizontal term."""
+     coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
+@@ -4476,6 +4579,128 @@ def test_hsl2_theta_nonfinite_midpoint_wind_falls_back_to_first_order(monkeypatc
+     np.testing.assert_array_equal(actual_tendency, expected_tendency)
+ 
+ 
++def test_qmono_hsl_theta_zero_wind_reproduces_hsl2_theta_transport():
++    """Zero wind keeps the qmono selector on the accepted HSL2 theta tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    zero_wind_state = _primitive_equation_state(
++        vorticity=jnp.zeros_like(state.vorticity),
++        divergence=jnp.zeros_like(state.divergence),
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers={},
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_quasi_monotone_theta_remap=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        zero_wind_state,
++        coords,
++    )
++
++    incumbent_tendency = (
++        incumbent_equation.temperature_tendency_potential_temperature_form(
++            zero_wind_state,
++            aux_state,
++        )
++    )
++    candidate_tendency = (
++        candidate_equation.temperature_tendency_potential_temperature_form(
++            zero_wind_state,
++            aux_state,
++        )
++    )
++
++    np.testing.assert_array_equal(candidate_tendency, incumbent_tendency)
++
++
++def test_qmono_hsl_theta_nonfinite_candidate_falls_back_to_bilinear_hsl2(
++    monkeypatch,
++):
++    """Nonfinite qmono diagnostics recover the accepted bilinear HSL2 remap."""
++    coords, physics_specs, reference_temperature, _ = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_quasi_monotone_theta_remap=True,
++    )
++    theta_anomaly = jnp.arange(
++        np.prod(coords.nodal_shape),
++        dtype=jnp.float32,
++    ).reshape(coords.nodal_shape)
++    aux_state = _hsl_theta_aux_state(
++        coords,
++        u_cos_lat=jnp.full(coords.nodal_shape, 1.0e-3, dtype=jnp.float32),
++        v_cos_lat=jnp.full(coords.nodal_shape, -5.0e-4, dtype=jnp.float32),
++        temperature_variation=theta_anomaly,
++    )
++    incumbent_horizontal_tendency = jnp.full_like(theta_anomaly, -0.5)
++
++    def nonfinite_qmono_candidate(
++        scalar_layer,
++        longitude_displacement,
++        latitude_displacement,
++    ):
++        del longitude_displacement, latitude_displacement
++        return (
++            jnp.full_like(scalar_layer, jnp.nan),
++            jnp.ones_like(scalar_layer, dtype=bool),
++            jnp.asarray(True),
++        )
++
++    monkeypatch.setattr(
++        candidate_equation,
++        "_horizontal_semilagrangian_quasi_monotone_candidate_layer",
++        nonfinite_qmono_candidate,
++    )
++
++    expected_tendency = incumbent_equation.horizontal_semilagrangian_theta_transport(
++        theta_anomaly,
++        aux_state,
++        incumbent_horizontal_tendency,
++    )
++    actual_tendency = candidate_equation.horizontal_semilagrangian_theta_transport(
++        theta_anomaly,
++        aux_state,
++        incumbent_horizontal_tendency,
++    )
++
++    np.testing.assert_array_equal(actual_tendency, expected_tendency)
++
++
+ def test_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
+     """The selector only changes the thermodynamic theta transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -4557,6 +4782,50 @@ def test_hsl2_theta_leaves_non_theta_explicit_tendencies_unchanged():
+     assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+ 
+ 
++def test_qmono_hsl_theta_leaves_non_theta_explicit_tendencies_unchanged():
++    """Qmono remapping changes only the horizontal theta transport hook."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_quasi_monotone_theta_remap=True,
++    )
++
++    incumbent_tendency = incumbent_equation.explicit_terms(state)
++    candidate_tendency = candidate_equation.explicit_terms(state)
++
++    np.testing.assert_array_equal(
++        candidate_tendency.vorticity,
++        incumbent_tendency.vorticity,
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.divergence,
++        incumbent_tendency.divergence,
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.log_surface_pressure,
++        incumbent_tendency.log_surface_pressure,
++    )
++    assert candidate_tendency.tracers == incumbent_tendency.tracers == {}
++    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
++
++
+ def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
+     """The opt-in flux changes only the lowest-layer temperature tendency."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -4885,6 +5154,64 @@ def test_hsl2_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_qmono_hsl_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The qmono HSL theta candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        quasi_monotone_theta_remap_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl_qmono"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_quasi_monotone_theta_remap
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+@@ -5958,6 +6285,118 @@ def _hsl_theta_aux_state(
+     )
+ 
+ 
++def _qmono_hsl_theta_remap_test_equation() -> tuple[
++    primitive_equations.PrimitiveEquations,
++    coordinate_systems.CoordinateSystem,
++]:
++    """Build a small qmono-enabled equation for scalar remap tests."""
++    physics_specs = units.SimUnits.from_si()
++    horizontal_grid = spherical_harmonic.Grid(
++        longitude_wavenumbers=4,
++        total_wavenumbers=6,
++        longitude_nodes=16,
++        latitude_nodes=9,
++        latitude_spacing="equiangular_with_poles",
++        radius=physics_specs.radius,
++    )
++    coords = coordinate_systems.CoordinateSystem(
++        horizontal_grid,
++        sigma_coordinates.SigmaCoordinates.equidistant(2),
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=2,
++        temperature_kelvin=250.0,
++    )
++    equation = primitive_equations.PrimitiveEquations(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_horizontal_semilagrangian_theta_transport=True,
++        use_midpoint_semilagrangian_theta_departure=True,
++        use_quasi_monotone_theta_remap=True,
++        horizontal_semilagrangian_theta_transport_step=1.0e-3,
++    )
++    return equation, coords
++
++
++def _qmono_local_stencil_extrema(
++    equation: primitive_equations.PrimitiveEquations,
++    scalar_layer: jax.Array,
++    longitude_displacement: jax.Array,
++    latitude_displacement: jax.Array,
++) -> tuple[jax.Array, jax.Array]:
++    """Return 4x4 local stencil extrema used by the qmono remap limiter."""
++    horizontal_grid = equation.coords.horizontal
++    longitude_values = np.asarray(horizontal_grid.longitudes, dtype=np.float32)
++    latitude_values = np.asarray(horizontal_grid.latitudes, dtype=np.float32)
++    longitude_count, latitude_count = horizontal_grid.nodal_shape
++    longitude_spacing = 2.0 * np.pi / longitude_count
++    longitude_origin = longitude_values[0]
++    longitude_mesh, latitude_mesh = np.meshgrid(
++        longitude_values,
++        latitude_values,
++        indexing="ij",
++    )
++    departure_longitude = (
++        np.mod(
++            longitude_mesh - np.asarray(longitude_displacement) - longitude_origin,
++            2.0 * np.pi,
++        )
++        + longitude_origin
++    )
++    longitude_index_floor = np.floor(
++        (departure_longitude - longitude_origin) / longitude_spacing
++    ).astype(np.int32)
++    longitude_index_floor = np.mod(longitude_index_floor, longitude_count)
++    longitude_stencil = np.stack(
++        (
++            np.mod(longitude_index_floor - 1, longitude_count),
++            longitude_index_floor,
++            np.mod(longitude_index_floor + 1, longitude_count),
++            np.mod(longitude_index_floor + 2, longitude_count),
++        ),
++        axis=0,
++    )
++
++    departure_latitude = np.clip(
++        latitude_mesh - np.asarray(latitude_displacement),
++        latitude_values[0],
++        latitude_values[-1],
++    )
++    latitude_index_floor = (
++        np.searchsorted(latitude_values, departure_latitude, side="right") - 1
++    )
++    latitude_index_floor = np.clip(
++        latitude_index_floor,
++        0,
++        latitude_count - 2,
++    ).astype(np.int32)
++    latitude_stencil = np.stack(
++        (
++            np.clip(latitude_index_floor - 1, 0, latitude_count - 1),
++            latitude_index_floor,
++            latitude_index_floor + 1,
++            np.clip(latitude_index_floor + 2, 0, latitude_count - 1),
++        ),
++        axis=0,
++    )
++
++    scalar_values = np.asarray(scalar_layer)
++    stencil_values = scalar_values[
++        longitude_stencil[:, np.newaxis, :, :],
++        latitude_stencil[np.newaxis, :, :, :],
++    ]
++    return (
++        jnp.asarray(np.min(stencil_values, axis=(0, 1))),
++        jnp.asarray(np.max(stencil_values, axis=(0, 1))),
++    )
++
++
+ def _dinosaur_state_with_hs_equilibrium_offset(
+     *,
+     coords: coordinate_systems.CoordinateSystem,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 5d58870..8207a08 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -52,6 +52,7 @@ def test_registry_lists_default_dycore_models():
+         "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf",
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
++        "dino_hsl_qmono",
+     )
+ 
+ 
+@@ -580,6 +581,25 @@ def test_registry_creates_hsl2_theta_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_qmono_hsl_theta_candidate_model():
++    """The qmono alias adds only the theta scalar remap selector."""
++    model = create_dycore_model("dino_hsl_qmono")
++    incumbent = create_dycore_model("dino_hsl2_theta")
++
++    assert model.name == "dino_hsl_qmono"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_quasi_monotone_theta_remap
++    assert incumbent.use_horizontal_semilagrangian_theta_transport
++    assert incumbent.use_midpoint_semilagrangian_theta_departure
++    assert not incumbent.use_quasi_monotone_theta_remap
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_quasi_monotone_theta_remap"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

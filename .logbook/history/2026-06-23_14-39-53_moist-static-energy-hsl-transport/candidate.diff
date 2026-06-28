@@ -1,0 +1,778 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index b81ab6a..df0377b 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -57,6 +57,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
++    moist_static_energy_hsl_transport_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -100,6 +101,7 @@ __all__ = [
+     "leapfrog_utils",
+     "log_pressure_initialization_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
++    "moist_static_energy_hsl_transport_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
+     "primitive_equations",
+     "primitive_equations_states",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index ea1f52f..c994b70 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -136,6 +136,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_horizontal_semilagrangian_theta_transport: bool = False
+     use_midpoint_semilagrangian_theta_departure: bool = False
+     use_dry_static_energy_hsl_transport: bool = False
++    use_moist_static_energy_hsl_transport: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -350,6 +351,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_dry_static_energy_hsl_transport=(
+                     self.use_dry_static_energy_hsl_transport
+                 ),
++                use_moist_static_energy_hsl_transport=(
++                    self.use_moist_static_energy_hsl_transport
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1087,6 +1091,17 @@ def dry_static_energy_hsl_transport_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def moist_static_energy_hsl_transport_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return DSE-HSL with guarded moist-static-energy thermal transport."""
++    return replace(
++        dry_static_energy_hsl_transport_dinosaur_dycore_model(),
++        name="dino_hsl2_mse_hsl",
++        use_moist_static_energy_hsl_transport=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2253,6 +2268,7 @@ def _primitive_equation(
+     use_horizontal_semilagrangian_theta_transport: bool = False,
+     use_midpoint_semilagrangian_theta_departure: bool = False,
+     use_dry_static_energy_hsl_transport: bool = False,
++    use_moist_static_energy_hsl_transport: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2273,6 +2289,9 @@ def _primitive_equation(
+             use_dry_static_energy_hsl_transport=(
+                 use_dry_static_energy_hsl_transport
+             ),
++            use_moist_static_energy_hsl_transport=(
++                use_moist_static_energy_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2294,6 +2313,9 @@ def _primitive_equation(
+         use_dry_static_energy_hsl_transport=(
+             use_dry_static_energy_hsl_transport
+         ),
++        use_moist_static_energy_hsl_transport=(
++            use_moist_static_energy_hsl_transport
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index e619af7..20b73bf 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -38,6 +38,7 @@ from dynamaxx.dycore.models.dinosaur import (
+     units,
+     vertical_interpolation,
+ )
++from dynamaxx.dycore.models.dinosaur.channels import SPECIFIC_HUMIDITY_VARIABLE
+ 
+ Array = typing.Array
+ Numeric = typing.Numeric
+@@ -893,6 +894,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_moist_static_energy_hsl_transport: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1244,6 +1249,52 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         )
+         return dry_static_energy_anomaly, geopotential
+ 
++    @property
++    def _latent_heat_of_vaporization(self) -> float:
++        """Return latent heat in the dycore's nondimensional energy units."""
++        return float(
++            self.physics_specs.nondimensionalize(scales.LATENT_HEAT_OF_VAPORIZATION)
++        )
++
++    @jax.named_call
++    def nodal_moist_static_energy_anomaly(
++        self,
++        aux_state: DiagnosticStateSigma,
++    ) -> tuple[Array, Array, Array]:
++        """Return moist static energy anomaly, geopotential, and humidity."""
++        full_temperature = aux_state.temperature_variation + self.T_ref
++        nodal_orography = self.coords.horizontal.to_nodal(self.orography)
++        geopotential = get_geopotential_on_sigma(
++            full_temperature,
++            nodal_orography=nodal_orography,
++            sigma=self.coords.vertical,
++            gravity_acceleration=self.physics_specs.g,
++            ideal_gas_constant=self.physics_specs.R,
++            sharding=self.coords.dycore_sharding,
++        )
++        specific_humidity = self._get_tracer(aux_state, SPECIFIC_HUMIDITY_VARIABLE)
++        latent_heat = jnp.asarray(
++            self._latent_heat_of_vaporization,
++            dtype=full_temperature.dtype,
++        )
++        moist_static_energy = (
++            self.physics_specs.Cp * full_temperature
++            + geopotential
++            + latent_heat * specific_humidity
++        )
++        quadrature_weights = jnp.asarray(
++            self.coords.horizontal.quadrature_weights,
++            dtype=moist_static_energy.dtype,
++        )
++        layer_mean = (
++            jnp.sum(moist_static_energy * quadrature_weights, axis=(-2, -1))
++            / jnp.sum(quadrature_weights)
++        )
++        moist_static_energy_anomaly = (
++            moist_static_energy - layer_mean[:, jnp.newaxis, jnp.newaxis]
++        )
++        return moist_static_energy_anomaly, geopotential, specific_humidity
++
+     @jax.named_call
+     def temperature_tendency_temperature_form(
+         self,
+@@ -1654,11 +1705,78 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                 ]
+             )
+         )
+-        return jnp.where(
++        dse_temperature_tendency = jnp.where(
+             finite_theta_diagnostics & finite_dse_diagnostics,
+             dse_temperature_tendency,
+             theta_temperature_tendency,
+         )
++        if not self.use_moist_static_energy_hsl_transport:
++            return dse_temperature_tendency
++        if SPECIFIC_HUMIDITY_VARIABLE not in aux_state.tracers:
++            return dse_temperature_tendency
++
++        moist_static_energy_anomaly, mse_geopotential, specific_humidity = (
++            self.nodal_moist_static_energy_anomaly(aux_state)
++        )
++        dmse_dt_horizontal_nodal, dmse_dt_horizontal_modal = (
++            self.horizontal_scalar_advection(moist_static_energy_anomaly, aux_state)
++        )
++        incumbent_dmse_dt_horizontal_nodal = (
++            dmse_dt_horizontal_nodal
++            + self.coords.horizontal.to_nodal(dmse_dt_horizontal_modal)
++        )
++        dq_dt_horizontal_nodal, dq_dt_horizontal_modal = (
++            self.horizontal_scalar_advection(specific_humidity, aux_state)
++        )
++        incumbent_dq_dt_horizontal_nodal = (
++            dq_dt_horizontal_nodal
++            + self.coords.horizontal.to_nodal(dq_dt_horizontal_modal)
++        )
++        if self.use_horizontal_semilagrangian_theta_transport:
++            dmse_dt_horizontal_nodal = self.horizontal_semilagrangian_theta_transport(
++                moist_static_energy_anomaly,
++                aux_state,
++                incumbent_dmse_dt_horizontal_nodal,
++            )
++            dq_dt_horizontal_nodal = self.horizontal_semilagrangian_theta_transport(
++                specific_humidity,
++                aux_state,
++                incumbent_dq_dt_horizontal_nodal,
++            )
++        else:
++            dmse_dt_horizontal_nodal = incumbent_dmse_dt_horizontal_nodal
++            dq_dt_horizontal_nodal = incumbent_dq_dt_horizontal_nodal
++
++        latent_heat = jnp.asarray(
++            self._latent_heat_of_vaporization,
++            dtype=dmse_dt_horizontal_nodal.dtype,
++        )
++        dT_dt_horizontal_mse_nodal = (
++            dmse_dt_horizontal_nodal - latent_heat * dq_dt_horizontal_nodal
++        ) / self.physics_specs.Cp
++        mse_temperature_tendency = self.coords.horizontal.to_modal(
++            dT_dt_horizontal_mse_nodal
++            + temperature_vertical_nodal
++            + dT_dt_adiabatic
++        )
++        finite_mse_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(mse_geopotential)),
++                    jnp.all(jnp.isfinite(specific_humidity)),
++                    jnp.all(jnp.isfinite(moist_static_energy_anomaly)),
++                    jnp.all(jnp.isfinite(dmse_dt_horizontal_nodal)),
++                    jnp.all(jnp.isfinite(dq_dt_horizontal_nodal)),
++                    jnp.all(jnp.isfinite(dT_dt_horizontal_mse_nodal)),
++                    jnp.all(jnp.isfinite(mse_temperature_tendency)),
++                ]
++            )
++        )
++        return jnp.where(
++            finite_theta_diagnostics & finite_dse_diagnostics & finite_mse_diagnostics,
++            mse_temperature_tendency,
++            dse_temperature_tendency,
++        )
+ 
+     @jax.named_call
+     def temperature_tendency(
+@@ -3083,6 +3201,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
++        use_moist_static_energy_hsl_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3106,6 +3225,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_dry_static_energy_hsl_transport=(
+                 use_dry_static_energy_hsl_transport
+             ),
++            use_moist_static_energy_hsl_transport=(
++                use_moist_static_energy_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3137,6 +3259,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
++        use_moist_static_energy_hsl_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3160,6 +3283,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_dry_static_energy_hsl_transport=(
+                 use_dry_static_energy_hsl_transport
+             ),
++            use_moist_static_energy_hsl_transport=(
++                use_moist_static_energy_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3188,6 +3314,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_horizontal_semilagrangian_theta_transport: bool = False,
+         use_midpoint_semilagrangian_theta_departure: bool = False,
+         use_dry_static_energy_hsl_transport: bool = False,
++        use_moist_static_energy_hsl_transport: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3214,6 +3341,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_dry_static_energy_hsl_transport=(
+                 use_dry_static_energy_hsl_transport
+             ),
++            use_moist_static_energy_hsl_transport=(
++                use_moist_static_energy_hsl_transport
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 6839fbf..d7ee51c 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -197,6 +197,15 @@ def dino_hsl2_theta_dse_hsl_model() -> DycoreModel:
+     return dry_static_energy_hsl_transport_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mse_hsl_model() -> DycoreModel:
++    """Return DSE-HSL with guarded MSE horizontal thermal transport."""
++    from dynamaxx.dycore.models.dinosaur import (
++        moist_static_energy_hsl_transport_dinosaur_dycore_model,
++    )
++
++    return moist_static_energy_hsl_transport_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -273,6 +282,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl_theta": dino_hsl_theta_model,
+     "dino_hsl2_theta": dino_hsl2_theta_model,
+     "dino_hsl2_theta_dse_hsl": dino_hsl2_theta_dse_hsl_model,
++    "dino_hsl2_mse_hsl": dino_hsl2_mse_hsl_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7c20491..8396601 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -127,6 +127,9 @@ assert dinosaur.midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().
+ assert dinosaur.dry_static_energy_hsl_transport_dinosaur_dycore_model().name == (
+     "dino_hsl2_theta_dse_hsl"
+ )
++assert dinosaur.moist_static_energy_hsl_transport_dinosaur_dycore_model().name == (
++    "dino_hsl2_mse_hsl"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -225,6 +228,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
++        "dino_hsl2_mse_hsl",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -687,6 +691,25 @@ def test_dinosaur_dse_hsl_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_mse_hsl_is_registered():
++    """The MSE-HSL candidate is side-by-side with the DSE-HSL incumbent."""
++    model = create_dycore_model("dino_hsl2_mse_hsl")
++    incumbent = create_dycore_model("dino_hsl2_theta_dse_hsl")
++
++    assert model.name == "dino_hsl2_mse_hsl"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_moist_static_energy_hsl_transport
++    assert not model.use_humidity_in_dynamics
++    assert incumbent.use_dry_static_energy_hsl_transport
++    assert not incumbent.use_moist_static_energy_hsl_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_moist_static_energy_hsl_transport"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 4938525..ccf696c 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -80,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
++    moist_static_energy_hsl_transport_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -594,6 +595,26 @@ def test_dse_hsl_factory_preserves_hsl2_theta_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_mse_hsl_factory_preserves_dse_hsl_except_selector():
++    """The MSE-HSL candidate changes only name and the MSE transport selector."""
++    model = moist_static_energy_hsl_transport_dinosaur_dycore_model()
++    incumbent = dry_static_energy_hsl_transport_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mse_hsl"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_moist_static_energy_hsl_transport
++    assert not model.use_humidity_in_dynamics
++    assert incumbent.use_dry_static_energy_hsl_transport
++    assert not incumbent.use_moist_static_energy_hsl_transport
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_moist_static_energy_hsl_transport"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4779,6 +4800,259 @@ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
+ 
+ 
++def test_mse_hsl_without_humidity_falls_back_to_dse_hsl():
++    """MSE-HSL reproduces DSE-HSL exactly when humidity is not plumbed."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    dse_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    mse_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_moist_static_energy_hsl_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++
++    expected_tendency = dse_equation.temperature_tendency_potential_temperature_form(
++        state,
++        aux_state,
++    )
++    actual_tendency = mse_equation.temperature_tendency_potential_temperature_form(
++        state,
++        aux_state,
++    )
++
++    np.testing.assert_array_equal(actual_tendency, expected_tendency)
++
++
++def test_mse_hsl_uses_mse_anomaly_and_humidity_transport(monkeypatch):
++    """MSE-HSL transports MSE and subtracts the matching humidity tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    longitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[0],
++        dtype=jnp.float32,
++    )[:, jnp.newaxis]
++    latitude_pattern = jnp.arange(
++        coords.horizontal.nodal_shape[1],
++        dtype=jnp.float32,
++    )[jnp.newaxis, :]
++    full_temperature = jnp.stack(
++        [
++            262.0 + 0.3 * longitude_pattern + 0.2 * latitude_pattern,
++            281.0 - 0.1 * longitude_pattern + 0.4 * latitude_pattern,
++        ],
++        axis=0,
++    )
++    specific_humidity = jnp.stack(
++        [
++            0.004 + 0.0002 * longitude_pattern + 0.0001 * latitude_pattern,
++            0.010 + 0.0003 * longitude_pattern - 0.0001 * latitude_pattern,
++        ],
++        axis=0,
++    )
++    moist_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=coords.horizontal.to_modal(
++            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
++        ),
++        log_surface_pressure=state.log_surface_pressure,
++        tracers={"specific_humidity": coords.horizontal.to_modal(specific_humidity)},
++    )
++    equation = primitive_equations.PrimitiveEquationsSigma(
++        reference_temperature,
++        jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        coords,
++        cast(Any, physics_specs),
++        include_vertical_advection=False,
++        humidity_key=None,
++        temperature_tendency_formulation=(
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        use_horizontal_semilagrangian_theta_transport=True,
++        use_midpoint_semilagrangian_theta_departure=True,
++        use_dry_static_energy_hsl_transport=True,
++        use_moist_static_energy_hsl_transport=True,
++        horizontal_semilagrangian_theta_transport_step=_nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(moist_state, coords)
++    expected_mse_anomaly, _, expected_specific_humidity = (
++        equation.nodal_moist_static_energy_anomaly(aux_state)
++    )
++    expected_dse_anomaly, _ = equation.nodal_dry_static_energy_anomaly(aux_state)
++    expected_theta_anomaly, _ = equation.nodal_potential_temperature_anomaly(
++        moist_state,
++        aux_state,
++    )
++    captured_scalars: list[jax.Array] = []
++
++    def capture_transport(scalar, aux_state, incumbent_horizontal_tendency):
++        del aux_state
++        captured_scalars.append(scalar)
++        return incumbent_horizontal_tendency
++
++    monkeypatch.setattr(
++        equation,
++        "horizontal_semilagrangian_theta_transport",
++        capture_transport,
++    )
++
++    tendency = equation.temperature_tendency_potential_temperature_form(
++        moist_state,
++        aux_state,
++    )
++
++    assert bool(jnp.isfinite(tendency).all())
++    assert len(captured_scalars) == 4
++    np.testing.assert_allclose(captured_scalars[0], expected_theta_anomaly, rtol=1e-6)
++    np.testing.assert_allclose(captured_scalars[1], expected_dse_anomaly, rtol=1e-6)
++    np.testing.assert_allclose(captured_scalars[2], expected_mse_anomaly, rtol=1e-6)
++    np.testing.assert_allclose(
++        captured_scalars[3],
++        expected_specific_humidity,
++        rtol=1e-6,
++    )
++    assert not np.allclose(
++        np.asarray(expected_mse_anomaly),
++        np.asarray(expected_dse_anomaly),
++    )
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    layer_mean = (
++        jnp.sum(expected_mse_anomaly * quadrature_weights, axis=(-2, -1))
++        / jnp.sum(quadrature_weights)
++    )
++    np.testing.assert_allclose(layer_mean, jnp.zeros_like(layer_mean), atol=1.0e-5)
++
++
++def test_mse_hsl_invalid_diagnostics_fall_back_to_dse_hsl(monkeypatch):
++    """Invalid MSE diagnostics reproduce the accepted DSE-HSL tendency."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    specific_humidity = jnp.full(coords.nodal_shape, 0.008, dtype=jnp.float32)
++    moist_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers={"specific_humidity": coords.horizontal.to_modal(specific_humidity)},
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "humidity_key": None,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    dse_equation = primitive_equations.PrimitiveEquationsSigma(**common_kwargs)
++    mse_equation = primitive_equations.PrimitiveEquationsSigma(
++        **common_kwargs,
++        use_moist_static_energy_hsl_transport=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(moist_state, coords)
++    expected_tendency = dse_equation.temperature_tendency_potential_temperature_form(
++        moist_state,
++        aux_state,
++    )
++
++    def nonfinite_mse_anomaly(self, aux_state):
++        del self
++        humidity = aux_state.tracers["specific_humidity"]
++        nonfinite = jnp.full_like(humidity, jnp.nan)
++        return nonfinite, nonfinite, humidity
++
++    monkeypatch.setattr(
++        primitive_equations.PrimitiveEquationsSigma,
++        "nodal_moist_static_energy_anomaly",
++        nonfinite_mse_anomaly,
++    )
++
++    actual_tendency = mse_equation.temperature_tendency_potential_temperature_form(
++        moist_state,
++        aux_state,
++    )
++
++    np.testing.assert_array_equal(actual_tendency, expected_tendency)
++
++
++def test_mse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
++    """MSE-HSL changes only the horizontal thermal transport hook."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    specific_humidity = jnp.full(coords.nodal_shape, 0.006, dtype=jnp.float32)
++    moist_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers={"specific_humidity": coords.horizontal.to_modal(specific_humidity)},
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": False,
++        "humidity_key": None,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_horizontal_semilagrangian_theta_transport": True,
++        "use_midpoint_semilagrangian_theta_departure": True,
++        "use_dry_static_energy_hsl_transport": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquationsSigma(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquationsSigma(
++        **common_kwargs,
++        use_moist_static_energy_hsl_transport=True,
++    )
++
++    incumbent_tendency = incumbent_equation.explicit_terms(moist_state)
++    candidate_tendency = candidate_equation.explicit_terms(moist_state)
++
++    np.testing.assert_array_equal(
++        candidate_tendency.vorticity, incumbent_tendency.vorticity
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.divergence, incumbent_tendency.divergence
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.log_surface_pressure,
++        incumbent_tendency.log_surface_pressure,
++    )
++    _assert_pytree_allclose(candidate_tendency.tracers, incumbent_tendency.tracers)
++    assert bool(jnp.isfinite(candidate_tendency.temperature_variation).all())
++
++
+ def test_ocean_bulk_shf_drives_lowest_temperature_toward_anchor_only():
+     """The opt-in flux changes only the lowest-layer temperature tendency."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5165,6 +5439,65 @@ def test_dse_hsl_non_jit_forecast_smoke_is_finite(monkeypatch):
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_mse_hsl_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The MSE-HSL candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        moist_static_energy_hsl_transport_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_hsl2_mse_hsl"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_moist_static_energy_hsl_transport
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 2d44035..fc52b17 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -53,6 +53,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl_theta",
+         "dino_hsl2_theta",
+         "dino_hsl2_theta_dse_hsl",
++        "dino_hsl2_mse_hsl",
+     )
+ 
+ 
+@@ -600,6 +601,26 @@ def test_registry_creates_dse_hsl_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_mse_hsl_candidate_model():
++    """The MSE-HSL alias adds only the guarded MSE transport selector."""
++    model = create_dycore_model("dino_hsl2_mse_hsl")
++    incumbent = create_dycore_model("dino_hsl2_theta_dse_hsl")
++
++    assert model.name == "dino_hsl2_mse_hsl"
++    assert len(model.name) < 32
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_moist_static_energy_hsl_transport
++    assert not model.use_humidity_in_dynamics
++    assert incumbent.use_dry_static_energy_hsl_transport
++    assert not incumbent.use_moist_static_energy_hsl_transport
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_moist_static_energy_hsl_transport"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

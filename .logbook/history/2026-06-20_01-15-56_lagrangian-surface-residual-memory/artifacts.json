@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "lagrangian-surface-residual-memory",
+  "history_path": ".logbook/history/2026-06-20_01-15-56_lagrangian-surface-residual-memory",
+  "source_artifacts": [
+    ".logbook/history/2026-06-20_01-15-56_lagrangian-surface-residual-memory/proposal.md",
+    ".logbook/history/2026-06-20_01-15-56_lagrangian-surface-residual-memory/implementation.md",
+    ".logbook/history/2026-06-20_01-15-56_lagrangian-surface-residual-memory/decision.md"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_lagrangian.json",
+    "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_lagrangian.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_lagrangian.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual_lagrangian.csv",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.json",
+    "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_coriolis_strang_stability_surface_residual_ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_scale_surface_residual.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-20_01-15-56_lagrangian-surface-residual-memory/scores.json",
+    ".logbook/history/2026-06-20_01-15-56_lagrangian-surface-residual-memory/scoring_notes.md"
+  ],
+  "notes": "Rejected after negative iteration delta and 2m_temperature guardrail failures. Validation was not run. Incumbent iteration metrics were reused from the leaderboard cache; no incumbent rerun occurred."
+}

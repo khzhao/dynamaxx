@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "global-mean-pressure-anchor",
+  "candidate_model_name": "dinosaur_dfi_surface_residual_weak_hs_pressure_anchor",
+  "incumbent_model_name": "dinosaur_dfi_surface_residual_weak_hs",
+  "scored_at": "2026-06-16T18:37:57Z",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "4756cc9a4b69c41eec60e2177fb03a73974f0e2d",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "validation_protocol_skipped": true,
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15",
+    "worker_count": 4
+  },
+  "registration": {
+    "candidate_registered": true,
+    "candidate_factory_model_name": "dinosaur_dfi_surface_residual_weak_hs_pressure_anchor",
+    "incumbent_registered": true,
+    "incumbent_factory_model_name": "dinosaur_dfi_surface_residual_weak_hs"
+  },
+  "commands": [
+    {
+      "command": "python -m compileall -q src/dynamaxx/dycore/models/dinosaur src/dynamaxx/dycore/registry.py tests/dycore",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run ruff format src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer: 42 passed."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer: 108 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dinosaur_dfi_surface_residual_weak_hs_pressure_anchor",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; Scorer verified cached artifact with exact model-name filtering."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer; not rerun by Scorer."
+    },
+    {
+      "command": "python - <<'PY'\nfrom dynamaxx.dycore.registry import create_dycore_model, dycore_model_names\nnames = dycore_model_names()\nfor name in ['dinosaur_dfi_surface_residual_weak_hs_pressure_anchor', 'dinosaur_dfi_surface_residual_weak_hs']:\n    assert name in names, name\n    model = create_dycore_model(name)\n    print(f'{name}: registered; factory returned {model.name}')\nPY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Scorer registration check."
+    },
+    {
+      "command": "nproc && free -h && df -h . outputs/eval | tail -n +1",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Scorer resource check: 48 CPUs, 175 GiB available RAM, 4.1 TiB free disk."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dinosaur_dfi_surface_residual_weak_hs_pressure_anchor --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Fresh candidate run: 229 chunks, 0 cached, 4 GPU workers, diagnostics clean."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dinosaur_dfi_surface_residual_weak_hs_pressure_anchor --workers 4",
+      "exit_status": null,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Skipped because the iteration primary delta did not meet the +0.002 promotion threshold."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_pressure_anchor.json",
+    "candidate_fast_csv": null,
+    "candidate_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_pressure_anchor.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_pressure_anchor.csv",
+    "candidate_iteration_run_dir": "outputs/eval/runs/iteration_dinosaur_dfi_surface_residual_weak_hs_pressure_anchor",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dinosaur_dfi_surface_residual_weak_hs.csv"
+  },
+  "filtered_record_counts": {
+    "candidate_fast_candidate_records": 60,
+    "candidate_fast_persistence_records": 60,
+    "candidate_iteration_candidate_records": 60,
+    "candidate_iteration_persistence_records": 60,
+    "incumbent_iteration_incumbent_records": 60,
+    "incumbent_iteration_persistence_records": 60,
+    "incumbent_validation_incumbent_records": 60,
+    "incumbent_validation_persistence_records": 60
+  },
+  "primary_scores": {
+    "candidate_fast": -1.1909823513604236,
+    "candidate_iteration": -1.2218418099192239,
+    "candidate_validation": null,
+    "incumbent_iteration": -1.2218408656785489,
+    "incumbent_validation": -1.2103467803549615,
+    "iteration_delta": -9.44240674982666e-7,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_primary_threshold": 0.002,
+    "iteration_primary_delta": -9.44240674982666e-7,
+    "iteration_primary_passed": false,
+    "iteration_diagnostics_clean": true,
+    "iteration_early_mean_rmse_guardrail_passed": true,
+    "iteration_variable_lead_rmse_guardrail_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_primary_threshold": 0.001,
+    "validation_ran": false,
+    "validation_acceptance_gate_passed": null,
+    "validation_skip_reason": "Iteration primary delta was below the +0.002 promotion threshold."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "2m_temperature",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 7.401365221087902,
+        "incumbent_mean_rmse": 7.401365301163406,
+        "absolute_delta": -8.007550444943945e-8,
+        "relative_delta": -1.0819018004266394e-8,
+        "regression": 0.0,
+        "threshold": 0.02,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 1050.7180942938835,
+        "incumbent_mean_rmse": 1050.7180420326392,
+        "absolute_delta": 0.000052261244263718254,
+        "relative_delta": 4.973859986511474e-8,
+        "regression": 4.973859986511474e-8,
+        "threshold": 0.02,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 771.9761357384447,
+        "incumbent_mean_rmse": 771.9761195101368,
+        "absolute_delta": 0.00001622830791347951,
+        "relative_delta": 2.102177451263299e-8,
+        "regression": 2.102177451263299e-8,
+        "threshold": 0.02,
+        "passes_threshold": true
+      },
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_days": "1..5",
+        "candidate_mean_rmse": 9.256923040553277,
+        "incumbent_mean_rmse": 9.25692289266928,
+        "absolute_delta": 1.4788399660403684e-7,
+        "relative_delta": 1.5975502693357074e-8,
+        "regression": 1.5975502693357074e-8,
+        "threshold": 0.02,
+        "passes_threshold": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 2266.252502054176,
+        "incumbent_rmse": 2266.24510748178,
+        "absolute_delta": 0.007394572396151489,
+        "relative_delta": 0.000003262918195273341,
+        "regression": 0.000003262918195273341,
+        "threshold": 0.10,
+        "passes_threshold": true
+      }
+    ],
+    "top_positive_variable_lead_rmse_regressions": [
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 2266.252502054176,
+        "incumbent_rmse": 2266.24510748178,
+        "absolute_delta": 0.007394572396151489,
+        "relative_delta": 0.000003262918195273341
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 336,
+        "lead_days": 14.0,
+        "candidate_rmse": 2223.8648346623395,
+        "incumbent_rmse": 2223.859244838649,
+        "absolute_delta": 0.0055898236905704834,
+        "relative_delta": 0.0000025135690145605643
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 2949.4121115813987,
+        "incumbent_rmse": 2949.4052735575247,
+        "absolute_delta": 0.006838023874024657,
+        "relative_delta": 0.0000023184415974739015
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 336,
+        "lead_days": 14.0,
+        "candidate_rmse": 2893.1277241901275,
+        "incumbent_rmse": 2893.1220681479754,
+        "absolute_delta": 0.005656042152168084,
+        "relative_delta": 0.0000019549960281450496
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 288,
+        "lead_days": 12.0,
+        "candidate_rmse": 2093.353020792351,
+        "incumbent_rmse": 2093.349322780387,
+        "absolute_delta": 0.0036980119639338227,
+        "relative_delta": 0.000001766552731400855
+      }
+    ]
+  },
+  "decision_inputs": {
+    "scorer_decision": "not_applicable",
+    "orchestrator_decision_required": true,
+    "protocol_result": "iteration_failed_primary_threshold",
+    "validation_was_allowed_if_iteration_passed": true,
+    "golden_ran": false
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "bounded-moist-virtual-temperature-dynamics",
+  "history_path": ".logbook/history/2026-06-17_18-02-45_bounded-moist-virtual-temperature-dynamics",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-17_18-02-45_bounded-moist-virtual-temperature-dynamics/proposal.md",
+      "description": "Immutable copy of the selected ready proposal."
+    },
+    {
+      "path": ".logbook/history/2026-06-17_18-02-45_bounded-moist-virtual-temperature-dynamics/implementation.md",
+      "description": "Implementation summary, changed files, tests, and rollback notes."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.json",
+      "description": "Candidate fast protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/fast_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.csv",
+      "description": "Candidate fast protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.json",
+      "description": "Candidate iteration protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init_bounded_moist.csv",
+      "description": "Candidate iteration protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.json",
+      "description": "Reused incumbent iteration protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init.csv",
+      "description": "Reused incumbent iteration protocol CSV metrics."
+    }
+  ],
+  "log_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-17_18-02-45_bounded-moist-virtual-temperature-dynamics/scores.json",
+      "description": "Structured score summary and gate calculations."
+    },
+    {
+      "path": ".logbook/history/2026-06-17_18-02-45_bounded-moist-virtual-temperature-dynamics/scoring_notes.md",
+      "description": "Scorer notes and measurement lessons."
+    },
+    {
+      "path": ".logbook/history/2026-06-17_18-02-45_bounded-moist-virtual-temperature-dynamics/decision.md",
+      "description": "Orchestrator decision and cleanup record."
+    }
+  ],
+  "notes": "Candidate validation artifacts are absent because the iteration promotion gate did not pass. Golden was not run."
+}

@@ -1,0 +1,798 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index d40e05f..c08755b 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -45,6 +45,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+     DinosaurPrimitiveEquationsDycoreModel,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+     default_dinosaur_dycore_model,
+@@ -82,6 +83,7 @@ __all__ = [
+     "DinosaurPrimitiveEquationsDycoreModel",
+     "analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model",
+     "associated_legendre",
++    "baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model",
+     "coordinate_systems",
+     "coriolis_split_dinosaur_dycore_model",
+     "coriolis_strang_split_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 7041a9f..4866170 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -148,6 +148,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
++    use_baroclinic_mode_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+@@ -240,7 +241,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mean_hydrostatic_temperature_initialization=(
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
+-                initialize_sim_time=self.use_pressure_ramped_vertical_dse_increment,
++                initialize_sim_time=(
++                    self.use_pressure_ramped_vertical_dse_increment
++                    or self.use_baroclinic_mode_vertical_dse_increment
++                ),
+             )
+             if (
+                 self.apply_ocean_bulk_sensible_heat_flux
+@@ -370,6 +374,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_pressure_ramped_vertical_dse_increment=(
+                     self.use_pressure_ramped_vertical_dse_increment
+                 ),
++                use_baroclinic_mode_vertical_dse_increment=(
++                    self.use_baroclinic_mode_vertical_dse_increment
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1368,6 +1375,17 @@ def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return WTG vertical-DSE with early internal-mode spinup."""
++    return replace(
++        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
++        name="dino_hsl2_mass_dse_wtg_vdse_bm",
++        use_baroclinic_mode_vertical_dse_increment=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2542,6 +2560,7 @@ def _primitive_equation(
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+     use_pressure_ramped_vertical_dse_increment: bool = False,
++    use_baroclinic_mode_vertical_dse_increment: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -2568,6 +2587,9 @@ def _primitive_equation(
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_baroclinic_mode_vertical_dse_increment=(
++                use_baroclinic_mode_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -2595,6 +2617,9 @@ def _primitive_equation(
+         use_pressure_ramped_vertical_dse_increment=(
+             use_pressure_ramped_vertical_dse_increment
+         ),
++        use_baroclinic_mode_vertical_dse_increment=(
++            use_baroclinic_mode_vertical_dse_increment
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 4c30004..53d889d 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -52,6 +52,8 @@ HORIZONTAL_SEMILAGRANGIAN_THETA_MAX_CFL = 0.5
+ HORIZONTAL_SEMILAGRANGIAN_THETA_MIN_COS_LAT = 1.0e-6
+ PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS = 24.0
+ PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS = 72.0
++BAROCLINIC_MODE_VERTICAL_DSE_ZERO_HOURS = 12.0
++BAROCLINIC_MODE_VERTICAL_DSE_FULL_HOURS = 48.0
+ PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_CUTOFF = 8.0
+ PRESSURE_RAMPED_VERTICAL_DSE_LOW_MODE_TAPER_ZERO = 16.0
+@@ -216,6 +218,32 @@ def _pressure_ramped_vertical_dse_increment_weight(
+     )
+ 
+ 
++def _baroclinic_mode_vertical_dse_internal_increment_weight(
++    sim_time: Array,
++    physics_specs: units.SimUnitsProtocol,
++) -> jax.Array:
++    """Return the fixed smooth internal-mode vertical-DSE spinup weight."""
++    sim_time = jnp.asarray(sim_time)
++    hour = scales.units.Quantity(3600.0, "second")
++    nondimensional_hour = jnp.asarray(
++        physics_specs.nondimensionalize(hour),
++        dtype=sim_time.dtype,
++    )
++    ramp_start_time = BAROCLINIC_MODE_VERTICAL_DSE_ZERO_HOURS * nondimensional_hour
++    ramp_full_time = BAROCLINIC_MODE_VERTICAL_DSE_FULL_HOURS * nondimensional_hour
++    ramp_fraction = jnp.clip(
++        (sim_time - ramp_start_time) / (ramp_full_time - ramp_start_time),
++        0.0,
++        1.0,
++    )
++    smooth_weight = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
++    return jnp.where(
++        sim_time <= ramp_start_time,
++        0.0,
++        jnp.where(sim_time >= ramp_full_time, 1.0, smooth_weight),
++    )
++
++
+ def _pressure_ramped_vertical_dse_low_mode_mask(
+     horizontal_grid: spherical_harmonic.Grid,
+ ) -> jax.Array:
+@@ -272,6 +300,66 @@ def _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+     return area_mean_component + low_mode_anomaly
+ 
+ 
++def _split_pressure_weighted_column_increment(
++    nodal_increment: Array,
++    layer_pressure_thickness: Array,
++) -> tuple[jax.Array, jax.Array, jax.Array]:
++    """Split an increment into column-mean and pressure-neutral components."""
++    layer_pressure_thickness = jnp.asarray(
++        layer_pressure_thickness,
++        dtype=nodal_increment.dtype,
++    )
++    tiny_pressure = jnp.asarray(
++        jnp.finfo(layer_pressure_thickness.dtype).tiny,
++        dtype=layer_pressure_thickness.dtype,
++    )
++    valid_pressure_thickness = (
++        jnp.isfinite(layer_pressure_thickness)
++        & (layer_pressure_thickness > tiny_pressure)
++    )
++    safe_pressure_thickness = jnp.where(
++        valid_pressure_thickness,
++        layer_pressure_thickness,
++        jnp.ones_like(layer_pressure_thickness),
++    )
++    pressure_thickness_sum = jnp.sum(
++        safe_pressure_thickness,
++        axis=0,
++        keepdims=True,
++    )
++    valid_pressure_sum = (
++        jnp.isfinite(pressure_thickness_sum)
++        & (pressure_thickness_sum > tiny_pressure)
++    )
++    safe_pressure_sum = jnp.where(
++        valid_pressure_sum,
++        pressure_thickness_sum,
++        jnp.ones_like(pressure_thickness_sum),
++    )
++    column_mean = (
++        jnp.sum(
++            nodal_increment * safe_pressure_thickness,
++            axis=0,
++            keepdims=True,
++        )
++        / safe_pressure_sum
++    )
++    external_increment = jnp.broadcast_to(column_mean, nodal_increment.shape)
++    internal_increment = nodal_increment - external_increment
++    finite_split = jnp.all(
++        jnp.asarray(
++            [
++                jnp.all(valid_pressure_thickness),
++                jnp.all(valid_pressure_sum),
++                jnp.all(jnp.isfinite(nodal_increment)),
++                jnp.all(jnp.isfinite(external_increment)),
++                jnp.all(jnp.isfinite(internal_increment)),
++            ]
++        )
++    )
++    return external_increment, internal_increment, finite_split
++
++
+ @tree_math.struct
+ class DiagnosticStateSigma:
+     """Stores nodal diagnostic values used to compute explicit tendencies.
+@@ -990,6 +1078,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_baroclinic_mode_vertical_dse_increment: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1666,6 +1758,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         dry_static_energy_anomaly: Array,
+         geopotential: Array,
+         theta_vertical_temperature_tendency: Array,
++        layer_pressure_thickness: Array,
+         valid_layer_pressure_thickness: Array,
+         finite_theta_diagnostics: Array,
+         finite_dse_diagnostics: Array,
+@@ -1691,19 +1784,19 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             dse_vertical_temperature_tendency - theta_vertical_temperature_tendency
+         )
+         ramped_increment = vertical_temperature_increment * ramp_weight
+-        low_mode_area_mean = (
++        incumbent_low_mode_area_mean = (
+             _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+                 ramped_increment,
+                 self.coords,
+             )
+         )
+         early_ramp_weight = 1.0 - ramp_weight
+-        pressure_guarded_increment = ramped_increment - (
+-            early_ramp_weight * low_mode_area_mean
++        incumbent_pressure_guarded_increment = ramped_increment - (
++            early_ramp_weight * incumbent_low_mode_area_mean
+         )
+         step = jnp.asarray(
+             self.horizontal_semilagrangian_theta_transport_step,
+-            dtype=pressure_guarded_increment.dtype,
++            dtype=incumbent_pressure_guarded_increment.dtype,
+         )
+         valid_step = jnp.isfinite(step) & (step > 0.0)
+         safe_step = jnp.where(valid_step, step, jnp.ones_like(step))
+@@ -1711,22 +1804,25 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             self.physics_specs.nondimensionalize(
+                 scales.units.Quantity(1.0, "kelvin")
+             ),
+-            dtype=pressure_guarded_increment.dtype,
++            dtype=incumbent_pressure_guarded_increment.dtype,
+         )
+         max_temperature_tendency = (
+             PRESSURE_RAMPED_VERTICAL_DSE_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+             * temperature_unit
+             / safe_step
+         )
+-        capped_increment = jnp.clip(
+-            pressure_guarded_increment,
++        incumbent_capped_increment = jnp.clip(
++            incumbent_pressure_guarded_increment,
+             -max_temperature_tendency,
+             max_temperature_tendency,
+         )
+-        candidate_temperature_tendency = incumbent_temperature_tendency + (
+-            self.coords.horizontal.to_modal(capped_increment)
++        incumbent_modal_increment = self.coords.horizontal.to_modal(
++            incumbent_capped_increment
+         )
+-        finite_candidate_diagnostics = jnp.all(
++        incumbent_pressure_ramped_temperature_tendency = (
++            incumbent_temperature_tendency + incumbent_modal_increment
++        )
++        finite_incumbent_candidate_diagnostics = jnp.all(
+             jnp.asarray(
+                 [
+                     jnp.all(jnp.isfinite(sim_time)),
+@@ -1741,22 +1837,86 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+                     jnp.all(jnp.isfinite(theta_vertical_temperature_tendency)),
+                     jnp.all(jnp.isfinite(dse_vertical_temperature_tendency)),
+                     jnp.all(jnp.isfinite(vertical_temperature_increment)),
+-                    jnp.all(jnp.isfinite(low_mode_area_mean)),
+-                    jnp.all(jnp.isfinite(capped_increment)),
+-                    jnp.all(jnp.isfinite(candidate_temperature_tendency)),
++                    jnp.all(jnp.isfinite(incumbent_low_mode_area_mean)),
++                    jnp.all(jnp.isfinite(incumbent_capped_increment)),
++                    jnp.all(
++                        jnp.isfinite(incumbent_pressure_ramped_temperature_tendency)
++                    ),
+                 ]
+             )
+         )
+-        return jnp.where(
++        accepted_incumbent_temperature_tendency = jnp.where(
+             (
+                 finite_theta_diagnostics
+                 & finite_dse_diagnostics
+                 & finite_mass_dse_diagnostics
+-                & finite_candidate_diagnostics
++                & finite_incumbent_candidate_diagnostics
+             ),
+-            candidate_temperature_tendency,
++            incumbent_pressure_ramped_temperature_tendency,
+             incumbent_temperature_tendency,
+         )
++        if not self.use_baroclinic_mode_vertical_dse_increment:
++            return accepted_incumbent_temperature_tendency
++
++        internal_ramp_weight = _baroclinic_mode_vertical_dse_internal_increment_weight(
++            sim_time,
++            self.physics_specs,
++        )
++        external_increment, internal_increment, finite_split = (
++            _split_pressure_weighted_column_increment(
++                vertical_temperature_increment,
++                layer_pressure_thickness,
++            )
++        )
++        split_ramped_increment = (
++            external_increment * ramp_weight
++            + internal_increment * internal_ramp_weight
++        )
++        split_low_mode_area_mean = (
++            _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
++                split_ramped_increment,
++                self.coords,
++            )
++        )
++        split_pressure_guarded_increment = split_ramped_increment - (
++            early_ramp_weight * split_low_mode_area_mean
++        )
++        split_capped_increment = jnp.clip(
++            split_pressure_guarded_increment,
++            -max_temperature_tendency,
++            max_temperature_tendency,
++        )
++        split_modal_increment = self.coords.horizontal.to_modal(split_capped_increment)
++        split_temperature_tendency = incumbent_temperature_tendency + (
++            split_modal_increment
++        )
++        finite_split_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    finite_split,
++                    jnp.all(jnp.isfinite(internal_ramp_weight)),
++                    jnp.all(internal_ramp_weight >= 0.0),
++                    jnp.all(internal_ramp_weight <= 1.0),
++                    jnp.all(jnp.isfinite(split_ramped_increment)),
++                    jnp.all(jnp.isfinite(split_low_mode_area_mean)),
++                    jnp.all(jnp.isfinite(split_pressure_guarded_increment)),
++                    jnp.all(jnp.isfinite(split_capped_increment)),
++                    jnp.all(jnp.isfinite(split_modal_increment)),
++                    jnp.all(jnp.isfinite(split_temperature_tendency)),
++                ]
++            )
++        )
++        return jnp.where(
++            (
++                finite_theta_diagnostics
++                & finite_dse_diagnostics
++                & finite_mass_dse_diagnostics
++                & finite_incumbent_candidate_diagnostics
++                & finite_split_diagnostics
++            ),
++            split_temperature_tendency,
++            accepted_incumbent_temperature_tendency,
++        )
+ 
+     @jax.named_call
+     def temperature_tendency_potential_temperature_form(
+@@ -1949,6 +2109,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+             dry_static_energy_anomaly=dry_static_energy_anomaly,
+             geopotential=geopotential,
+             theta_vertical_temperature_tendency=temperature_vertical_nodal,
++            layer_pressure_thickness=layer_pressure_thickness,
+             valid_layer_pressure_thickness=valid_layer_pressure_thickness,
+             finite_theta_diagnostics=finite_theta_diagnostics,
+             finite_dse_diagnostics=finite_dse_diagnostics,
+@@ -3380,6 +3541,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_baroclinic_mode_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3409,6 +3571,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_baroclinic_mode_vertical_dse_increment=(
++                use_baroclinic_mode_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3442,6 +3607,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_baroclinic_mode_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3471,6 +3637,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_baroclinic_mode_vertical_dse_increment=(
++                use_baroclinic_mode_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3501,6 +3670,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_baroclinic_mode_vertical_dse_increment: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3533,6 +3703,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_baroclinic_mode_vertical_dse_increment=(
++                use_baroclinic_mode_vertical_dse_increment
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index b15aa89..4310f71 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -224,6 +224,15 @@ def dino_hsl2_mass_dse_wtg_vdse_ramp_model() -> DycoreModel:
+     return pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
+ 
+ 
++def dino_hsl2_mass_dse_wtg_vdse_bm_model() -> DycoreModel:
++    """Return pressure-ramped vertical-DSE with internal-mode spinup."""
++    from dynamaxx.dycore.models.dinosaur import (
++        baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model,
++    )
++
++    return baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -305,6 +314,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "dino_hsl2_mass_dse_wtg_vdse_ramp": (
+         dino_hsl2_mass_dse_wtg_vdse_ramp_model
+     ),
++    "dino_hsl2_mass_dse_wtg_vdse_bm": dino_hsl2_mass_dse_wtg_vdse_bm_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 7818b41..f526efe 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -136,6 +136,9 @@ assert dinosaur.tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model().name ==
+ assert dinosaur.pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model().name == (
+     "dino_hsl2_mass_dse_wtg_vdse_ramp"
+ )
++assert dinosaur.baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model().name == (
++    "dino_hsl2_mass_dse_wtg_vdse_bm"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -237,6 +240,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_bm",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -754,6 +758,26 @@ def test_dinosaur_pressure_ramped_vertical_dse_wtg_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_baroclinic_mode_vertical_dse_wtg_is_registered():
++    """The baroclinic-mode candidate is side-by-side with the ramp incumbent."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_bm")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_bm"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_baroclinic_mode_vertical_dse_increment
++    assert not incumbent.use_baroclinic_mode_vertical_dse_increment
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_baroclinic_mode_vertical_dse_increment"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index ee99f2f..249ac5c 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -69,6 +69,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _unit_factor,
+     _valid_land_sea_fraction_or_none,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+     digital_filter_dinosaur_dycore_model,
+@@ -655,6 +656,26 @@ def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_baroclinic_mode_vertical_dse_factory_preserves_ramp_except_selector():
++    """The candidate changes only name and the internal-mode split selector."""
++    model = baroclinic_mode_vertical_dse_wtg_dinosaur_dycore_model()
++    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_bm"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_baroclinic_mode_vertical_dse_increment
++    assert not incumbent.use_baroclinic_mode_vertical_dse_increment
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_baroclinic_mode_vertical_dse_increment"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -5093,6 +5114,68 @@ def test_pressure_ramped_vertical_dse_weight_endpoints():
+     assert 0.0 < weights_np[2] < 1.0
+ 
+ 
++def test_baroclinic_mode_vertical_dse_internal_weight_endpoints():
++    """The internal-mode ramp is zero through 12h and full by 48h."""
++    physics_specs = units.SimUnits.from_si()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    sim_time = jnp.asarray([0.0, 12.0, 30.0, 48.0], dtype=jnp.float32) * hour
++
++    weights = (
++        primitive_equations._baroclinic_mode_vertical_dse_internal_increment_weight(
++            sim_time,
++            physics_specs,
++        )
++    )
++
++    weights_np = np.asarray(weights)
++    np.testing.assert_allclose(weights_np[[0, 1, 3]], [0.0, 0.0, 1.0])
++    assert 0.0 < weights_np[2] < 1.0
++
++
++def test_pressure_weighted_column_split_internal_has_zero_column_mean():
++    """The internal vertical-DSE component has no pressure-weighted column mean."""
++    raw_increment = jnp.asarray(
++        [
++            [[1.0, 4.0], [7.0, 10.0]],
++            [[2.0, 5.0], [8.0, 11.0]],
++            [[6.0, 9.0], [12.0, 15.0]],
++        ],
++        dtype=jnp.float32,
++    )
++    layer_pressure_thickness = jnp.asarray(
++        [
++            [[2.0, 3.0], [4.0, 5.0]],
++            [[1.0, 2.0], [3.0, 4.0]],
++            [[5.0, 1.0], [2.0, 3.0]],
++        ],
++        dtype=jnp.float32,
++    )
++
++    external_increment, internal_increment, finite_split = (
++        primitive_equations._split_pressure_weighted_column_increment(
++            raw_increment,
++            layer_pressure_thickness,
++        )
++    )
++    weighted_internal_mean = (
++        jnp.sum(internal_increment * layer_pressure_thickness, axis=0)
++        / jnp.sum(layer_pressure_thickness, axis=0)
++    )
++
++    assert bool(finite_split)
++    np.testing.assert_allclose(
++        external_increment + internal_increment,
++        raw_increment,
++        rtol=1.0e-6,
++        atol=1.0e-6,
++    )
++    np.testing.assert_allclose(
++        weighted_internal_mean,
++        jnp.zeros_like(weighted_internal_mean),
++        atol=1.0e-6,
++    )
++
++
+ def test_pressure_ramped_vertical_dse_noop_before_ramp():
+     """At 24h and earlier, the selected tendency matches the WTG incumbent path."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+@@ -5189,6 +5272,10 @@ def test_pressure_ramped_vertical_dse_missing_time_falls_back(monkeypatch):
+                 coords.nodal_shape,
+                 dtype=jnp.float32,
+             ),
++            layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
+             valid_layer_pressure_thickness=jnp.zeros(
+                 coords.nodal_shape,
+                 dtype=bool,
+@@ -5252,6 +5339,10 @@ def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+                 coords.nodal_shape,
+                 dtype=jnp.float32,
+             ),
++            layer_pressure_thickness=jnp.ones(
++                coords.nodal_shape,
++                dtype=jnp.float32,
++            ),
+             valid_layer_pressure_thickness=jnp.ones(
+                 coords.nodal_shape,
+                 dtype=bool,
+@@ -5272,6 +5363,108 @@ def test_pressure_ramped_vertical_dse_caps_increment(monkeypatch):
+     assert float(jnp.max(jnp.abs(nodal_tendency))) <= max_tendency * 1.0001
+ 
+ 
++def test_baroclinic_mode_vertical_dse_invalid_split_falls_back_to_ramp(
++    monkeypatch,
++):
++    """Split-only invalid pressure thickness returns the ramp tendency exactly."""
++    coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    timed_state = _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=state.temperature_variation,
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=jnp.asarray(48.0 * hour, dtype=jnp.float32),
++    )
++    common_kwargs = {
++        "reference_temperature": reference_temperature,
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++        "temperature_tendency_formulation": (
++            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
++        ),
++        "use_dry_static_energy_hsl_transport": True,
++        "use_layer_mass_weighted_dse_hsl_transport": True,
++        "use_pressure_ramped_vertical_dse_increment": True,
++        "horizontal_semilagrangian_theta_transport_step": _nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    candidate_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_baroclinic_mode_vertical_dse_increment=True,
++    )
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(
++        timed_state,
++        coords,
++    )
++    raw_increment = jnp.stack(
++        [
++            jnp.full(coords.horizontal.nodal_shape, 0.10, dtype=jnp.float32),
++            jnp.full(coords.horizontal.nodal_shape, -0.04, dtype=jnp.float32),
++        ],
++        axis=0,
++    )
++
++    def raw_vertical_tendency(unused_sigma_dot, unused_scalar):
++        del unused_sigma_dot, unused_scalar
++        return raw_increment * physics_specs.Cp
++
++    monkeypatch.setattr(
++        incumbent_equation,
++        "_vertical_tendency",
++        raw_vertical_tendency,
++    )
++    monkeypatch.setattr(
++        candidate_equation,
++        "_vertical_tendency",
++        raw_vertical_tendency,
++    )
++    invalid_layer_pressure_thickness = jnp.ones(
++        coords.nodal_shape,
++        dtype=jnp.float32,
++    ).at[0, 0, 0].set(jnp.nan)
++    valid_layer_pressure_thickness = jnp.ones(coords.nodal_shape, dtype=bool)
++    incumbent_temperature_tendency = jnp.zeros(coords.modal_shape, dtype=jnp.float32)
++    common_tendency_kwargs = {
++        "state": timed_state,
++        "aux_state": aux_state,
++        "incumbent_temperature_tendency": incumbent_temperature_tendency,
++        "dry_static_energy_anomaly": jnp.ones(
++            coords.nodal_shape,
++            dtype=jnp.float32,
++        ),
++        "geopotential": jnp.zeros(coords.nodal_shape, dtype=jnp.float32),
++        "theta_vertical_temperature_tendency": jnp.zeros(
++            coords.nodal_shape,
++            dtype=jnp.float32,
++        ),
++        "layer_pressure_thickness": invalid_layer_pressure_thickness,
++        "valid_layer_pressure_thickness": valid_layer_pressure_thickness,
++        "finite_theta_diagnostics": jnp.asarray(True),
++        "finite_dse_diagnostics": jnp.asarray(True),
++        "finite_mass_dse_diagnostics": jnp.asarray(True),
++    }
++
++    expected_tendency = (
++        incumbent_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            **common_tendency_kwargs,
++        )
++    )
++    actual_tendency = (
++        candidate_equation.pressure_ramped_vertical_dse_increment_temperature_tendency(
++            **common_tendency_kwargs,
++        )
++    )
++
++    np.testing.assert_array_equal(actual_tendency, expected_tendency)
++
++
+ def test_dse_hsl_leaves_non_temperature_explicit_tendencies_unchanged():
+     """DSE-HSL changes only the horizontal thermal transport hook."""
+     coords, physics_specs, reference_temperature, state = _ocean_bulk_shf_test_setup()
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 99b0ecc..91766c8 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -56,6 +56,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse",
+         "dino_hsl2_mass_dse_wtg",
+         "dino_hsl2_mass_dse_wtg_vdse_ramp",
++        "dino_hsl2_mass_dse_wtg_vdse_bm",
+     )
+ 
+ 
+@@ -660,6 +661,26 @@ def test_registry_creates_pressure_ramped_vertical_dse_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_baroclinic_mode_vertical_dse_candidate_model():
++    """The baroclinic-mode alias adds only the internal split selector."""
++    model = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_bm")
++    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_ramp")
++
++    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_bm"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_baroclinic_mode_vertical_dse_increment
++    assert not incumbent.use_baroclinic_mode_vertical_dse_increment
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_baroclinic_mode_vertical_dse_increment"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):
