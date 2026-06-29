@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
-  "incumbent_commit": "3992244f20b2a938fdd96f8904f3749f5505670d",
-  "updated_at": "2026-06-27T23:08:55Z",
-  "iteration_primary_score": -0.21299732605547173,
-  "validation_primary_score": -0.21274255459898536,
-  "history_path": ".logbook/history/2026-06-27_23-08-54_bulk-richardson-2m-temperature-diagnostic",
-  "iteration_metrics_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
-  "iteration_metrics_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
-  "validation_metrics_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
-  "validation_metrics_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+  "incumbent_model_name": "dino_ri2m_ekman_coupled",
+  "incumbent_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+  "updated_at": "2026-06-29T08:52:22Z",
+  "iteration_primary_score": -0.16500618979404214,
+  "validation_primary_score": -0.16591150807771451,
+  "history_path": ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping",
+  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
   "evaluation_fingerprint": {
     "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
     "protocols": [
@@ -23,7 +23,7 @@
       "10m_u_component_of_wind"
     ],
     "lead_days": "1..15",
-    "eval_code_commit": "3992244f20b2a938fdd96f8904f3749f5505670d"
+    "eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f"
   },
-  "notes": "Accepted bulk-richardson-2m-temperature-diagnostic after it improved iteration by +0.0033827961363472048 and validation by +0.0033221535666909108 over cached dino_hsl2_mass_dse_wtg_vdse_t2m_lomem incumbent metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as 3992244f20b2a938fdd96f8904f3749f5505670d with the full positive-commit protocol body."
+  "notes": "Accepted coupled-ekman-stress-pumping after it improved iteration by +0.04799113626142959 and validation by +0.04683104652127085 over cached dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m incumbent metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as d187308d30a242bf38aabe5b7eb530fca522a68f with the full positive-commit protocol body."
 }

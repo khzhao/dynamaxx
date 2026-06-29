@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "coupled-ekman-stress-pumping",
+  "candidate_model_name": "dino_ri2m_ekman_coupled",
+  "incumbent_model_name": "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+    "protocols": ["fast", "iteration", "validation"],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python -m py_compile src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "notes": "Passed before formatting and focused tests."
+    },
+    {
+      "command": "git diff --check",
+      "exit_status": 0,
+      "notes": "Passed before and after scoring."
+    },
+    {
+      "command": "uv run ruff format src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "notes": "Passed; final run reported 6 files left unchanged."
+    },
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "notes": "Passed."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -k 'ekman_coupled' tests/dycore/models/dinosaur/test_dependency.py -k 'ekman_coupled or canonical' tests/dycore/test_registry.py -k 'ekman_coupled or lists_default'",
+      "exit_status": 0,
+      "notes": "Focused candidate tests passed: 9 passed, 198 deselected."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_coupled",
+      "exit_status": 0,
+      "notes": "Candidate fast gate completed with clean diagnostics."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "Full unit suite passed: 273 passed, 2 skipped in 286.38s."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_coupled --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration gate completed with clean diagnostics. Incumbent iteration metrics were reused from cache."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_coupled --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate validation gate completed with clean diagnostics. Incumbent validation metrics were reused from cache."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_coupled.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_coupled.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.16771830165614882,
+    "candidate_iteration": -0.16500618979404214,
+    "candidate_validation": -0.16591150807771451,
+    "incumbent_iteration": -0.21299732605547173,
+    "incumbent_validation": -0.21274255459898536,
+    "iteration_delta": 0.04799113626142959,
+    "validation_delta": 0.04683104652127085
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": false,
+    "candidate_validation_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_reused": true,
+      "artifact": "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+      "reason": "Leaderboard incumbent metrics were readable, finite, clean, and matched the fixed iteration protocol, target variables, lead range, and WeatherBench2 path. Source changes since the accepted incumbent were limited to this candidate experiment."
+    },
+    "validation": {
+      "incumbent_reused": true,
+      "artifact": "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+      "reason": "Leaderboard incumbent metrics were readable, finite, clean, and matched the fixed validation protocol, target variables, lead range, and WeatherBench2 path. No incumbent rerun was performed."
+    }
+  },
+  "regressions": {
+    "iteration": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "candidate_mean_rmse": 4.072932870671464,
+          "incumbent_mean_rmse": 4.291455410579937,
+          "relative_regression": -0.05092037991813667
+        },
+        {
+          "variable": "2 m temperature",
+          "candidate_mean_rmse": 4.714561357311716,
+          "incumbent_mean_rmse": 4.7483208904103185,
+          "relative_regression": -0.0071097834113913886
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "candidate_mean_rmse": 573.8213009264634,
+          "incumbent_mean_rmse": 592.5708573064215,
+          "relative_regression": -0.03164103693047904
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "candidate_mean_rmse": 721.0161119288302,
+          "incumbent_mean_rmse": 771.1150724937294,
+          "relative_regression": -0.06496949982170985
+        }
+      ],
+      "max_rmse_regression_by_variable_and_lead": {
+        "variable": "2 m temperature",
+        "channel_name": "2m_temperature",
+        "lead_hours": 288,
+        "candidate_rmse": 7.566795295965312,
+        "incumbent_rmse": 7.499341847684013,
+        "relative_regression": 0.008994582411539229
+      }
+    },
+    "validation": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "candidate_mean_rmse": 4.0340232625439345,
+          "incumbent_mean_rmse": 4.250368438067122,
+          "relative_regression": -0.05090033456524811
+        },
+        {
+          "variable": "2 m temperature",
+          "candidate_mean_rmse": 4.717320882854792,
+          "incumbent_mean_rmse": 4.754758776901246,
+          "relative_regression": -0.007873773582022441
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "candidate_mean_rmse": 565.8687439755943,
+          "incumbent_mean_rmse": 583.2274975188262,
+          "relative_regression": -0.029763263249897826
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "candidate_mean_rmse": 705.9234237232112,
+          "incumbent_mean_rmse": 753.3205493149209,
+          "relative_regression": -0.06291760610382027
+        }
+      ],
+      "max_rmse_regression_by_variable_and_lead": {
+        "variable": "2 m temperature",
+        "channel_name": "2m_temperature",
+        "lead_hours": 264,
+        "candidate_rmse": 7.452150213520578,
+        "incumbent_rmse": 7.397392455864637,
+        "relative_regression": 0.007402305337001447
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "coupled-ekman-stress-pumping",
+  "history_path": ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/fast_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/iteration_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.json",
+    "outputs/eval/validation_dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/proposal.md",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/resource_snapshot.md",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/implementation.md",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/scores.json",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/scoring_notes.md",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/decision.md",
+    ".logbook/history/2026-06-29_04-31-21_coupled-ekman-stress-pumping/artifacts.json",
+    ".logbook/leaderboard.json"
+  ],
+  "notes": "Accepted candidate committed as d187308d30a242bf38aabe5b7eb530fca522a68f. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed."
+}
