@@ -1,0 +1,770 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..0f72be2 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -70,6 +70,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
+     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
++    veered_10m_wind_diagnostic_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+ )
+ 
+@@ -131,6 +132,7 @@ __all__ = [
+     "tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model",
+     "typing",
+     "units",
++    "veered_10m_wind_diagnostic_dinosaur_dycore_model",
+     "vertical_interpolation",
+     "weatherbench_utils",
+     "weak_held_suarez_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..7f03b77 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -84,6 +84,12 @@ _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
+ _SURFACE_LAYER_REFERENCE_HEIGHT_METERS = 10.0
+ _SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS = 2.0
+ _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN = 1.5
++_SURFACE_LAYER_VEERING_MAX_ANGLE_DEGREES = 8.0
++_SURFACE_LAYER_VEERING_NEUTRAL_RI_THRESHOLD = 0.02
++_SURFACE_LAYER_VEERING_FULL_STABLE_RI = 0.35
++_SURFACE_LAYER_VEERING_ZERO_LATITUDE_DEGREES = 5.0
++_SURFACE_LAYER_VEERING_FULL_LATITUDE_DEGREES = 30.0
++_SURFACE_LAYER_VEERING_SHEAR_SCALE_METERS_PER_SECOND = 6.0
+ _TROPICAL_WTG_FULL_LATITUDE_DEGREES = 12.0
+ _TROPICAL_WTG_ZERO_LATITUDE_DEGREES = 27.0
+ _TROPICAL_WTG_SIGMA_ZERO_TOP = 0.20
+@@ -153,6 +159,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_land_ocean_low_mode_t2m_memory: bool = False
+     apply_ocean_bulk_sensible_heat_flux: bool = False
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
++    use_surface_layer_veered_10m_wind_diagnostic: bool = False
+     use_bulk_richardson_2m_temperature_diagnostic: bool = False
+     apply_exact_coriolis_rotation_split: bool = False
+     apply_symmetric_exact_coriolis_rotation_split: bool = False
+@@ -292,6 +299,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_surface_layer_richardson_10m_wind_diagnostic=(
+                     self.use_surface_layer_richardson_10m_wind_diagnostic
+                 ),
++                use_surface_layer_veered_10m_wind_diagnostic=(
++                    self.use_surface_layer_veered_10m_wind_diagnostic
++                ),
+                 use_bulk_richardson_2m_temperature_diagnostic=(
+                     self.use_bulk_richardson_2m_temperature_diagnostic
+                 ),
+@@ -1823,6 +1833,17 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def veered_10m_wind_diagnostic_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the Ekman incumbent with an output-only veered 10 m wind."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_veered_10m",
++        use_surface_layer_veered_10m_wind_diagnostic=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -1968,6 +1989,7 @@ def dinosaur_state_to_weather_state(
+     reference_temperature: np.ndarray,
+     output_variables: tuple[str, ...],
+     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
++    use_surface_layer_veered_10m_wind_diagnostic: bool = False,
+     use_bulk_richardson_2m_temperature_diagnostic: bool = False,
+ ) -> WeatherState:
+     """Convert a Dinosaur trajectory into packed WeatherState channels."""
+@@ -2041,7 +2063,17 @@ def dinosaur_state_to_weather_state(
+     }
+     ten_meter_u_wind = u_wind[:, -1]
+     ten_meter_v_wind = v_wind[:, -1]
+-    if use_surface_layer_richardson_10m_wind_diagnostic:
++    if use_surface_layer_veered_10m_wind_diagnostic:
++        _, latitude_sine = coords.horizontal.nodal_mesh
++        ten_meter_u_wind, ten_meter_v_wind = _surface_layer_veered_10m_wind(
++            temperature=temperature,
++            u_wind=u_wind,
++            v_wind=v_wind,
++            surface_pressure_hpa=surface_pressure_hpa,
++            sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
++            latitude_sine=latitude_sine,
++        )
++    elif use_surface_layer_richardson_10m_wind_diagnostic:
+         ten_meter_u_wind, ten_meter_v_wind = _surface_layer_richardson_10m_wind(
+             temperature=temperature,
+             u_wind=u_wind,
+@@ -2294,6 +2326,172 @@ def _surface_layer_richardson_10m_wind(
+     return lowest_u_wind * wind_factor, lowest_v_wind * wind_factor
+ 
+ 
++def _surface_layer_veered_10m_wind(
++    *,
++    temperature: jax.Array,
++    u_wind: jax.Array,
++    v_wind: jax.Array,
++    surface_pressure_hpa: jax.Array,
++    sigma_coords: sigma_coordinates.SigmaCoordinates,
++    latitude_sine: jax.Array,
++) -> tuple[jax.Array, jax.Array]:
++    """Diagnose 10 m wind with bounded stable, hemisphere-aware veering."""
++    richardson_u_wind, richardson_v_wind = _surface_layer_richardson_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++    )
++    if sigma_coords.layers < 2:
++        return richardson_u_wind, richardson_v_wind
++
++    lower_sigma = float(sigma_coords.centers[-1])
++    upper_sigma = float(sigma_coords.centers[-2])
++    lower_pressure_hpa = surface_pressure_hpa * lower_sigma
++    upper_pressure_hpa = surface_pressure_hpa * upper_sigma
++    safe_lower_pressure_hpa = jnp.maximum(lower_pressure_hpa, 1.0)
++    safe_upper_pressure_hpa = jnp.maximum(upper_pressure_hpa, 1.0)
++    lower_temperature = temperature[:, -1]
++    upper_temperature = temperature[:, -2]
++    lower_theta = (
++        lower_temperature
++        * (1000.0 / safe_lower_pressure_hpa)
++        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
++    )
++    upper_theta = (
++        upper_temperature
++        * (1000.0 / safe_upper_pressure_hpa)
++        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
++    )
++    mean_temperature = jnp.maximum(0.5 * (lower_temperature + upper_temperature), 1.0)
++    mean_theta = jnp.maximum(0.5 * (lower_theta + upper_theta), 1.0)
++
++    pressure_ratio = jnp.maximum(safe_lower_pressure_hpa / safe_upper_pressure_hpa, 1.0)
++    layer_separation_meters = (
++        _DRY_AIR_GAS_CONSTANT_SI * mean_temperature / _GRAVITY_ACCELERATION_SI
++    ) * jnp.log(pressure_ratio)
++    lowest_layer_height_meters = (
++        _DRY_AIR_GAS_CONSTANT_SI * lower_temperature / _GRAVITY_ACCELERATION_SI
++    ) * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
++    layer_separation_meters = jnp.maximum(layer_separation_meters, 1.0)
++    lowest_layer_height_meters = jnp.maximum(lowest_layer_height_meters, 10.0)
++
++    lowest_u_wind = u_wind[:, -1]
++    lowest_v_wind = v_wind[:, -1]
++    upper_u_wind = u_wind[:, -2]
++    upper_v_wind = v_wind[:, -2]
++    shear_u_wind = upper_u_wind - lowest_u_wind
++    shear_v_wind = upper_v_wind - lowest_v_wind
++    squared_shear = shear_u_wind**2 + shear_v_wind**2
++    shear_speed = jnp.sqrt(jnp.maximum(squared_shear, 0.0))
++    safe_squared_shear = jnp.maximum(
++        squared_shear,
++        _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND**2,
++    )
++    richardson_number = (
++        (_GRAVITY_ACCELERATION_SI / mean_theta)
++        * (upper_theta - lower_theta)
++        * layer_separation_meters
++        / safe_squared_shear
++    )
++    richardson_number = jnp.clip(richardson_number, -1.0, 1.0)
++
++    stable_fraction = (
++        richardson_number - _SURFACE_LAYER_VEERING_NEUTRAL_RI_THRESHOLD
++    ) / (
++        _SURFACE_LAYER_VEERING_FULL_STABLE_RI
++        - _SURFACE_LAYER_VEERING_NEUTRAL_RI_THRESHOLD
++    )
++    stable_fraction = jnp.clip(stable_fraction, 0.0, 1.0)
++    shear_fraction = (
++        shear_speed - _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND
++    ) / _SURFACE_LAYER_VEERING_SHEAR_SCALE_METERS_PER_SECOND
++    shear_fraction = jnp.clip(shear_fraction, 0.0, 1.0)
++
++    wind_speed = jnp.sqrt(jnp.maximum(lowest_u_wind**2 + lowest_v_wind**2, 0.0))
++    safe_turn_denominator = jnp.maximum(
++        wind_speed * shear_speed,
++        jnp.finfo(richardson_u_wind.dtype).tiny,
++    )
++    shear_turn_fraction = (
++        jnp.abs(lowest_u_wind * shear_v_wind - lowest_v_wind * shear_u_wind)
++        / safe_turn_denominator
++    )
++    shear_turn_fraction = jnp.sqrt(jnp.clip(shear_turn_fraction, 0.0, 1.0))
++
++    absolute_latitude_degrees = jnp.rad2deg(
++        jnp.arcsin(jnp.clip(jnp.abs(latitude_sine), 0.0, 1.0))
++    )
++    latitude_fraction = (
++        absolute_latitude_degrees - _SURFACE_LAYER_VEERING_ZERO_LATITUDE_DEGREES
++    ) / (
++        _SURFACE_LAYER_VEERING_FULL_LATITUDE_DEGREES
++        - _SURFACE_LAYER_VEERING_ZERO_LATITUDE_DEGREES
++    )
++    latitude_fraction = jnp.clip(latitude_fraction, 0.0, 1.0)
++
++    angle_degrees = (
++        _SURFACE_LAYER_VEERING_MAX_ANGLE_DEGREES
++        * stable_fraction
++        * shear_fraction
++        * shear_turn_fraction
++        * latitude_fraction
++    )
++    rotation_angle = -jnp.sign(latitude_sine) * jnp.deg2rad(angle_degrees)
++    cosine_angle = jnp.cos(rotation_angle)
++    sine_angle = jnp.sin(rotation_angle)
++    rotated_u_wind = richardson_u_wind * cosine_angle - richardson_v_wind * sine_angle
++    rotated_v_wind = richardson_u_wind * sine_angle + richardson_v_wind * cosine_angle
++    richardson_speed = jnp.sqrt(
++        jnp.maximum(richardson_u_wind**2 + richardson_v_wind**2, 0.0)
++    )
++    rotated_speed = jnp.sqrt(jnp.maximum(rotated_u_wind**2 + rotated_v_wind**2, 0.0))
++    speed_scale = jnp.where(
++        rotated_speed > jnp.finfo(richardson_u_wind.dtype).tiny,
++        richardson_speed / rotated_speed,
++        1.0,
++    )
++    rotated_u_wind = rotated_u_wind * speed_scale
++    rotated_v_wind = rotated_v_wind * speed_scale
++
++    required_values = jnp.stack(
++        [
++            lower_temperature,
++            upper_temperature,
++            lowest_u_wind,
++            upper_u_wind,
++            lowest_v_wind,
++            upper_v_wind,
++            surface_pressure_hpa,
++            lower_pressure_hpa,
++            upper_pressure_hpa,
++            layer_separation_meters,
++            lowest_layer_height_meters,
++            richardson_number,
++            shear_speed,
++            angle_degrees,
++            jnp.broadcast_to(latitude_sine, surface_pressure_hpa.shape),
++            rotated_u_wind,
++            rotated_v_wind,
++        ]
++    )
++    finite_mask = (
++        jnp.all(jnp.isfinite(required_values), axis=0)
++        & (surface_pressure_hpa > 0.0)
++        & (lower_pressure_hpa > 0.0)
++        & (upper_pressure_hpa > 0.0)
++        & (lower_temperature > 0.0)
++        & (upper_temperature > 0.0)
++        & (jnp.abs(latitude_sine) <= 1.0)
++        & (shear_speed > _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND)
++    )
++    return (
++        jnp.where(finite_mask, rotated_u_wind, richardson_u_wind),
++        jnp.where(finite_mask, rotated_v_wind, richardson_v_wind),
++    )
++
++
+ def _apply_near_surface_residual_correction(
+     trajectory_state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..d030a56 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,15 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_veered_10m_model() -> DycoreModel:
++    """Return coupled Ekman incumbent with output-only veered 10 m wind."""
++    from dynamaxx.dycore.models.dinosaur import (
++        veered_10m_wind_diagnostic_dinosaur_dycore_model,
++    )
++
++    return veered_10m_wind_diagnostic_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +344,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_ekman_veered_10m": dino_ri2m_ekman_veered_10m_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..055f2d6 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -146,6 +146,9 @@ assert (
+ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
++assert dinosaur.veered_10m_wind_diagnostic_dinosaur_dycore_model().name == (
++    "dino_ri2m_ekman_veered_10m"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -250,6 +253,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_veered_10m",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -830,6 +834,30 @@ def test_dinosaur_ekman_coupled_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_veered_10m_wind_model_is_registered():
++    """The veered 10 m candidate is side-by-side with the Ekman incumbent."""
++    model = create_dycore_model("dino_ri2m_ekman_veered_10m")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_veered_10m"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_layer_veered_10m_wind_diagnostic
++    assert not incumbent.use_surface_layer_veered_10m_wind_diagnostic
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_surface_layer_veered_10m_wind_diagnostic"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..6bc2ff9 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -70,6 +70,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _split_near_surface_residual_by_scale,
+     _stability_aware_near_surface_residual_decay_hours,
+     _surface_layer_richardson_10m_wind,
++    _surface_layer_veered_10m_wind,
+     _symmetric_exact_coriolis_rotation_step,
+     _theta_layer_mean_recenter_step_filter,
+     _to_dinosaur_latitude_order,
+@@ -106,6 +107,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
+     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
++    veered_10m_wind_diagnostic_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+     weather_state_to_dinosaur_state,
+ )
+@@ -188,6 +190,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.use_land_sea_surface_temperature_residual
+     assert not model.use_land_ocean_low_mode_t2m_memory
+     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert not model.use_surface_layer_veered_10m_wind_diagnostic
+     assert not model.use_bulk_richardson_2m_temperature_diagnostic
+     assert not model.apply_coupled_ekman_surface_closure
+     assert not model.use_log_pressure_initialization
+@@ -733,6 +736,30 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_veered_10m_wind_factory_preserves_ekman_except_diagnostic():
++    """The veered candidate only adds the output 10 m wind selector."""
++    model = veered_10m_wind_diagnostic_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_veered_10m"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_layer_veered_10m_wind_diagnostic
++    assert not incumbent.use_surface_layer_veered_10m_wind_diagnostic
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_surface_layer_veered_10m_wind_diagnostic"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -2560,6 +2587,157 @@ def test_surface_layer_richardson_10m_wind_falls_back_for_invalid_columns():
+     np.testing.assert_array_equal(diagnosed_v_wind[0, 0, 1], v_wind[0, -1, 0, 1])
+ 
+ 
++def test_surface_layer_veered_10m_wind_turns_opposite_by_hemisphere():
++    """Stable columns rotate the Richardson wind with opposite hemisphere signs."""
++    (
++        temperature,
++        u_wind,
++        v_wind,
++        surface_pressure_hpa,
++        sigma_coords,
++        latitude_sine,
++    ) = _veered_10m_wind_inputs(
++        latitude_sine=jnp.asarray(
++            [[np.sin(np.deg2rad(45.0)), -np.sin(np.deg2rad(45.0))]]
++        )
++    )
++    richardson_u_wind, richardson_v_wind = _surface_layer_richardson_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++    )
++
++    veered_u_wind, veered_v_wind = _surface_layer_veered_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++        latitude_sine=latitude_sine,
++    )
++
++    assert float(veered_v_wind[0, 0, 0]) < float(richardson_v_wind[0, 0, 0])
++    assert float(veered_v_wind[0, 0, 1]) > float(richardson_v_wind[0, 0, 1])
++    assert float(veered_u_wind[0, 0, 0]) < float(richardson_u_wind[0, 0, 0])
++    assert float(veered_u_wind[0, 0, 1]) < float(richardson_u_wind[0, 0, 1])
++
++
++def test_surface_layer_veered_10m_wind_keeps_neutral_and_unstable_noop():
++    """Neutral and unstable columns fall back to the Richardson wind angle."""
++    for upper_temperature_offset in (0.0, -20.0):
++        (
++            temperature,
++            u_wind,
++            v_wind,
++            surface_pressure_hpa,
++            sigma_coords,
++            latitude_sine,
++        ) = _veered_10m_wind_inputs(
++            upper_temperature_offset=upper_temperature_offset,
++            latitude_sine=jnp.asarray([[np.sin(np.deg2rad(45.0))]]),
++        )
++        richardson_u_wind, richardson_v_wind = _surface_layer_richardson_10m_wind(
++            temperature=temperature,
++            u_wind=u_wind,
++            v_wind=v_wind,
++            surface_pressure_hpa=surface_pressure_hpa,
++            sigma_coords=sigma_coords,
++        )
++
++        veered_u_wind, veered_v_wind = _surface_layer_veered_10m_wind(
++            temperature=temperature,
++            u_wind=u_wind,
++            v_wind=v_wind,
++            surface_pressure_hpa=surface_pressure_hpa,
++            sigma_coords=sigma_coords,
++            latitude_sine=latitude_sine,
++        )
++
++        np.testing.assert_allclose(veered_u_wind, richardson_u_wind, atol=1e-6)
++        np.testing.assert_allclose(veered_v_wind, richardson_v_wind, atol=1e-6)
++
++
++def test_surface_layer_veered_10m_wind_preserves_richardson_speed():
++    """The veering selector rotates direction without changing diagnosed speed."""
++    (
++        temperature,
++        u_wind,
++        v_wind,
++        surface_pressure_hpa,
++        sigma_coords,
++        latitude_sine,
++    ) = _veered_10m_wind_inputs(
++        latitude_sine=jnp.asarray(
++            [[np.sin(np.deg2rad(45.0)), -np.sin(np.deg2rad(45.0))]]
++        )
++    )
++    richardson_u_wind, richardson_v_wind = _surface_layer_richardson_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++    )
++
++    veered_u_wind, veered_v_wind = _surface_layer_veered_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++        latitude_sine=latitude_sine,
++    )
++
++    richardson_speed = jnp.sqrt(richardson_u_wind**2 + richardson_v_wind**2)
++    veered_speed = jnp.sqrt(veered_u_wind**2 + veered_v_wind**2)
++    np.testing.assert_allclose(veered_speed, richardson_speed, rtol=1e-6, atol=1e-6)
++
++
++def test_surface_layer_veered_10m_wind_falls_back_for_invalid_or_weak_columns():
++    """Invalid diagnostics and weak directional shear keep Richardson wind exact."""
++    (
++        temperature,
++        u_wind,
++        v_wind,
++        surface_pressure_hpa,
++        sigma_coords,
++        latitude_sine,
++    ) = _veered_10m_wind_inputs(
++        latitude_sine=jnp.full(
++            (1, 6),
++            np.sin(np.deg2rad(45.0)),
++            dtype=jnp.float32,
++        )
++    )
++    surface_pressure_hpa = surface_pressure_hpa.at[0, 0, 1].set(jnp.nan)
++    temperature = temperature.at[0, 0, 0, 2].set(jnp.nan)
++    u_wind = u_wind.at[0, 0, 0, 3].set(jnp.nan)
++    latitude_sine = latitude_sine.at[0, 4].set(jnp.nan)
++    v_wind = v_wind.at[0, 0, 0, 5].set(v_wind[0, 1, 0, 5] + 0.5)
++
++    richardson_u_wind, richardson_v_wind = _surface_layer_richardson_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++    )
++    veered_u_wind, veered_v_wind = _surface_layer_veered_10m_wind(
++        temperature=temperature,
++        u_wind=u_wind,
++        v_wind=v_wind,
++        surface_pressure_hpa=surface_pressure_hpa,
++        sigma_coords=sigma_coords,
++        latitude_sine=latitude_sine,
++    )
++
++    assert float(veered_v_wind[0, 0, 0]) < float(richardson_v_wind[0, 0, 0])
++    np.testing.assert_array_equal(veered_u_wind[..., 1:], richardson_u_wind[..., 1:])
++    np.testing.assert_array_equal(veered_v_wind[..., 1:], richardson_v_wind[..., 1:])
++
++
+ def test_bulk_richardson_2m_temperature_scales_stability_regimes():
+     """Stable columns cool the raw screen diagnostic relative to unstable columns."""
+     sigma_coords = sigma_coordinates.SigmaCoordinates(
+@@ -3514,6 +3692,83 @@ def test_richardson_10m_wind_diagnostic_only_changes_raw_surface_wind():
+     )
+ 
+ 
++def test_veered_10m_wind_diagnostic_only_changes_raw_surface_wind_direction():
++    """The veered diagnostic preserves non-10 m outputs and 10 m speed."""
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++    pressure_levels_hpa = (100, 500, 900)
++    grid = grid_metadata(
++        longitude=forecast_input.longitude,
++        latitude=forecast_input.latitude,
++        layer_count=len(pressure_levels_hpa),
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    reference_temperature = _reference_temperature(
++        layer_count=len(pressure_levels_hpa),
++        temperature_kelvin=250.0,
++    )
++    state = weather_state_to_dinosaur_state(
++        WeatherState(
++            values=forecast_input.initial_state.values[0],
++            variables=forecast_input.initial_state.variables,
++        ),
++        coords=grid.coords,
++        pressure_levels_hpa=pressure_levels_hpa,
++        latitude_reversed=grid.latitude_reversed,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        include_humidity=True,
++    )
++    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value, value]), state)
++    output_variables = (
++        "temperature_500",
++        "u_component_of_wind_500",
++        "v_component_of_wind_500",
++        "geopotential_500",
++        "specific_humidity_500",
++        "surface_pressure",
++        "mean_sea_level_pressure",
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "10m_v_component_of_wind",
++    )
++    common_kwargs = {
++        "trajectory": trajectory,
++        "coords": grid.coords,
++        "pressure_levels_hpa": pressure_levels_hpa,
++        "latitude_reversed": grid.latitude_reversed,
++        "physics_specs": physics_specs,
++        "reference_temperature": reference_temperature,
++        "output_variables": output_variables,
++        "use_surface_layer_richardson_10m_wind_diagnostic": True,
++    }
++
++    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
++    candidate = dinosaur_state_to_weather_state(
++        **common_kwargs,
++        use_surface_layer_veered_10m_wind_diagnostic=True,
++    )
++
++    unchanged_variables = tuple(output_variables[:-2])
++    np.testing.assert_array_equal(
++        candidate.select(unchanged_variables).values,
++        incumbent.select(unchanged_variables).values,
++    )
++    incumbent_speed = jnp.sqrt(
++        incumbent.select(("10m_u_component_of_wind",)).values ** 2
++        + incumbent.select(("10m_v_component_of_wind",)).values ** 2
++    )
++    candidate_speed = jnp.sqrt(
++        candidate.select(("10m_u_component_of_wind",)).values ** 2
++        + candidate.select(("10m_v_component_of_wind",)).values ** 2
++    )
++    np.testing.assert_allclose(candidate_speed, incumbent_speed, rtol=1e-6, atol=1e-6)
++    assert bool(jnp.isfinite(candidate.values).all())
++
++
+ def test_bulk_richardson_2m_temperature_only_changes_raw_t2m():
+     """The opt-in raw T2m diagnostic preserves winds and mass diagnostics."""
+     forecast_input = _forecast_input(
+@@ -7558,6 +7813,71 @@ def _initial_state(*, init_count: int) -> WeatherState:
+     return WeatherState(values=values, variables=tuple(fields))
+ 
+ 
++def _veered_10m_wind_inputs(
++    *,
++    upper_temperature_offset: float = 20.0,
++    latitude_sine: jax.Array,
++) -> tuple[
++    jax.Array,
++    jax.Array,
++    jax.Array,
++    jax.Array,
++    sigma_coordinates.SigmaCoordinates,
++    jax.Array,
++]:
++    sigma_coords = sigma_coordinates.SigmaCoordinates(
++        np.asarray([0.0, 0.99, 1.0], dtype=np.float32)
++    )
++    latitude_count = latitude_sine.shape[-1]
++    lower_temperature = 290.0
++    neutral_upper_temperature = lower_temperature * (
++        sigma_coords.centers[-2] / sigma_coords.centers[-1]
++    ) ** (2.0 / 7.0)
++    upper_temperature = jnp.full(
++        (latitude_count,),
++        neutral_upper_temperature + upper_temperature_offset,
++        dtype=jnp.float32,
++    )
++    lower_temperature_array = jnp.full(
++        (latitude_count,),
++        lower_temperature,
++        dtype=jnp.float32,
++    )
++    temperature = jnp.stack(
++        [upper_temperature, lower_temperature_array],
++        axis=0,
++    )[jnp.newaxis, :, jnp.newaxis, :]
++    upper_u_wind = jnp.full((latitude_count,), 10.0, dtype=jnp.float32)
++    upper_v_wind = jnp.full((latitude_count,), 6.0, dtype=jnp.float32)
++    lower_u_wind = jnp.full((latitude_count,), 10.0, dtype=jnp.float32)
++    lower_v_wind = jnp.zeros((latitude_count,), dtype=jnp.float32)
++    u_wind = jnp.stack([upper_u_wind, lower_u_wind], axis=0)[
++        jnp.newaxis,
++        :,
++        jnp.newaxis,
++        :,
++    ]
++    v_wind = jnp.stack([upper_v_wind, lower_v_wind], axis=0)[
++        jnp.newaxis,
++        :,
++        jnp.newaxis,
++        :,
++    ]
++    surface_pressure_hpa = jnp.full(
++        (1, 1, latitude_count),
++        1000.0,
++        dtype=jnp.float32,
++    )
++    return (
++        temperature,
++        u_wind,
++        v_wind,
++        surface_pressure_hpa,
++        sigma_coords,
++        latitude_sine,
++    )
++
++
+ def _structured_initial_state(
+     *, init_count: int, surface_pressure_pa: float = 100_000.0
+ ) -> WeatherState:
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..96b5280 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_veered_10m",
+     )
+ 
+ 
+@@ -726,6 +727,30 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_veered_10m_wind_candidate_model():
++    """The veered alias adds only the output wind direction selector."""
++    model = create_dycore_model("dino_ri2m_ekman_veered_10m")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_veered_10m"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_surface_layer_richardson_10m_wind_diagnostic
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_layer_veered_10m_wind_diagnostic
++    assert not incumbent.use_surface_layer_veered_10m_wind_diagnostic
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_surface_layer_veered_10m_wind_diagnostic"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "stability-veered-10m-wind-diagnostic",
+  "history_path": ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic",
+  "source_artifacts": [
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_veered_10m.json",
+    "outputs/eval/fast_dino_ri2m_ekman_veered_10m.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_veered_10m.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_veered_10m.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/proposal.md",
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/resource_snapshot.md",
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/implementation.md",
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/scores.json",
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/scoring_notes.md",
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/decision.md",
+    ".logbook/history/2026-06-29_09-14-25_stability-veered-10m-wind-diagnostic/artifacts.json"
+  ],
+  "notes": "Rejected candidate. Iteration delta was -0.00017228141155770094 against cached dino_ri2m_ekman_coupled incumbent metrics, below the +0.002 promotion threshold; validation was skipped and no incumbent rerun was performed."
+}

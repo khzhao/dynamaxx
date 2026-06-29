@@ -1,0 +1,153 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "stability-veered-10m-wind-diagnostic",
+  "candidate_model_name": "dino_ri2m_ekman_veered_10m",
+  "incumbent_model_name": "dino_ri2m_ekman_coupled",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY' ... registry verification for dino_ri2m_ekman_veered_10m and dino_ri2m_ekman_coupled ... PY",
+      "exit_status": 0,
+      "notes": "Both candidate and incumbent were present in dycore_model_names(); create_dycore_model returned models with expected names."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "Passed: 281 passed, 2 skipped in 291.68s."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_veered_10m",
+      "exit_status": 0,
+      "notes": "Candidate fast gate completed with clean diagnostics."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_veered_10m --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration completed with clean diagnostics over 229 chunks. Incumbent iteration metrics were reused from the leaderboard cache."
+    }
+  ],
+  "skipped_commands": [
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_veered_10m --workers 4",
+      "reason": "Skipped because the iteration promotion gate failed: candidate iteration primary score was -0.00017228141155770094 below the cached incumbent, not at least +0.002 above it."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_veered_10m.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_veered_10m.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_veered_10m.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_veered_10m.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.16790802095995314,
+    "candidate_iteration": -0.16517847120559984,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.16500618979404214,
+    "incumbent_validation": -0.16591150807771451,
+    "iteration_delta": -0.00017228141155770094,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_reused": true,
+      "artifact": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "csv_artifact": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+      "validation_checks": [
+        "requested incumbent matched .logbook/leaderboard.json incumbent_model_name",
+        "leaderboard fingerprint matched WeatherBench2 data path, target variables, lead range, and included iteration",
+        "no source-tree changes touched src/dynamaxx/eval, src/dynamaxx/data, src/dynamaxx/cli.py, tests/eval, roles/PROTOCOL.md, or roles/SCORER.md relative to the accepted incumbent commit",
+        "artifact existed, was readable, contained finite primary_score, contained incumbent rows, covered all four target variables, and covered lead hours 24..360"
+      ],
+      "reason": "Leaderboard incumbent metrics were compatible, readable, finite, clean, and complete. No incumbent rerun was performed."
+    },
+    "validation": {
+      "incumbent_reused": false,
+      "artifact": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "csv_artifact": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+      "validation_checks": [
+        "artifact existed, was readable, contained finite primary_score, contained incumbent rows, covered all four target variables, and covered lead hours 24..360"
+      ],
+      "reason": "Validation was skipped because the iteration promotion gate failed; the cached validation artifact was prechecked but not used for a candidate comparison."
+    }
+  },
+  "regressions": {
+    "iteration": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "variable": "10 m zonal wind",
+          "channel_name": "10m_u_component_of_wind",
+          "candidate_mean_rmse": 4.080189424584874,
+          "incumbent_mean_rmse": 4.072932870671464,
+          "relative_regression": 0.0017816532076095485
+        },
+        {
+          "variable": "2 m temperature",
+          "channel_name": "2m_temperature",
+          "candidate_mean_rmse": 4.71456057541907,
+          "incumbent_mean_rmse": 4.714561357311716,
+          "relative_regression": -1.6584631877316331e-07
+        },
+        {
+          "variable": "500 hPa geopotential",
+          "channel_name": "geopotential_500",
+          "candidate_mean_rmse": 573.8208119366109,
+          "incumbent_mean_rmse": 573.8213009264634,
+          "relative_regression": -8.521639955970418e-07
+        },
+        {
+          "variable": "Mean sea level pressure",
+          "channel_name": "mean_sea_level_pressure",
+          "candidate_mean_rmse": 721.0161037449263,
+          "incumbent_mean_rmse": 721.0161119288302,
+          "relative_regression": -1.1350514594373446e-08
+        }
+      ],
+      "max_rmse_regression_by_variable_and_lead": {
+        "variable": "10 m zonal wind",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "candidate_rmse": 2.9231380458163234,
+        "incumbent_rmse": 2.90456140061588,
+        "relative_regression": 0.006395679979946111
+      }
+    },
+    "validation": null
+  }
+}
