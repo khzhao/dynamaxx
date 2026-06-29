@@ -94,6 +94,15 @@ _TROPICAL_WTG_LOW_MODE_CUTOFF = 8.0
 _TROPICAL_WTG_LOW_MODE_TAPER_ZERO = 16.0
 _TROPICAL_WTG_RELAXATION_TIMESCALE_DAYS = 5.0
 _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.25
+_EKMAN_COUPLED_DRAG_COEFFICIENT = 3.0e-4
+_EKMAN_COUPLED_BOUNDARY_LAYER_DEPTH_METERS = 2_000.0
+_EKMAN_COUPLED_SECOND_LAYER_FRACTION = 0.35
+_EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND = 0.25
+_EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT = 2.0e-5
+_EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
+_EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR = 0.85
+_EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
+_EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
 _DRY_AIR_GAS_CONSTANT_SI = float(
     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
 )
@@ -157,6 +166,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_layer_mass_weighted_dse_hsl_transport: bool = False
     use_pressure_ramped_vertical_dse_increment: bool = False
     apply_tropical_wtg_mass_dse_relaxation: bool = False
+    apply_coupled_ekman_surface_closure: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -470,6 +480,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
             if self.apply_tropical_wtg_mass_dse_relaxation:
                 filters.append(
                     _tropical_wtg_mass_dse_relaxation_step_filter(
+                        coords=coords,
+                        physics_specs=physics_specs,
+                        reference_temperature=reference_temperature,
+                        step_seconds=step_seconds,
+                    )
+                )
+            if self.apply_coupled_ekman_surface_closure:
+                filters.append(
+                    _ekman_coupled_surface_step_filter(
                         coords=coords,
                         physics_specs=physics_specs,
                         reference_temperature=reference_temperature,
@@ -945,6 +964,398 @@ def _tropical_wtg_mass_dse_relaxation_step_filter(
     return tropical_wtg_mass_dse_relaxation_filter
 
 
+def _ekman_coupled_surface_step_filter(
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    step_seconds: float,
+) -> Any:
+    """Return a weak coupled stress and pressure filter for the lower layers."""
+    assert step_seconds > 0.0
+    horizontal_grid = coords.horizontal
+    sigma_centers = jnp.asarray(coords.vertical.centers)
+    lowest_sigma = sigma_centers[-1]
+    quadrature_weights = jnp.asarray(horizontal_grid.quadrature_weights)
+    vertical_taper = _ekman_coupled_vertical_taper(coords.vertical)
+    equatorial_taper = _ekman_coupled_equatorial_taper(horizontal_grid)
+    _, sin_latitude = horizontal_grid.nodal_mesh
+    coriolis_parameter = 2.0 * physics_specs.angular_velocity * sin_latitude
+    coriolis_floor = (
+        2.0
+        * physics_specs.angular_velocity
+        * jnp.sin(jnp.deg2rad(_EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES))
+    )
+    safe_coriolis = jnp.where(
+        coriolis_parameter >= 0.0,
+        jnp.maximum(coriolis_parameter, coriolis_floor),
+        jnp.minimum(coriolis_parameter, -coriolis_floor),
+    )
+    step_seconds = jnp.asarray(step_seconds, dtype=jnp.float32)
+    reference_temperature = jnp.asarray(reference_temperature)
+    wind_unit_factor = _unit_factor(physics_specs, "meter / second")
+    acceleration_unit_factor = _unit_factor(physics_specs, "meter / second ** 2")
+    pressure_unit_factor = _unit_factor(physics_specs, "pascal")
+    temperature_unit_factor = _unit_factor(physics_specs, "kelvin")
+    wind_increment_cap = jnp.asarray(
+        _EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR
+        * _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND
+        * wind_unit_factor,
+        dtype=jnp.float32,
+    )
+    pressure_increment_cap = jnp.asarray(
+        _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+        dtype=jnp.float32,
+    )
+    fallback_temperature = jnp.asarray(
+        250.0 * temperature_unit_factor, dtype=jnp.float32
+    )
+    fallback_pressure = jnp.asarray(100_000.0 * pressure_unit_factor, dtype=jnp.float32)
+
+    def ekman_coupled_surface_filter(prev_state: Any, next_state: Any) -> Any:
+        del prev_state
+        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+            horizontal_grid,
+            next_state.vorticity,
+            next_state.divergence,
+        )
+        lowest_u_wind = u_wind[-1]
+        lowest_v_wind = v_wind[-1]
+        nodal_temperature = (
+            horizontal_grid.to_nodal(next_state.temperature_variation)
+            + reference_temperature[:, jnp.newaxis, jnp.newaxis]
+        )
+        lowest_temperature = nodal_temperature[-1]
+        surface_pressure = jnp.exp(
+            horizontal_grid.to_nodal(next_state.log_surface_pressure)[0]
+        )
+        lower_pressure = lowest_sigma * surface_pressure
+        lower_temperature_si = lowest_temperature / temperature_unit_factor
+        lower_pressure_si = lower_pressure / pressure_unit_factor
+        density = lower_pressure_si / (_DRY_AIR_GAS_CONSTANT_SI * lower_temperature_si)
+        finite_stress_inputs = (
+            jnp.isfinite(lowest_u_wind)
+            & jnp.isfinite(lowest_v_wind)
+            & jnp.isfinite(lowest_temperature)
+            & jnp.isfinite(surface_pressure)
+            & jnp.isfinite(density)
+            & (lowest_temperature > 0.0)
+            & (surface_pressure > 0.0)
+            & (lower_pressure > 0.0)
+            & (density > 0.0)
+        )
+        safe_lowest_u_wind = jnp.where(
+            finite_stress_inputs,
+            lowest_u_wind,
+            jnp.zeros_like(lowest_u_wind),
+        )
+        safe_lowest_v_wind = jnp.where(
+            finite_stress_inputs,
+            lowest_v_wind,
+            jnp.zeros_like(lowest_v_wind),
+        )
+        safe_density = jnp.where(finite_stress_inputs, density, 1.0)
+        safe_temperature = jnp.where(
+            finite_stress_inputs,
+            lowest_temperature,
+            fallback_temperature,
+        )
+        safe_lower_pressure = jnp.where(
+            finite_stress_inputs,
+            lower_pressure,
+            lowest_sigma * fallback_pressure,
+        )
+        lowest_u_wind_si = safe_lowest_u_wind / wind_unit_factor
+        lowest_v_wind_si = safe_lowest_v_wind / wind_unit_factor
+        wind_speed_si = jnp.sqrt(
+            jnp.maximum(lowest_u_wind_si**2 + lowest_v_wind_si**2, 0.0)
+        )
+        stress_u = (
+            safe_density
+            * _EKMAN_COUPLED_DRAG_COEFFICIENT
+            * wind_speed_si
+            * lowest_u_wind_si
+        )
+        stress_v = (
+            safe_density
+            * _EKMAN_COUPLED_DRAG_COEFFICIENT
+            * wind_speed_si
+            * lowest_v_wind_si
+        )
+        surface_u_acceleration = (
+            -stress_u
+            / (safe_density * _EKMAN_COUPLED_BOUNDARY_LAYER_DEPTH_METERS)
+            * acceleration_unit_factor
+        )
+        surface_v_acceleration = (
+            -stress_v
+            / (safe_density * _EKMAN_COUPLED_BOUNDARY_LAYER_DEPTH_METERS)
+            * acceleration_unit_factor
+        )
+        raw_u_increment = (
+            step_seconds
+            * vertical_taper[:, jnp.newaxis, jnp.newaxis]
+            * surface_u_acceleration[jnp.newaxis, ...]
+        )
+        raw_v_increment = (
+            step_seconds
+            * vertical_taper[:, jnp.newaxis, jnp.newaxis]
+            * surface_v_acceleration[jnp.newaxis, ...]
+        )
+        u_increment = jax.vmap(
+            lambda layer_increment: _bounded_area_neutral_field(
+                layer_increment,
+                wind_increment_cap,
+                quadrature_weights,
+            )
+        )(raw_u_increment)
+        v_increment = jnp.clip(
+            raw_v_increment,
+            -wind_increment_cap,
+            wind_increment_cap,
+        )
+        provisional_vorticity_increment, provisional_divergence_increment = (
+            spherical_harmonic.uv_nodal_to_vor_div_modal(
+                horizontal_grid,
+                u_increment,
+                v_increment,
+            )
+        )
+        projected_u_increment, projected_v_increment = (
+            spherical_harmonic.vor_div_to_uv_nodal(
+                horizontal_grid,
+                provisional_vorticity_increment,
+                provisional_divergence_increment,
+            )
+        )
+        projected_wind_increment_max = jnp.maximum(
+            jnp.max(jnp.abs(projected_u_increment)),
+            jnp.max(jnp.abs(projected_v_increment)),
+        )
+        wind_projection_scale = jnp.minimum(
+            1.0,
+            wind_increment_cap / jnp.maximum(projected_wind_increment_max, 1.0e-30),
+        )
+        u_increment = u_increment * wind_projection_scale
+        v_increment = v_increment * wind_projection_scale
+        vorticity_increment, divergence_increment = (
+            spherical_harmonic.uv_nodal_to_vor_div_modal(
+                horizontal_grid,
+                u_increment,
+                v_increment,
+            )
+        )
+        projected_u_increment, projected_v_increment = (
+            spherical_harmonic.vor_div_to_uv_nodal(
+                horizontal_grid,
+                vorticity_increment,
+                divergence_increment,
+            )
+        )
+        projected_u_increment = jax.vmap(
+            lambda layer_increment: _bounded_area_neutral_field(
+                layer_increment,
+                wind_increment_cap,
+                quadrature_weights,
+            )
+        )(projected_u_increment)
+        projected_v_increment = _bounded_field(
+            projected_v_increment, wind_increment_cap
+        )
+        vorticity_increment, divergence_increment = (
+            spherical_harmonic.uv_nodal_to_vor_div_modal(
+                horizontal_grid,
+                projected_u_increment,
+                projected_v_increment,
+            )
+        )
+        projected_u_increment, projected_v_increment = (
+            spherical_harmonic.vor_div_to_uv_nodal(
+                horizontal_grid,
+                vorticity_increment,
+                divergence_increment,
+            )
+        )
+        u_increment = projected_u_increment
+        v_increment = projected_v_increment
+
+        applied_surface_u_acceleration = u_increment[-1] / step_seconds
+        applied_surface_v_acceleration = v_increment[-1] / step_seconds
+        ekman_transport_u = (
+            -equatorial_taper * applied_surface_v_acceleration / safe_coriolis
+        )
+        ekman_transport_v = (
+            equatorial_taper * applied_surface_u_acceleration / safe_coriolis
+        )
+        _, ekman_transport_divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
+            horizontal_grid,
+            ekman_transport_u,
+            ekman_transport_v,
+        )
+        raw_log_pressure_increment = -step_seconds * horizontal_grid.to_nodal(
+            ekman_transport_divergence
+        )
+        applied_wind_increment = jnp.sqrt(
+            jnp.maximum(u_increment[-1] ** 2 + v_increment[-1] ** 2, 0.0)
+        )
+        coupled_pressure_cap = jnp.minimum(
+            pressure_increment_cap,
+            _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO * jnp.max(applied_wind_increment),
+        )
+        log_pressure_increment = _bounded_area_neutral_field(
+            raw_log_pressure_increment,
+            coupled_pressure_cap,
+            quadrature_weights,
+        )
+        projected_log_pressure_increment = horizontal_grid.to_nodal(
+            horizontal_grid.to_modal(log_pressure_increment)
+        )
+        projected_log_pressure_increment_max = jnp.max(
+            jnp.abs(projected_log_pressure_increment)
+        )
+        pressure_projection_scale = jnp.minimum(
+            1.0,
+            coupled_pressure_cap
+            / jnp.maximum(projected_log_pressure_increment_max, 1.0e-30),
+        )
+        log_pressure_increment = log_pressure_increment * pressure_projection_scale
+
+        corrected_vorticity = next_state.vorticity + vorticity_increment
+        corrected_divergence = next_state.divergence + divergence_increment
+        corrected_log_surface_pressure = (
+            next_state.log_surface_pressure
+            + (horizontal_grid.to_modal(log_pressure_increment)[jnp.newaxis])
+        )
+        finite_diagnostics = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(finite_stress_inputs),
+                    jnp.all(jnp.isfinite(safe_temperature)),
+                    jnp.all(jnp.isfinite(safe_lower_pressure)),
+                    jnp.all(jnp.isfinite(stress_u)),
+                    jnp.all(jnp.isfinite(stress_v)),
+                    jnp.all(jnp.isfinite(surface_u_acceleration)),
+                    jnp.all(jnp.isfinite(surface_v_acceleration)),
+                    jnp.all(jnp.isfinite(u_increment)),
+                    jnp.all(jnp.isfinite(v_increment)),
+                    jnp.all(jnp.isfinite(ekman_transport_u)),
+                    jnp.all(jnp.isfinite(ekman_transport_v)),
+                    jnp.all(jnp.isfinite(raw_log_pressure_increment)),
+                    jnp.all(jnp.isfinite(log_pressure_increment)),
+                    jnp.all(jnp.isfinite(corrected_vorticity)),
+                    jnp.all(jnp.isfinite(corrected_divergence)),
+                    jnp.all(jnp.isfinite(corrected_log_surface_pressure)),
+                ]
+            )
+        )
+        candidate_has_effect = (
+            jnp.max(jnp.abs(u_increment))
+            + jnp.max(jnp.abs(v_increment))
+            + jnp.max(jnp.abs(log_pressure_increment))
+        ) > 0.0
+        use_candidate = finite_diagnostics & candidate_has_effect
+        return _primitive_equation_state(
+            vorticity=jnp.where(
+                use_candidate,
+                corrected_vorticity,
+                next_state.vorticity,
+            ),
+            divergence=jnp.where(
+                use_candidate,
+                corrected_divergence,
+                next_state.divergence,
+            ),
+            temperature_variation=next_state.temperature_variation,
+            log_surface_pressure=jnp.where(
+                use_candidate,
+                corrected_log_surface_pressure,
+                next_state.log_surface_pressure,
+            ),
+            tracers=next_state.tracers,
+            sim_time=next_state.sim_time,
+        )
+
+    return ekman_coupled_surface_filter
+
+
+def _ekman_coupled_vertical_taper(
+    vertical_coords: sigma_coordinates.SigmaCoordinates,
+) -> jax.Array:
+    """Return the fixed lower-layer taper for coupled Ekman momentum forcing."""
+    layer_count = vertical_coords.layers
+    taper = np.zeros((layer_count,), dtype=np.float32)
+    taper[-1] = 1.0
+    if layer_count > 1:
+        taper[-2] = _EKMAN_COUPLED_SECOND_LAYER_FRACTION
+    return jnp.asarray(taper)
+
+
+def _ekman_coupled_equatorial_taper(
+    horizontal_grid: spherical_harmonic.Grid,
+) -> jax.Array:
+    """Return a smooth mass-pumping taper that is zero near the equator."""
+    _, sin_latitude = horizontal_grid.nodal_mesh
+    absolute_sin_latitude = jnp.abs(sin_latitude)
+    zero_sin_latitude = jnp.sin(
+        jnp.deg2rad(_EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES)
+    )
+    full_sin_latitude = jnp.sin(
+        jnp.deg2rad(_EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES)
+    )
+    taper_fraction = jnp.clip(
+        (absolute_sin_latitude - zero_sin_latitude)
+        / (full_sin_latitude - zero_sin_latitude),
+        0.0,
+        1.0,
+    )
+    return taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
+
+
+def _area_weighted_mean(nodal_field: jax.Array, weights: jax.Array) -> jax.Array:
+    """Return the horizontal area mean over the final two axes."""
+    return jnp.sum(nodal_field * weights, axis=(-2, -1)) / jnp.sum(weights)
+
+
+def _bounded_area_neutral_field(
+    nodal_field: jax.Array,
+    cap: jax.Array,
+    weights: jax.Array,
+) -> jax.Array:
+    """Project a nodal field into a bounded, area-neutral perturbation."""
+    cap = jnp.asarray(jnp.maximum(cap, 0.0), dtype=nodal_field.dtype)
+    centered_field = nodal_field - _area_weighted_mean(nodal_field, weights)
+    centered_field_is_bounded = jnp.max(jnp.abs(centered_field)) <= cap
+    lower_offset = jnp.min(nodal_field) - cap
+    upper_offset = jnp.max(nodal_field) + cap
+
+    def bisection_step(_, offsets):
+        lower, upper = offsets
+        midpoint = 0.5 * (lower + upper)
+        trial = jnp.clip(nodal_field - midpoint, -cap, cap)
+        trial_mean = _area_weighted_mean(trial, weights)
+        lower = jnp.where(trial_mean > 0.0, midpoint, lower)
+        upper = jnp.where(trial_mean > 0.0, upper, midpoint)
+        return lower, upper
+
+    lower_offset, upper_offset = jax.lax.fori_loop(
+        0,
+        32,
+        bisection_step,
+        (lower_offset, upper_offset),
+    )
+    neutral_offset = 0.5 * (lower_offset + upper_offset)
+    projected_field = jnp.clip(nodal_field - neutral_offset, -cap, cap)
+    return jnp.where(centered_field_is_bounded, centered_field, projected_field)
+
+
+def _bounded_field(nodal_field: jax.Array, cap: jax.Array) -> jax.Array:
+    """Scale a nodal perturbation so its component maximum stays within cap."""
+    cap = jnp.asarray(jnp.maximum(cap, 0.0), dtype=nodal_field.dtype)
+    max_abs = jnp.max(jnp.abs(nodal_field))
+    scale = jnp.where(max_abs > cap, cap / jnp.maximum(max_abs, 1.0e-30), 1.0)
+    return nodal_field * scale
+
+
 def _tropical_wtg_latitude_envelope(
     horizontal_grid: spherical_harmonic.Grid,
 ) -> jax.Array:
@@ -1400,6 +1811,15 @@ def bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model() -> (
         land_ocean_low_mode_t2m_memory_dinosaur_dycore_model(),
         name="dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
         use_bulk_richardson_2m_temperature_diagnostic=True,
+    )
+
+
+def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the RI2m incumbent with weak coupled Ekman stress and pumping."""
+    return replace(
+        bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model(),
+        name="dino_ri2m_ekman_coupled",
+        apply_coupled_ekman_surface_closure=True,
     )
 
 

@@ -25,6 +25,9 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER,
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
     _DRY_AIR_GAS_CONSTANT_SI,
+    _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO,
+    _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+    _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
@@ -46,6 +49,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _bulk_richardson_2m_temperature,
     _compose_ocean_bulk_sensible_heat_flux_equation,
     _compose_weak_held_suarez_equation,
+    _ekman_coupled_equatorial_taper,
+    _ekman_coupled_surface_step_filter,
     _exact_coriolis_rotation_step_filter,
     _horizontal_diffusion_step_filter,
     _hydrostatic_temperature_from_geopotential_thickness,
@@ -80,6 +85,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+    ekman_coupled_dinosaur_dycore_model,
     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
@@ -183,6 +189,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_land_ocean_low_mode_t2m_memory
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_bulk_richardson_2m_temperature_diagnostic
+    assert not model.apply_coupled_ekman_surface_closure
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
@@ -700,6 +707,28 @@ def test_bulk_richardson_2m_temperature_factory_preserves_incumbent_except_selec
     assert not incumbent.use_bulk_richardson_2m_temperature_diagnostic
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_bulk_richardson_2m_temperature_diagnostic"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+    """The Ekman candidate only opts into the coupled lower-boundary filter."""
+    model = ekman_coupled_dinosaur_dycore_model()
+    incumbent = bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model()
+
+    assert model.name == "dino_ri2m_ekman_coupled"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_coupled_ekman_surface_closure
+    assert not incumbent.apply_coupled_ekman_surface_closure
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -4235,6 +4264,184 @@ def test_theta_layer_mean_recenter_falls_back_for_nonfinite_pressure():
         )
 
 
+def test_ekman_coupled_equatorial_taper_suppresses_equatorial_pumping():
+    """The pumping-side taper is zero near the equator and full poleward."""
+    coords, _, _, _ = _synthetic_ekman_coupled_state(wind_scale=1.0)
+
+    taper = _ekman_coupled_equatorial_taper(coords.horizontal)
+    _, sin_latitude = coords.horizontal.nodal_mesh
+    equator_index = int(jnp.argmin(jnp.abs(sin_latitude[0])))
+
+    np.testing.assert_allclose(taper[:, equator_index], 0.0, atol=1.0e-6)
+    assert float(jnp.max(taper)) == pytest.approx(1.0)
+    assert bool(jnp.all((taper >= 0.0) & (taper <= 1.0)))
+
+
+def test_ekman_coupled_filter_zero_wind_is_exact_noop():
+    """No surface stress leaves the positive-time filter exactly inactive."""
+    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+        wind_scale=0.0,
+    )
+    step_filter = _ekman_coupled_surface_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
+    np.testing.assert_array_equal(corrected.divergence, next_state.divergence)
+    np.testing.assert_array_equal(
+        corrected.temperature_variation,
+        next_state.temperature_variation,
+    )
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert corrected.tracers.keys() == next_state.tracers.keys()
+    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+
+
+def test_ekman_coupled_filter_nonfinite_pressure_falls_back_to_noop():
+    """Invalid stress or pumping diagnostics preserve the incumbent next state."""
+    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+        wind_scale=1.0,
+    )
+    bad_next_state = _primitive_equation_state(
+        vorticity=next_state.vorticity,
+        divergence=next_state.divergence,
+        temperature_variation=next_state.temperature_variation,
+        log_surface_pressure=next_state.log_surface_pressure.at[0, 0, 0].set(
+            jnp.nan,
+        ),
+        tracers=next_state.tracers,
+        sim_time=next_state.sim_time,
+    )
+    step_filter = _ekman_coupled_surface_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, bad_next_state)
+
+    np.testing.assert_array_equal(corrected.vorticity, bad_next_state.vorticity)
+    np.testing.assert_array_equal(corrected.divergence, bad_next_state.divergence)
+    np.testing.assert_array_equal(
+        corrected.temperature_variation,
+        bad_next_state.temperature_variation,
+    )
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        bad_next_state.log_surface_pressure,
+    )
+
+
+def test_ekman_coupled_filter_caps_lower_layer_momentum_increment():
+    """The stress increment is lower-layer confined and component capped."""
+    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+        wind_scale=250.0,
+    )
+    step_filter = _ekman_coupled_surface_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    initial_u_wind, initial_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        next_state.vorticity,
+        next_state.divergence,
+    )
+    corrected_u_wind, corrected_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        corrected.vorticity,
+        corrected.divergence,
+    )
+    u_increment = corrected_u_wind - initial_u_wind
+    v_increment = corrected_v_wind - initial_v_wind
+    wind_increment_cap = (
+        _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND
+        * _unit_factor(physics_specs, "meter / second")
+    )
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    zonal_increment_mean = jnp.sum(
+        u_increment * quadrature_weights,
+        axis=(-2, -1),
+    ) / jnp.sum(quadrature_weights)
+
+    np.testing.assert_allclose(u_increment[0], 0.0, atol=2.0e-6)
+    assert float(jnp.max(jnp.abs(u_increment))) <= wind_increment_cap * 1.001
+    assert float(jnp.max(jnp.abs(v_increment))) <= wind_increment_cap * 1.001
+    np.testing.assert_allclose(zonal_increment_mean, 0.0, atol=2.0e-7)
+
+
+def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_stress():
+    """The pressure increment is area-neutral and capped by applied stress."""
+    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+        wind_scale=8.0,
+    )
+    step_filter = _ekman_coupled_surface_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=_reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    initial_u_wind, initial_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        next_state.vorticity,
+        next_state.divergence,
+    )
+    corrected_u_wind, corrected_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        corrected.vorticity,
+        corrected.divergence,
+    )
+    applied_surface_wind_increment = jnp.sqrt(
+        (corrected_u_wind[-1] - initial_u_wind[-1]) ** 2
+        + (corrected_v_wind[-1] - initial_v_wind[-1]) ** 2
+    )
+    log_pressure_increment = coords.horizontal.to_nodal(
+        corrected.log_surface_pressure - next_state.log_surface_pressure
+    )[0]
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    log_pressure_mean = jnp.sum(
+        log_pressure_increment * quadrature_weights,
+        axis=(-2, -1),
+    ) / jnp.sum(quadrature_weights)
+    stress_tied_cap = min(
+        _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+        _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO
+        * float(jnp.max(applied_surface_wind_increment)),
+    )
+
+    assert float(jnp.max(jnp.abs(log_pressure_increment))) > 0.0
+    np.testing.assert_allclose(log_pressure_mean, 0.0, atol=5.0e-9)
+    assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+
+
 def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
@@ -7158,6 +7365,84 @@ def _synthetic_coriolis_split_state():
             sim_time=jnp.asarray(3.5, dtype=jnp.float32),
         ),
     )
+
+
+def _synthetic_ekman_coupled_state(
+    *, wind_scale: float
+) -> tuple[coordinate_systems.CoordinateSystem, Any, Any, Any]:
+    physics_specs = units.SimUnits.from_si()
+    horizontal_grid = spherical_harmonic.Grid(
+        longitude_wavenumbers=6,
+        total_wavenumbers=8,
+        longitude_nodes=16,
+        latitude_nodes=9,
+        latitude_spacing="gauss",
+        radius=physics_specs.radius,
+    )
+    coords = coordinate_systems.CoordinateSystem(
+        horizontal_grid,
+        sigma_coordinates.SigmaCoordinates.equidistant(3),
+    )
+    longitude, sin_latitude = coords.horizontal.nodal_mesh
+    wind_unit = _unit_factor(physics_specs, "meter / second")
+    latitude_envelope = 1.0 - 0.4 * sin_latitude**2
+    lowest_u_wind = (
+        wind_scale * wind_unit * (8.0 + 3.0 * jnp.cos(longitude)) * latitude_envelope
+    )
+    lowest_v_wind = (
+        wind_scale
+        * wind_unit
+        * (2.0 * jnp.sin(longitude) + 1.5 * jnp.cos(2.0 * longitude))
+        * latitude_envelope
+    )
+    u_wind = jnp.zeros(coords.nodal_shape, dtype=jnp.float32).at[-1].set(lowest_u_wind)
+    v_wind = jnp.zeros(coords.nodal_shape, dtype=jnp.float32).at[-1].set(lowest_v_wind)
+    vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
+        coords.horizontal,
+        u_wind,
+        v_wind,
+    )
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    temperature_pattern = jnp.cos(longitude) * (1.0 - sin_latitude**2)
+    full_temperature = jnp.stack(
+        [
+            245.0 + 0.2 * temperature_pattern,
+            265.0 - 0.1 * temperature_pattern,
+            285.0 + 0.1 * temperature_pattern,
+        ],
+        axis=0,
+    )
+    surface_pressure = (
+        100_000.0
+        * _unit_factor(physics_specs, "pascal")
+        * (1.0 + 0.01 * jnp.cos(longitude) * (1.0 - sin_latitude**2))
+    )
+    next_state = _primitive_equation_state(
+        vorticity=vorticity,
+        divergence=divergence,
+        temperature_variation=coords.horizontal.to_modal(
+            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
+            jnp.newaxis
+        ],
+        tracers={
+            "specific_humidity": jnp.zeros(coords.modal_shape, dtype=jnp.float32),
+        },
+        sim_time=jnp.asarray(2.0, dtype=jnp.float32),
+    )
+    prev_state = _primitive_equation_state(
+        vorticity=next_state.vorticity,
+        divergence=next_state.divergence,
+        temperature_variation=next_state.temperature_variation,
+        log_surface_pressure=next_state.log_surface_pressure,
+        tracers=next_state.tracers,
+        sim_time=jnp.asarray(1.0, dtype=jnp.float32),
+    )
+    return coords, physics_specs, prev_state, next_state
 
 
 def _synthetic_wtg_mass_dse_state():

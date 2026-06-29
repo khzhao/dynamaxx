@@ -242,6 +242,13 @@ def dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model() -> DycoreModel:
     return bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model()
 
 
+def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+    """Return RI2m incumbent with weak coupled Ekman stress and pumping."""
+    from dynamaxx.dycore.models.dinosaur import ekman_coupled_dinosaur_dycore_model
+
+    return ekman_coupled_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -327,6 +334,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m": (
         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
     ),
+    "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
 }
 
 

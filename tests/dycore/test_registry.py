@@ -58,6 +58,7 @@ def test_registry_lists_default_dycore_models():
         "dino_hsl2_mass_dse_wtg_vdse_ramp",
         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+        "dino_ri2m_ekman_coupled",
     )
 
 
@@ -699,6 +700,28 @@ def test_registry_creates_bulk_richardson_2m_temperature_candidate_model():
     assert not incumbent.use_bulk_richardson_2m_temperature_diagnostic
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_bulk_richardson_2m_temperature_diagnostic"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_ekman_coupled_candidate_model():
+    """The Ekman alias adds only the coupled lower-boundary selector."""
+    model = create_dycore_model("dino_ri2m_ekman_coupled")
+    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m")
+
+    assert model.name == "dino_ri2m_ekman_coupled"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_coupled_ekman_surface_closure
+    assert not incumbent.apply_coupled_ekman_surface_closure
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

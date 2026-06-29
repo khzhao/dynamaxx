@@ -143,6 +143,9 @@ assert (
     dinosaur.bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model().name
     == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m"
 )
+assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_coupled"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -246,6 +249,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_hsl2_mass_dse_wtg_vdse_ramp",
         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+        "dino_ri2m_ekman_coupled",
     )
 
     model = create_dycore_model("dinosaur")
@@ -800,6 +804,28 @@ def test_dinosaur_bulk_richardson_2m_temperature_is_registered():
     assert not incumbent.use_bulk_richardson_2m_temperature_diagnostic
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_bulk_richardson_2m_temperature_diagnostic"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_ekman_coupled_model_is_registered():
+    """The coupled Ekman candidate is side-by-side with the RI2m incumbent."""
+    model = create_dycore_model("dino_ri2m_ekman_coupled")
+    incumbent = create_dycore_model("dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m")
+
+    assert model.name == "dino_ri2m_ekman_coupled"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_coupled_ekman_surface_closure
+    assert not incumbent.apply_coupled_ekman_surface_closure
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
