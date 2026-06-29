@@ -1,6 +1,7 @@
 # dynamaxx
 
-A fixed evaluation framework to optimize weather dycores.
+Autoresearch for weather dycores.
+
 
 ## Quickstart
 
@@ -81,7 +82,7 @@ If you use Dynamaxx, please cite:
   author       = {Zhao, Kevin and Jiang, Justin and Wang, Zhaoran},
   year         = {2026},
   howpublished = {\url{https://github.com/khzhao/dynamaxx}},
-  note         = {A fixed evaluation framework to optimize weather dycores},
+  note         = {Autoresearch for weather dycores},
   version      = {0.1.0}
 }
 ```
