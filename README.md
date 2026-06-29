@@ -71,6 +71,21 @@ Registered models live in `src/dynamaxx/dycore/registry.py`. List them with:
 uv run python -c "from dynamaxx.dycore.registry import dycore_model_names; print('\n'.join(dycore_model_names()))"
 ```
 
+## Citation
+
+If you use Dynamaxx, please cite:
+
+```bibtex
+@misc{zhao2026dynamaxx,
+  title        = {dynamaxx},
+  author       = {Zhao, Kevin and Jiang, Justin and Wang, Zhaoran},
+  year         = {2026},
+  howpublished = {\url{https://github.com/khzhao/dynamaxx}},
+  note         = {A fixed evaluation framework to optimize weather dycores},
+  version      = {0.1.0}
+}
+```
+
 ## Development
 
 Common local checks:
