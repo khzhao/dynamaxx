@@ -1,0 +1,512 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..d48ea1b 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -53,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     ekman_coupled_dinosaur_dycore_model,
++    ekman_pressure_work_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
+@@ -94,6 +95,7 @@ __all__ = [
+     "digital_filter_surface_residual_dinosaur_dycore_model",
+     "dry_static_energy_hsl_transport_dinosaur_dycore_model",
+     "ekman_coupled_dinosaur_dycore_model",
++    "ekman_pressure_work_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+     "held_suarez",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..36c4e42 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -103,6 +103,7 @@ _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
+ _EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR = 0.85
+ _EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
+ _EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
++_EKMAN_PRESSURE_WORK_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.02
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -167,6 +168,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
++    apply_ekman_pressure_work_temperature_response: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -493,6 +495,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        apply_pressure_work_temperature_response=(
++                            self.apply_ekman_pressure_work_temperature_response
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -970,6 +975,7 @@ def _ekman_coupled_surface_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    apply_pressure_work_temperature_response: bool = False,
+ ) -> Any:
+     """Return a weak coupled stress and pressure filter for the lower layers."""
+     assert step_seconds > 0.0
+@@ -1226,6 +1232,65 @@ def _ekman_coupled_surface_step_filter(
+             next_state.log_surface_pressure
+             + (horizontal_grid.to_modal(log_pressure_increment)[jnp.newaxis])
+         )
++        corrected_temperature_variation = next_state.temperature_variation
++        pressure_work_finite_diagnostics = jnp.asarray(True)
++        pressure_work_has_effect = jnp.asarray(False)
++        if apply_pressure_work_temperature_response:
++            raw_temperature_increment = (
++                physics_specs.kappa
++                * nodal_temperature
++                * vertical_taper[:, jnp.newaxis, jnp.newaxis]
++                * log_pressure_increment[jnp.newaxis, ...]
++            )
++            temperature_increment_cap = jnp.asarray(
++                _EKMAN_PRESSURE_WORK_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++                * temperature_unit_factor,
++                dtype=raw_temperature_increment.dtype,
++            )
++            temperature_increment = jax.vmap(
++                lambda layer_increment: _bounded_area_neutral_field(
++                    layer_increment,
++                    temperature_increment_cap,
++                    quadrature_weights,
++                )
++            )(raw_temperature_increment)
++            projected_temperature_increment = horizontal_grid.to_nodal(
++                horizontal_grid.to_modal(temperature_increment)
++            )
++            projected_temperature_increment_max = jnp.max(
++                jnp.abs(projected_temperature_increment)
++            )
++            temperature_projection_scale = jnp.minimum(
++                1.0,
++                temperature_increment_cap
++                / jnp.maximum(projected_temperature_increment_max, 1.0e-30),
++            )
++            temperature_increment = (
++                projected_temperature_increment * temperature_projection_scale
++            )
++            candidate_temperature_variation = next_state.temperature_variation + (
++                horizontal_grid.to_modal(temperature_increment)
++            )
++            pressure_work_finite_diagnostics = jnp.all(
++                jnp.asarray(
++                    [
++                        jnp.all(jnp.isfinite(log_pressure_increment)),
++                        jnp.all(jnp.isfinite(nodal_temperature)),
++                        jnp.all(jnp.isfinite(vertical_taper)),
++                        jnp.all(jnp.isfinite(temperature_increment_cap)),
++                        temperature_increment_cap >= 0.0,
++                        jnp.all(jnp.isfinite(raw_temperature_increment)),
++                        jnp.all(jnp.isfinite(temperature_increment)),
++                        jnp.all(jnp.isfinite(candidate_temperature_variation)),
++                    ]
++                )
++            )
++            pressure_work_has_effect = jnp.max(jnp.abs(log_pressure_increment)) > 0.0
++            corrected_temperature_variation = jnp.where(
++                pressure_work_finite_diagnostics & pressure_work_has_effect,
++                candidate_temperature_variation,
++                next_state.temperature_variation,
++            )
+         finite_diagnostics = jnp.all(
+             jnp.asarray(
+                 [
+@@ -1254,6 +1319,9 @@ def _ekman_coupled_surface_step_filter(
+             + jnp.max(jnp.abs(log_pressure_increment))
+         ) > 0.0
+         use_candidate = finite_diagnostics & candidate_has_effect
++        use_pressure_work = (
++            use_candidate & pressure_work_finite_diagnostics & pressure_work_has_effect
++        )
+         return _primitive_equation_state(
+             vorticity=jnp.where(
+                 use_candidate,
+@@ -1265,7 +1333,11 @@ def _ekman_coupled_surface_step_filter(
+                 corrected_divergence,
+                 next_state.divergence,
+             ),
+-            temperature_variation=next_state.temperature_variation,
++            temperature_variation=jnp.where(
++                use_pressure_work,
++                corrected_temperature_variation,
++                next_state.temperature_variation,
++            ),
+             log_surface_pressure=jnp.where(
+                 use_candidate,
+                 corrected_log_surface_pressure,
+@@ -1823,6 +1895,17 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def ekman_pressure_work_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return coupled Ekman with dry pressure-work thermal response."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_pwork",
++        apply_ekman_pressure_work_temperature_response=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..40859d1 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,15 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_pwork_model() -> DycoreModel:
++    """Return coupled Ekman with dry pressure-work thermal response."""
++    from dynamaxx.dycore.models.dinosaur import (
++        ekman_pressure_work_dinosaur_dycore_model,
++    )
++
++    return ekman_pressure_work_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +344,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_ekman_pwork": dino_ri2m_ekman_pwork_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..2495947 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -146,6 +146,9 @@ assert (
+ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
++assert dinosaur.ekman_pressure_work_dinosaur_dycore_model().name == (
++    "dino_ri2m_ekman_pwork"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -250,6 +253,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_pwork",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -830,6 +834,24 @@ def test_dinosaur_ekman_coupled_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_ekman_pressure_work_model_is_registered():
++    """The pressure-work candidate is side-by-side with coupled Ekman."""
++    model = create_dycore_model("dino_ri2m_ekman_pwork")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_pwork"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_pressure_work_temperature_response
++    assert not incumbent.apply_ekman_pressure_work_temperature_response
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "apply_ekman_pressure_work_temperature_response",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..32e4027 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -28,6 +28,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO,
+     _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+     _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
++    _EKMAN_PRESSURE_WORK_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+@@ -86,6 +87,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     ekman_coupled_dinosaur_dycore_model,
++    ekman_pressure_work_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -733,6 +735,24 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_ekman_pressure_work_factory_preserves_ekman_except_selector():
++    """The pressure-work candidate only opts into the Ekman thermal response."""
++    model = ekman_pressure_work_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_pwork"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_pressure_work_temperature_response
++    assert not incumbent.apply_ekman_pressure_work_temperature_response
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "apply_ekman_pressure_work_temperature_response",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4442,6 +4462,189 @@ def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_str
+     assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+ 
+ 
++def test_ekman_pressure_work_zero_pressure_increment_keeps_temperature_exact():
++    """Zero Ekman pressure pumping leaves the thermal state exactly unchanged."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=0.0,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    incumbent_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    pressure_work_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_pressure_work_temperature_response=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    corrected = pressure_work_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(
++        coords.horizontal.to_nodal(incumbent.log_surface_pressure),
++        coords.horizontal.to_nodal(next_state.log_surface_pressure),
++    )
++    np.testing.assert_array_equal(
++        corrected.temperature_variation,
++        incumbent.temperature_variation,
++    )
++
++
++def test_ekman_pressure_work_adds_neutral_lower_layer_thermal_response():
++    """Dry pressure-work warms and cools lower layers with zero layer mean."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    incumbent_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    pressure_work_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_pressure_work_temperature_response=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    corrected = pressure_work_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(corrected.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(corrected.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        corrected.log_surface_pressure,
++        incumbent.log_surface_pressure,
++    )
++    modal_delta = corrected.temperature_variation - incumbent.temperature_variation
++    nodal_delta = coords.horizontal.to_nodal(modal_delta)
++    log_pressure_increment = coords.horizontal.to_nodal(
++        incumbent.log_surface_pressure - next_state.log_surface_pressure
++    )[0]
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights,
++        axis=(-2, -1),
++    ) / jnp.sum(quadrature_weights)
++    temperature_increment_cap = (
++        _EKMAN_PRESSURE_WORK_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++    flat_log_pressure_increment = np.asarray(log_pressure_increment).reshape(-1)
++    flat_lowest_temperature_delta = np.asarray(nodal_delta[-1]).reshape(-1)
++
++    assert float(jnp.max(jnp.abs(log_pressure_increment))) > 0.0
++    assert float(jnp.max(nodal_delta[-1])) > 0.0
++    assert float(jnp.min(nodal_delta[-1])) < 0.0
++    assert (
++        flat_lowest_temperature_delta[int(np.argmax(flat_log_pressure_increment))] > 0.0
++    )
++    assert (
++        flat_lowest_temperature_delta[int(np.argmin(flat_log_pressure_increment))] < 0.0
++    )
++    np.testing.assert_allclose(nodal_delta[0], 0.0, atol=2.0e-7)
++    np.testing.assert_allclose(layer_mean_delta, 0.0, atol=2.0e-7)
++    assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap * 1.001
++
++
++def test_ekman_pressure_work_temperature_increment_obeys_cap(monkeypatch):
++    """The opt-in thermal increment respects its configured per-step cap."""
++    capped_increment_kelvin = 1.0e-4
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_EKMAN_PRESSURE_WORK_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN",
++        capped_increment_kelvin,
++    )
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=250.0,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    incumbent_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    pressure_work_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_pressure_work_temperature_response=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    corrected = pressure_work_filter(prev_state, next_state)
++
++    nodal_delta = coords.horizontal.to_nodal(
++        corrected.temperature_variation - incumbent.temperature_variation,
++    )
++    temperature_increment_cap = capped_increment_kelvin * _unit_factor(
++        physics_specs,
++        "kelvin",
++    )
++    max_abs_delta = float(jnp.max(jnp.abs(nodal_delta)))
++    assert max_abs_delta > 0.5 * temperature_increment_cap
++    assert max_abs_delta <= temperature_increment_cap * 1.001
++
++
++def test_ekman_pressure_work_nonfinite_temperature_diagnostics_fall_back():
++    """Invalid pressure-work diagnostics preserve the incumbent Ekman result."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    reference_temperature = reference_temperature.copy()
++    reference_temperature[0] = np.nan
++    incumbent_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    pressure_work_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_pressure_work_temperature_response=True,
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    corrected = pressure_work_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(corrected.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(corrected.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        corrected.temperature_variation,
++        incumbent.temperature_variation,
++    )
++    np.testing.assert_array_equal(
++        corrected.log_surface_pressure,
++        incumbent.log_surface_pressure,
++    )
++
++
+ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..a01363a 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_pwork",
+     )
+ 
+ 
+@@ -726,6 +727,24 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_ekman_pressure_work_candidate_model():
++    """The pressure-work alias adds only the Ekman thermal selector."""
++    model = create_dycore_model("dino_ri2m_ekman_pwork")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_pwork"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_pressure_work_temperature_response
++    assert not incumbent.apply_ekman_pressure_work_temperature_response
++    for field_name in model.__dataclass_fields__:
++        if field_name in {
++            "name",
++            "apply_ekman_pressure_work_temperature_response",
++        }:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

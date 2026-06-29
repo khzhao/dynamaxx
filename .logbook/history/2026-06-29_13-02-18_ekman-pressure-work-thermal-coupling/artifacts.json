@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "ekman-pressure-work-thermal-coupling",
+  "history_path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling",
+  "source_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/candidate.diff",
+      "description": "Complete implementation patch for the rejected candidate, suitable for reverse-apply cleanup or future review."
+    },
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/implementation.md",
+      "description": "Implementation record with changed files, mechanism summary, tests, and rollback notes."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dino_ri2m_ekman_pwork.json",
+      "description": "Candidate fast protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/fast_dino_ri2m_ekman_pwork.csv",
+      "description": "Candidate fast protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_pwork.json",
+      "description": "Candidate iteration protocol JSON metrics."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_pwork.csv",
+      "description": "Candidate iteration protocol CSV metrics."
+    },
+    {
+      "path": "outputs/eval/runs/iteration_dino_ri2m_ekman_pwork",
+      "description": "Candidate iteration run chunk directory."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "description": "Cached incumbent iteration JSON metrics reused for comparison."
+    },
+    {
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+      "description": "Cached incumbent iteration CSV metrics reused for comparison."
+    },
+    {
+      "path": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "description": "Cached incumbent validation JSON metrics validated but not used because candidate validation was skipped."
+    },
+    {
+      "path": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+      "description": "Cached incumbent validation CSV metrics validated but not used because candidate validation was skipped."
+    }
+  ],
+  "log_artifacts": [
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/proposal.md",
+      "description": "Selected Researcher proposal."
+    },
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/resource_snapshot.md",
+      "description": "Orchestrator resource and baseline snapshot."
+    },
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/scores.json",
+      "description": "Structured Scorer output with commands, deltas, guardrails, gate status, and cache reuse."
+    },
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/scoring_notes.md",
+      "description": "Scorer notes including cache validation and no-incumbent-rerun statement."
+    },
+    {
+      "path": ".logbook/history/2026-06-29_13-02-18_ekman-pressure-work-thermal-coupling/decision.md",
+      "description": "Orchestrator terminal decision and cleanup record."
+    }
+  ],
+  "notes": "Candidate rejected because iteration delta +0.000917146345733949 did not meet the +0.002 promotion threshold. Validation and golden were not run. Incumbent metrics were reused from valid leaderboard artifacts; no incumbent rerun occurred."
+}
