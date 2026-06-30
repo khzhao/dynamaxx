@@ -17,21 +17,14 @@ uv run pytest
 Due to some speed issues, I asked Codex to not run the "baseline" again and again after each change. This resulted in a change in the "protocol" but should be harmless for the result interpretation. 
 
 ```
-Continuously improve the dycore by running the agentic optimization loop in roles/PROTOCOL.md and roles/ORCHESTRATOR.md, using Researcher, Evaluator, Implementer, and Scorer roles/subagents where available.
+/goal Continuously improve the dycore in this repository by running the agentic optimization loop defined in roles/PROTOCOL.md and roles/ORCHESTRATOR.md.
 
-Operational constraints include:
+Use role-specific subagents for Researcher, Evaluator, Implementer, and Scorer when the active Codex surface supports them. If subagents are unavailable, simulate those roles sequentially in the main agent while still following each role file.
 
-- Keep producing research ideas continuously. Do not stop after one candidate.
-- Implement exactly one ready proposal per iteration.
-- Do not change fixed evaluation protocols during model-selection experiments.
-- Do not use golden for iterative selection.
-- Always compare candidate to incumbent.
-- Reuse cached incumbent scores from .logbook/leaderboard.json when valid; do not rerun incumbent just because candidate code is dirty.
-- Latest accepted commit is the best incumbent baseline.
-- Accepted candidates update leaderboard and are committed with the full working protocol body.
-- Rejected candidates get complete history artifacts, do not update leaderboard, and source changes are reverted.
-- Leave tracked worktree clean before starting the next iteration.
-- Report candidate slug, decision, score deltas, changed files, cleanup status, and next action after each iteration.
+Run repeated iterations. For each iteration: inspect resources and git state; initialize or update .logbook; identify the incumbent model; generate a small set of Researcher proposals using roles/templates/proposal.md; have the Evaluator triage and rank them; select exactly one ready idea; implement only that idea; run required tests and fixed evaluation gates using the configured local WeatherBench2 path; compare candidate against incumbent using roles/PROTOCOL.md acceptance thresholds; accept, reject, or request a bounded revision; write complete history artifacts using roles/templates; update leaderboard only for accepted candidates; revert rejected implementation changes; and leave the repository clean before
+starting the next iteration.
+
+Do not change fixed evaluation protocols during model-selection experiments. Do not use golden for iterative selection. Do not run multiple implementation ideas at once. Do not stop after one completed candidate; continue until paused by the user or genuinely blocked by a protocol stop condition. After each iteration, report candidate slug, decision, score deltas, changed files, cleanup status, and next action. If a proposed model class changes the forecast contract, such as an ensemble dycore that returns multiple trajectories, treat evaluation support as a separate infrastructure proposal first. The agent may propose adapters or additional metrics, but must not remove existing metrics, splits, or deterministic evaluation gates. Only after the evaluation infrastructure is reviewed, logged, and accepted may model-selection experiments use the expanded protocol.
 ```
 
 ## Data
