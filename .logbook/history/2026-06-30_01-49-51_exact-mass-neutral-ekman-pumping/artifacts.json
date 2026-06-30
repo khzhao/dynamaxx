@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "exact-mass-neutral-ekman-pumping",
+  "history_path": ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping",
+  "source_artifacts": [
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_massfix.json",
+    "outputs/eval/fast_dino_ri2m_ekman_massfix.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_massfix.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_massfix.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/proposal.md",
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/resource_snapshot.md",
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/implementation.md",
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/scores.json",
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/scoring_notes.md",
+    ".logbook/history/2026-06-30_01-49-51_exact-mass-neutral-ekman-pumping/decision.md"
+  ],
+  "notes": "Rejected because the candidate passed fast and iteration diagnostics but missed the iteration promotion threshold: candidate -0.1650176080797289 vs cached incumbent -0.16500618979404214, delta -0.000011418285686765062. Validation was skipped. Cached incumbent artifacts were reused; no incumbent rerun was performed. Candidate source and test changes were reverted after preserving candidate.diff."
+}

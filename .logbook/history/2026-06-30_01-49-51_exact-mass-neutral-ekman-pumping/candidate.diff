@@ -1,0 +1,503 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..3953efe 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -53,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     ekman_coupled_dinosaur_dycore_model,
++    ekman_massfix_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
+@@ -94,6 +95,7 @@ __all__ = [
+     "digital_filter_surface_residual_dinosaur_dycore_model",
+     "dry_static_energy_hsl_transport_dinosaur_dycore_model",
+     "ekman_coupled_dinosaur_dycore_model",
++    "ekman_massfix_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+     "held_suarez",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..93b5f63 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -167,6 +167,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
++    use_surface_mass_neutral_ekman_pumping: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -493,6 +494,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        use_surface_mass_neutral_pumping=(
++                            self.use_surface_mass_neutral_ekman_pumping
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -970,6 +974,7 @@ def _ekman_coupled_surface_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    use_surface_mass_neutral_pumping: bool = False,
+ ) -> Any:
+     """Return a weak coupled stress and pressure filter for the lower layers."""
+     assert step_seconds > 0.0
+@@ -1202,11 +1207,19 @@ def _ekman_coupled_surface_step_filter(
+             pressure_increment_cap,
+             _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO * jnp.max(applied_wind_increment),
+         )
+-        log_pressure_increment = _bounded_area_neutral_field(
+-            raw_log_pressure_increment,
+-            coupled_pressure_cap,
+-            quadrature_weights,
+-        )
++        if use_surface_mass_neutral_pumping:
++            log_pressure_increment = _bounded_surface_mass_neutral_logp_increment(
++                raw_log_pressure_increment,
++                surface_pressure,
++                coupled_pressure_cap,
++                quadrature_weights,
++            )
++        else:
++            log_pressure_increment = _bounded_area_neutral_field(
++                raw_log_pressure_increment,
++                coupled_pressure_cap,
++                quadrature_weights,
++            )
+         projected_log_pressure_increment = horizontal_grid.to_nodal(
+             horizontal_grid.to_modal(log_pressure_increment)
+         )
+@@ -1348,6 +1361,80 @@ def _bounded_area_neutral_field(
+     return jnp.where(centered_field_is_bounded, centered_field, projected_field)
+ 
+ 
++def _bounded_surface_mass_neutral_logp_increment(
++    raw_log_pressure_increment: jax.Array,
++    surface_pressure: jax.Array,
++    max_abs_increment: jax.Array,
++    quadrature_weights: jax.Array,
++) -> jax.Array:
++    """Return a capped log-pressure increment that preserves surface mass."""
++    fallback_increment = _bounded_area_neutral_field(
++        raw_log_pressure_increment,
++        max_abs_increment,
++        quadrature_weights,
++    )
++    cap = jnp.asarray(
++        jnp.maximum(max_abs_increment, 0.0),
++        dtype=raw_log_pressure_increment.dtype,
++    )
++    surface_pressure = jnp.asarray(
++        surface_pressure,
++        dtype=raw_log_pressure_increment.dtype,
++    )
++    quadrature_weights = jnp.asarray(
++        quadrature_weights,
++        dtype=raw_log_pressure_increment.dtype,
++    )
++
++    def mass_residual(offset):
++        delta = jnp.clip(raw_log_pressure_increment - offset, -cap, cap)
++        pressure_increment = surface_pressure * jnp.expm1(delta)
++        return jnp.sum(quadrature_weights * pressure_increment, axis=(-2, -1))
++
++    lower_offset = jnp.min(raw_log_pressure_increment) - cap
++    upper_offset = jnp.max(raw_log_pressure_increment) + cap
++    lower_residual = mass_residual(lower_offset)
++    upper_residual = mass_residual(upper_offset)
++
++    def bisection_step(_, offsets):
++        lower, upper = offsets
++        midpoint = 0.5 * (lower + upper)
++        midpoint_residual = mass_residual(midpoint)
++        lower = jnp.where(midpoint_residual > 0.0, midpoint, lower)
++        upper = jnp.where(midpoint_residual > 0.0, upper, midpoint)
++        return lower, upper
++
++    lower_offset, upper_offset = jax.lax.fori_loop(
++        0,
++        40,
++        bisection_step,
++        (lower_offset, upper_offset),
++    )
++    neutral_offset = 0.5 * (lower_offset + upper_offset)
++    candidate_increment = jnp.clip(
++        raw_log_pressure_increment - neutral_offset,
++        -cap,
++        cap,
++    )
++    valid_inputs = (
++        jnp.all(jnp.isfinite(raw_log_pressure_increment))
++        & jnp.all(jnp.isfinite(surface_pressure))
++        & jnp.all(surface_pressure > 0.0)
++        & jnp.all(jnp.isfinite(quadrature_weights))
++        & jnp.isfinite(cap)
++        & jnp.isfinite(lower_offset)
++        & jnp.isfinite(upper_offset)
++        & jnp.isfinite(lower_residual)
++        & jnp.isfinite(upper_residual)
++        & (lower_offset <= upper_offset)
++        & (lower_residual >= 0.0)
++        & (upper_residual <= 0.0)
++        & jnp.all(jnp.isfinite(candidate_increment))
++        & (jnp.max(jnp.abs(raw_log_pressure_increment)) > 0.0)
++    )
++    return jnp.where(valid_inputs, candidate_increment, fallback_increment)
++
++
+ def _bounded_field(nodal_field: jax.Array, cap: jax.Array) -> jax.Array:
+     """Scale a nodal perturbation so its component maximum stays within cap."""
+     cap = jnp.asarray(jnp.maximum(cap, 0.0), dtype=nodal_field.dtype)
+@@ -1823,6 +1910,15 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def ekman_massfix_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
++    """Return coupled Ekman with exact surface-mass-neutral log-pressure pumping."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_massfix",
++        use_surface_mass_neutral_ekman_pumping=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..353c1ff 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,13 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_massfix_model() -> DycoreModel:
++    """Return coupled Ekman with exact surface-mass-neutral pumping."""
++    from dynamaxx.dycore.models.dinosaur import ekman_massfix_dinosaur_dycore_model
++
++    return ekman_massfix_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +342,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_ekman_massfix": dino_ri2m_ekman_massfix_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..7ed14c2 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -146,6 +146,9 @@ assert (
+ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
++assert dinosaur.ekman_massfix_dinosaur_dycore_model().name == (
++    "dino_ri2m_ekman_massfix"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -250,6 +253,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_massfix",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -830,6 +834,21 @@ def test_dinosaur_ekman_coupled_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_ekman_massfix_model_is_registered():
++    """The massfix candidate is side-by-side with the coupled Ekman incumbent."""
++    model = create_dycore_model("dino_ri2m_ekman_massfix")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_massfix"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_mass_neutral_ekman_pumping
++    assert not incumbent.use_surface_mass_neutral_ekman_pumping
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_surface_mass_neutral_ekman_pumping"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..26799cb 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -47,6 +47,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _apply_near_surface_residual_correction,
+     _apply_scale_separated_near_surface_residual_correction,
+     _bulk_richardson_2m_temperature,
++    _bounded_area_neutral_field,
++    _bounded_surface_mass_neutral_logp_increment,
+     _compose_ocean_bulk_sensible_heat_flux_equation,
+     _compose_weak_held_suarez_equation,
+     _ekman_coupled_equatorial_taper,
+@@ -86,6 +88,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     ekman_coupled_dinosaur_dycore_model,
++    ekman_massfix_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -733,6 +736,21 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_ekman_massfix_factory_preserves_coupled_except_selector():
++    """The massfix candidate only changes the Ekman pumping projection selector."""
++    model = ekman_massfix_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_massfix"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_mass_neutral_ekman_pumping
++    assert not incumbent.use_surface_mass_neutral_ekman_pumping
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_surface_mass_neutral_ekman_pumping"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4442,6 +4460,119 @@ def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_str
+     assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+ 
+ 
++def test_surface_mass_neutral_logp_increment_preserves_mass_and_cap():
++    """The massfix helper conserves area-weighted ps under the exponential map."""
++    raw_increment = jnp.asarray(
++        [[1.2e-5, -0.8e-5, 0.6e-5], [-1.4e-5, 0.2e-5, 1.0e-5]],
++        dtype=jnp.float32,
++    )
++    surface_pressure = jnp.asarray(
++        [[0.98, 1.01, 1.04], [1.03, 0.99, 1.02]],
++        dtype=jnp.float32,
++    )
++    weights = jnp.asarray([[0.6, 1.0, 0.6]], dtype=jnp.float32)
++    cap = jnp.asarray(2.0e-5, dtype=jnp.float32)
++
++    increment = _bounded_surface_mass_neutral_logp_increment(
++        raw_increment,
++        surface_pressure,
++        cap,
++        weights,
++    )
++
++    initial_mass = jnp.sum(weights * surface_pressure)
++    updated_mass = jnp.sum(weights * surface_pressure * jnp.exp(increment))
++    np.testing.assert_allclose(updated_mass, initial_mass, rtol=2.0e-7, atol=1.0e-9)
++    assert float(jnp.max(jnp.abs(increment))) <= float(cap) * 1.0001
++    assert bool(jnp.isfinite(increment).all())
++
++
++def test_surface_mass_neutral_logp_increment_zero_is_noop():
++    """A zero raw pumping increment remains exactly inactive."""
++    raw_increment = jnp.zeros((2, 3), dtype=jnp.float32)
++    surface_pressure = jnp.asarray(
++        [[0.98, 1.01, 1.04], [1.03, 0.99, 1.02]],
++        dtype=jnp.float32,
++    )
++    weights = jnp.asarray([[0.6, 1.0, 0.6]], dtype=jnp.float32)
++
++    increment = _bounded_surface_mass_neutral_logp_increment(
++        raw_increment,
++        surface_pressure,
++        jnp.asarray(2.0e-5, dtype=jnp.float32),
++        weights,
++    )
++
++    np.testing.assert_array_equal(increment, raw_increment)
++
++
++@pytest.mark.parametrize(
++    "surface_pressure",
++    (
++        jnp.asarray([[0.98, -1.01, 1.04], [1.03, 0.99, 1.02]], dtype=jnp.float32),
++        jnp.asarray([[0.98, jnp.nan, 1.04], [1.03, 0.99, 1.02]], dtype=jnp.float32),
++    ),
++)
++def test_surface_mass_neutral_logp_increment_invalid_pressure_falls_back(
++    surface_pressure,
++):
++    """Invalid surface pressure selects the incumbent area-neutral projection."""
++    raw_increment = jnp.asarray(
++        [[3.0e-5, -1.0e-5, 0.5e-5], [-0.3e-5, 0.2e-5, -2.5e-5]],
++        dtype=jnp.float32,
++    )
++    weights = jnp.asarray([[0.6, 1.0, 0.6]], dtype=jnp.float32)
++    cap = jnp.asarray(2.0e-5, dtype=jnp.float32)
++
++    increment = _bounded_surface_mass_neutral_logp_increment(
++        raw_increment,
++        surface_pressure,
++        cap,
++        weights,
++    )
++
++    expected = _bounded_area_neutral_field(raw_increment, cap, weights)
++    np.testing.assert_array_equal(increment, expected)
++
++
++def test_ekman_massfix_filter_pressure_increment_preserves_surface_mass():
++    """The massfix selector conserves global surface mass after logp update."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    step_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        use_surface_mass_neutral_pumping=True,
++    )
++
++    corrected = step_filter(prev_state, next_state)
++
++    log_pressure_increment = coords.horizontal.to_nodal(
++        corrected.log_surface_pressure - next_state.log_surface_pressure
++    )[0]
++    initial_surface_pressure = jnp.exp(
++        coords.horizontal.to_nodal(next_state.log_surface_pressure)[0]
++    )
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    initial_mass = jnp.sum(quadrature_weights * initial_surface_pressure)
++    updated_mass = jnp.sum(
++        quadrature_weights * initial_surface_pressure * jnp.exp(log_pressure_increment)
++    )
++
++    assert float(jnp.max(jnp.abs(log_pressure_increment))) > 0.0
++    np.testing.assert_allclose(updated_mass, initial_mass, rtol=1.0e-6, atol=1.0e-7)
++    assert (
++        float(jnp.max(jnp.abs(log_pressure_increment)))
++        <= _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT * 1.001
++    )
++
++
+ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+@@ -6478,6 +6609,63 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_ekman_massfix_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The mass-neutral Ekman candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        ekman_massfix_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_ri2m_ekman_massfix"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_mass_neutral_ekman_pumping
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..f010f54 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_massfix",
+     )
+ 
+ 
+@@ -726,6 +727,21 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_ekman_massfix_candidate_model():
++    """The massfix alias adds only the exact surface-mass pumping selector."""
++    model = create_dycore_model("dino_ri2m_ekman_massfix")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_massfix"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_surface_mass_neutral_ekman_pumping
++    assert not incumbent.use_surface_mass_neutral_ekman_pumping
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_surface_mass_neutral_ekman_pumping"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):
