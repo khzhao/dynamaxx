@@ -2,6 +2,7 @@
 
 Autoresearch for weather dycores.
 
+Correspondence: Kevin Zhao <kzhao16@gmail.com>
 
 ## Quickstart
 
