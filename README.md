@@ -29,7 +29,7 @@ Do not change fixed evaluation protocols during model-selection experiments. Do 
 
 ## Data
 
-Default evaluations expect the processed ERA5 WeatherBench2 collection at:
+Default evaluations expect the processed ERA5 WeatherBench2 dataset. See `scripts/packed_state_zarr.py` on how to create it. It just packs together the original WeatherBench2 dataset from Google. The original dataset is a bit fragmented.
 
 The path is configured in `src/dynamaxx/utils/consts.py`.
 
