@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "ekman-balanced-spinup-ramp",
+  "history_path": ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp",
+  "source_artifacts": [
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_spinup.json",
+    "outputs/eval/fast_dino_ri2m_ekman_spinup.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_spinup.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_spinup.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/proposal.md",
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/resource_snapshot.md",
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/implementation.md",
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/scores.json",
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/scoring_notes.md",
+    ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp/decision.md"
+  ],
+  "notes": "Rejected because the candidate passed fast and iteration diagnostics but missed the iteration promotion threshold: candidate -0.16669329268791927 vs cached incumbent -0.16500618979404214, delta -0.0016871028938771349. Validation was skipped. Cached incumbent artifacts were reused; no incumbent rerun was performed. Candidate source and test changes were reverted after preserving candidate.diff."
+}

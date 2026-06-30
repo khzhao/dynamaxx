@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "ekman-balanced-spinup-ramp",
+  "candidate_model_name": "dino_ri2m_ekman_spinup",
+  "incumbent_model_name": "dino_ri2m_ekman_coupled",
+  "history_directory": ".logbook/history/2026-06-30_05-41-41_ekman-balanced-spinup-ramp",
+  "scored_at": "2026-06-30T09:18:32Z",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run python - <<'PY' ... from dynamaxx.dycore.registry import list_models ... PY",
+      "exit_status": 1,
+      "status": "failed",
+      "notes": "Scorer registration probe used a nonexistent helper name; no files were modified. Replaced by the corrected registry API check below."
+    },
+    {
+      "command": "uv run python - <<'PY' ... dycore_model_names/create_dycore_model registration check ... PY",
+      "exit_status": 0,
+      "status": "passed",
+      "notes": "Verified dino_ri2m_ekman_spinup and dino_ri2m_ekman_coupled are listed and instantiate as DinosaurPrimitiveEquationsDycoreModel."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "status": "verified_from_implementer_evidence",
+      "notes": "Not rerun by Scorer; Implementer evidence recorded 283 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_spinup",
+      "exit_status": 0,
+      "status": "verified_from_existing_artifact",
+      "notes": "Not rerun by Scorer; verified existing JSON/CSV artifact, clean diagnostics, 120 records, finite primary score."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_spinup --workers 4",
+      "exit_status": 0,
+      "status": "passed",
+      "notes": "Run by Scorer; completed 229 chunks, clean diagnostics, 120 records."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_spinup --workers 4",
+      "exit_status": null,
+      "status": "skipped",
+      "notes": "Skipped because the candidate failed the iteration promotion gate."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_spinup.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_spinup.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_spinup.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_spinup.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.16944049595409852,
+    "candidate_iteration": -0.16669329268791927,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.16500618979404214,
+    "incumbent_validation": -0.16591150807771451,
+    "iteration_delta": -0.0016871028938771349,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": null,
+    "candidate_validation_issue_count": null,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "cache_reuse": {
+    "iteration": {
+      "incumbent_metrics_reused": true,
+      "artifact_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "artifact_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+      "validation_checks": [
+        "requested incumbent matched leaderboard incumbent",
+        "leaderboard fingerprint includes iteration protocol",
+        "target variables matched candidate protocol",
+        "lead range was 1..15 days with 24h increments",
+        "artifact was readable",
+        "artifact model_name matched incumbent",
+        "primary_score was finite and matched leaderboard",
+        "diagnostics were clean",
+        "records were present for guardrail comparisons",
+        "commits after d187308d30a242bf38aabe5b7eb530fca522a68f were logbook metadata only; current candidate source edits did not invalidate the accepted incumbent cache"
+      ],
+      "recomputed": false,
+      "recompute_reason": null
+    },
+    "validation": {
+      "incumbent_metrics_reused": true,
+      "artifact_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "artifact_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+      "validation_checks": [
+        "requested incumbent matched leaderboard incumbent",
+        "leaderboard fingerprint includes validation protocol",
+        "target variables matched candidate protocol",
+        "lead range was 1..15 days with 24h increments",
+        "artifact was readable",
+        "artifact model_name matched incumbent",
+        "primary_score was finite and matched leaderboard",
+        "diagnostics were clean",
+        "records were present for guardrail comparisons"
+      ],
+      "recomputed": false,
+      "recompute_reason": null,
+      "candidate_validation_compared": false,
+      "skip_reason": "Candidate iteration primary delta was -0.0016871028938771349, below the +0.002 promotion threshold."
+    }
+  },
+  "gate_status": {
+    "tests_passed": true,
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "validation_allowed_by_orchestrator": true,
+    "validation_run": false,
+    "validation_acceptance_gate_passed": null
+  },
+  "gate_details": {
+    "iteration_primary_threshold": 0.002,
+    "iteration_primary_delta": -0.0016871028938771349,
+    "iteration_primary_gate_passed": false,
+    "iteration_diagnostics_gate_passed": true,
+    "iteration_mean_rmse_guardrail_passed": true,
+    "iteration_max_rmse_guardrail_passed": true,
+    "validation_skip_reason": "Iteration promotion gate failed on primary score; validation was not run."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "relative_rmse_regression": -1.6786016268854628e-10
+      },
+      {
+        "channel_name": "2m_temperature",
+        "relative_rmse_regression": 7.637519481944547e-10
+      },
+      {
+        "channel_name": "geopotential_500",
+        "relative_rmse_regression": -2.8063621466846174e-10
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "relative_rmse_regression": 4.009995492379207e-10
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 192,
+        "relative_rmse_regression": 1.7216842358797235e-09,
+        "candidate_rmse": 5.339945529926418,
+        "incumbent_rmse": 5.3399455207327176
+      },
+      {
+        "channel_name": "2m_temperature",
+        "lead_hours": 72,
+        "relative_rmse_regression": 2.721368550521979e-09,
+        "candidate_rmse": 2.9387472367881773,
+        "incumbent_rmse": 2.938747228790763
+      },
+      {
+        "channel_name": "geopotential_500",
+        "lead_hours": 312,
+        "relative_rmse_regression": 2.5545950860850597e-09,
+        "candidate_rmse": 1134.133550841601,
+        "incumbent_rmse": 1134.133547944349
+      },
+      {
+        "channel_name": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "relative_rmse_regression": 2.947238311114127e-09,
+        "candidate_rmse": 590.2590038341968,
+        "incumbent_rmse": 590.2590020945629
+      }
+    ]
+  },
+  "anomalies": [
+    "The first scorer registration probe failed because it imported a nonexistent list_models helper; the corrected dycore_model_names/create_dycore_model registration check passed.",
+    "Candidate iteration RMSE guardrail differences were numerical-noise scale, but primary skill was lower than the cached incumbent."
+  ]
+}

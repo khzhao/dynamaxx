@@ -1,0 +1,571 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..8d8996b 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -53,6 +53,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     digital_filter_surface_residual_dinosaur_dycore_model,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     ekman_coupled_dinosaur_dycore_model,
++    ekman_spinup_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
+@@ -94,6 +95,7 @@ __all__ = [
+     "digital_filter_surface_residual_dinosaur_dycore_model",
+     "dry_static_energy_hsl_transport_dinosaur_dycore_model",
+     "ekman_coupled_dinosaur_dycore_model",
++    "ekman_spinup_dinosaur_dycore_model",
+     "filtering",
+     "fourier",
+     "held_suarez",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..7d218a8 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -103,6 +103,8 @@ _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
+ _EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR = 0.85
+ _EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
+ _EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
++_EKMAN_SPINUP_INITIAL_FRACTION = 0.35
++_EKMAN_SPINUP_FULL_HOURS = 24.0
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -167,6 +169,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
++    apply_ekman_positive_time_spinup_ramp: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -259,7 +262,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mean_hydrostatic_temperature_initialization=(
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
+-                initialize_sim_time=self.use_pressure_ramped_vertical_dse_increment,
++                initialize_sim_time=(
++                    self.use_pressure_ramped_vertical_dse_increment
++                    or self.apply_ekman_positive_time_spinup_ramp
++                ),
+             )
+             if (
+                 self.apply_ocean_bulk_sensible_heat_flux
+@@ -493,6 +499,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        apply_positive_time_spinup_ramp=(
++                            self.apply_ekman_positive_time_spinup_ramp
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -970,6 +979,7 @@ def _ekman_coupled_surface_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    apply_positive_time_spinup_ramp: bool = False,
+ ) -> Any:
+     """Return a weak coupled stress and pressure filter for the lower layers."""
+     assert step_seconds > 0.0
+@@ -1219,6 +1229,16 @@ def _ekman_coupled_surface_step_filter(
+             / jnp.maximum(projected_log_pressure_increment_max, 1.0e-30),
+         )
+         log_pressure_increment = log_pressure_increment * pressure_projection_scale
++        if apply_positive_time_spinup_ramp:
++            ramp_factor = _ekman_positive_time_spinup_ramp(
++                next_state.sim_time,
++                physics_specs,
++            )
++            u_increment = u_increment * ramp_factor
++            v_increment = v_increment * ramp_factor
++            log_pressure_increment = log_pressure_increment * ramp_factor
++            vorticity_increment = vorticity_increment * ramp_factor
++            divergence_increment = divergence_increment * ramp_factor
+ 
+         corrected_vorticity = next_state.vorticity + vorticity_increment
+         corrected_divergence = next_state.divergence + divergence_increment
+@@ -1242,6 +1262,8 @@ def _ekman_coupled_surface_step_filter(
+                     jnp.all(jnp.isfinite(ekman_transport_v)),
+                     jnp.all(jnp.isfinite(raw_log_pressure_increment)),
+                     jnp.all(jnp.isfinite(log_pressure_increment)),
++                    jnp.all(jnp.isfinite(vorticity_increment)),
++                    jnp.all(jnp.isfinite(divergence_increment)),
+                     jnp.all(jnp.isfinite(corrected_vorticity)),
+                     jnp.all(jnp.isfinite(corrected_divergence)),
+                     jnp.all(jnp.isfinite(corrected_log_surface_pressure)),
+@@ -1278,6 +1300,32 @@ def _ekman_coupled_surface_step_filter(
+     return ekman_coupled_surface_filter
+ 
+ 
++def _ekman_positive_time_spinup_ramp(
++    sim_time: Any,
++    physics_specs: Any,
++) -> jax.Array:
++    """Return the fixed Ekman activation factor from forecast model time."""
++    if sim_time is None:
++        return jnp.asarray(1.0, dtype=jnp.float32)
++    sim_time = jnp.asarray(sim_time)
++    hour = scales.units.Quantity(3600.0, "second")
++    nondimensional_hour = jnp.asarray(
++        physics_specs.nondimensionalize(hour),
++        dtype=sim_time.dtype,
++    )
++    ramp_fraction = jnp.clip(
++        sim_time / (_EKMAN_SPINUP_FULL_HOURS * nondimensional_hour),
++        0.0,
++        1.0,
++    )
++    smooth_fraction = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
++    ramp_factor = _EKMAN_SPINUP_INITIAL_FRACTION + (
++        1.0 - _EKMAN_SPINUP_INITIAL_FRACTION
++    ) * smooth_fraction
++    valid_time = jnp.all(jnp.isfinite(sim_time)) & jnp.all(sim_time >= 0.0)
++    return jnp.where(valid_time, ramp_factor, 1.0)
++
++
+ def _ekman_coupled_vertical_taper(
+     vertical_coords: sigma_coordinates.SigmaCoordinates,
+ ) -> jax.Array:
+@@ -1823,6 +1871,15 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def ekman_spinup_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
++    """Return the coupled Ekman candidate with a positive-time spinup ramp."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_spinup",
++        apply_ekman_positive_time_spinup_ramp=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..4f02602 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,13 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_spinup_model() -> DycoreModel:
++    """Return coupled Ekman candidate with a positive-time spinup ramp."""
++    from dynamaxx.dycore.models.dinosaur import ekman_spinup_dinosaur_dycore_model
++
++    return ekman_spinup_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +342,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_ekman_spinup": dino_ri2m_ekman_spinup_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..46fa03b 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -146,6 +146,9 @@ assert (
+ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
++assert dinosaur.ekman_spinup_dinosaur_dycore_model().name == (
++    "dino_ri2m_ekman_spinup"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -250,6 +253,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_spinup",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -830,6 +834,29 @@ def test_dinosaur_ekman_coupled_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_ekman_spinup_model_is_registered():
++    """The Ekman spinup candidate is side-by-side with the coupled incumbent."""
++    model = create_dycore_model("dino_ri2m_ekman_spinup")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_spinup"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_positive_time_spinup_ramp
++    assert not incumbent.apply_ekman_positive_time_spinup_ramp
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_ekman_positive_time_spinup_ramp"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..f334665 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -28,6 +28,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO,
+     _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+     _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
++    _EKMAN_SPINUP_FULL_HOURS,
++    _EKMAN_SPINUP_INITIAL_FRACTION,
+     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+@@ -50,6 +52,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _compose_ocean_bulk_sensible_heat_flux_equation,
+     _compose_weak_held_suarez_equation,
+     _ekman_coupled_equatorial_taper,
++    _ekman_positive_time_spinup_ramp,
+     _ekman_coupled_surface_step_filter,
+     _exact_coriolis_rotation_step_filter,
+     _horizontal_diffusion_step_filter,
+@@ -86,6 +89,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     dinosaur_state_to_weather_state,
+     dry_static_energy_hsl_transport_dinosaur_dycore_model,
+     ekman_coupled_dinosaur_dycore_model,
++    ekman_spinup_dinosaur_dycore_model,
+     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
+     hydrostatic_temperature_initialization_dinosaur_dycore_model,
+     infer_dinosaur_pressure_levels,
+@@ -733,6 +737,21 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_ekman_spinup_factory_preserves_incumbent_except_selector():
++    """The spinup candidate only opts into the fixed Ekman activation ramp."""
++    model = ekman_spinup_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_spinup"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_positive_time_spinup_ramp
++    assert not incumbent.apply_ekman_positive_time_spinup_ramp
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_ekman_positive_time_spinup_ramp"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4277,6 +4296,23 @@ def test_ekman_coupled_equatorial_taper_suppresses_equatorial_pumping():
+     assert bool(jnp.all((taper >= 0.0) & (taper <= 1.0)))
+ 
+ 
++def test_ekman_positive_time_spinup_ramp_is_monotone_and_bounded():
++    """The fixed Ekman spinup factor starts at 0.35 and reaches one by 24h."""
++    physics_specs = units.SimUnits.from_si()
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    sim_time = jnp.asarray([0.0, 6.0, 12.0, 24.0, 36.0], dtype=jnp.float32) * hour
++
++    ramp = _ekman_positive_time_spinup_ramp(sim_time, physics_specs)
++
++    ramp_np = np.asarray(ramp)
++    assert ramp_np[0] == pytest.approx(_EKMAN_SPINUP_INITIAL_FRACTION)
++    np.testing.assert_allclose(ramp_np[-2:], [1.0, 1.0])
++    assert bool(np.all(ramp_np >= _EKMAN_SPINUP_INITIAL_FRACTION))
++    assert bool(np.all(ramp_np <= 1.0))
++    assert bool(np.all(np.diff(ramp_np) >= 0.0))
++    assert _EKMAN_SPINUP_FULL_HOURS == 24.0
++
++
+ def test_ekman_coupled_filter_zero_wind_is_exact_noop():
+     """No surface stress leaves the positive-time filter exactly inactive."""
+     coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+@@ -4308,6 +4344,106 @@ def test_ekman_coupled_filter_zero_wind_is_exact_noop():
+     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+ 
+ 
++@pytest.mark.parametrize("sim_time", [None, jnp.asarray(jnp.nan), jnp.asarray(-1.0)])
++def test_ekman_spinup_filter_invalid_or_missing_time_matches_incumbent(sim_time):
++    """Invalid time diagnostics fall back to the incumbent full-strength filter."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=6.0,
++    )
++    timed_next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=sim_time,
++    )
++    incumbent_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    spinup_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_positive_time_spinup_ramp=True,
++    )
++
++    expected = incumbent_filter(prev_state, timed_next_state)
++    actual = spinup_filter(prev_state, timed_next_state)
++
++    np.testing.assert_allclose(actual.vorticity, expected.vorticity, rtol=1e-6)
++    np.testing.assert_allclose(actual.divergence, expected.divergence, rtol=1e-6)
++    np.testing.assert_array_equal(
++        actual.temperature_variation,
++        expected.temperature_variation,
++    )
++    np.testing.assert_allclose(
++        actual.log_surface_pressure,
++        expected.log_surface_pressure,
++        rtol=1e-6,
++    )
++    assert actual.tracers.keys() == expected.tracers.keys()
++    for tracer_name, tracer_value in actual.tracers.items():
++        np.testing.assert_array_equal(tracer_value, expected.tracers[tracer_name])
++    if sim_time is None:
++        assert actual.sim_time is expected.sim_time is None
++    else:
++        np.testing.assert_array_equal(
++            np.asarray(actual.sim_time),
++            np.asarray(expected.sim_time),
++        )
++
++
++def test_ekman_spinup_filter_is_full_strength_after_24h():
++    """At and after 24h, the opt-in spinup path is exactly all-one strength."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=6.0,
++    )
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    timed_next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=jnp.asarray(24.0 * hour, dtype=jnp.float32),
++    )
++    incumbent_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    spinup_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_positive_time_spinup_ramp=True,
++    )
++
++    expected = incumbent_filter(prev_state, timed_next_state)
++    actual = spinup_filter(prev_state, timed_next_state)
++
++    _assert_pytree_allclose(actual, expected)
++
++
+ def test_ekman_coupled_filter_nonfinite_pressure_falls_back_to_noop():
+     """Invalid stress or pumping diagnostics preserve the incumbent next state."""
+     coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+@@ -4442,6 +4578,66 @@ def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_str
+     assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+ 
+ 
++def test_ekman_spinup_filter_preserves_wind_and_pressure_caps():
++    """The ramped candidate keeps post-projection wind and pressure increments capped."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=250.0,
++    )
++    timed_next_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=jnp.asarray(0.0, dtype=jnp.float32),
++    )
++    step_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        apply_positive_time_spinup_ramp=True,
++    )
++
++    corrected = step_filter(prev_state, timed_next_state)
++
++    initial_u_wind, initial_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++        coords.horizontal,
++        timed_next_state.vorticity,
++        timed_next_state.divergence,
++    )
++    corrected_u_wind, corrected_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++        coords.horizontal,
++        corrected.vorticity,
++        corrected.divergence,
++    )
++    u_increment = corrected_u_wind - initial_u_wind
++    v_increment = corrected_v_wind - initial_v_wind
++    applied_surface_wind_increment = jnp.sqrt(
++        u_increment[-1] ** 2 + v_increment[-1] ** 2
++    )
++    wind_increment_cap = (
++        _EKMAN_SPINUP_INITIAL_FRACTION
++        * _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND
++        * _unit_factor(physics_specs, "meter / second")
++    )
++    log_pressure_increment = coords.horizontal.to_nodal(
++        corrected.log_surface_pressure - timed_next_state.log_surface_pressure
++    )[0]
++    stress_tied_cap = min(
++        _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
++        _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO
++        * float(jnp.max(applied_surface_wind_increment)),
++    )
++
++    assert float(jnp.max(jnp.abs(u_increment))) <= wind_increment_cap * 1.001
++    assert float(jnp.max(jnp.abs(v_increment))) <= wind_increment_cap * 1.001
++    assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
++
++
+ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+@@ -6478,6 +6674,63 @@ def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypat
+     assert bool(jnp.isfinite(forecast.values).all())
+ 
+ 
++def test_ekman_spinup_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The Ekman spinup candidate runs a small non-JIT finite forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del equation, ode_solver, filters, time_span, cutoff_period, dt
++        return lambda dinosaur_state: dinosaur_state
++
++    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
++        del initial_time
++        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_load_land_sea_fraction_for_grid",
++        fake_land_sea_fraction,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++        "geopotential_500",
++    )
++    model = replace(
++        ekman_spinup_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        apply_spectral_filter=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _structured_initial_state(init_count=1),
++        lead_steps=(0, 1),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert model.name == "dino_ri2m_ekman_spinup"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_positive_time_spinup_ramp
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
+     monkeypatch,
+ ):
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..b2b1475 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_spinup",
+     )
+ 
+ 
+@@ -726,6 +727,21 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_ekman_spinup_candidate_model():
++    """The spinup alias adds only the Ekman positive-time ramp selector."""
++    model = create_dycore_model("dino_ri2m_ekman_spinup")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_spinup"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.apply_ekman_positive_time_spinup_ramp
++    assert not incumbent.apply_ekman_positive_time_spinup_ramp
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_ekman_positive_time_spinup_ramp"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):
