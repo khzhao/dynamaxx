@@ -1,0 +1,983 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..c558158 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -62,6 +62,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -111,6 +112,7 @@ __all__ = [
+     "log_pressure_initialization_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
++    "post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model",
+     "pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model",
+     "primitive_equations",
+     "primitive_equations_states",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..bea9695 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -103,6 +103,17 @@ _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
+ _EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR = 0.85
+ _EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
+ _EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
++_POST_DFI_THICKNESS_PRESSURE_LEVELS_HPA = (300, 500, 700)
++_POST_DFI_THICKNESS_LOW_MODE_CUTOFF = 8
++_POST_DFI_THICKNESS_MAX_RESIDUAL_M2_S2 = 1500.0
++_POST_DFI_THICKNESS_NOOP_THRESHOLD_M2_S2 = 1.0
++_POST_DFI_THICKNESS_MAX_TEMPERATURE_INCREMENT_KELVIN = 0.5
++_POST_DFI_THICKNESS_NOOP_TEMPERATURE_INCREMENT_KELVIN = 0.01
++_POST_DFI_THICKNESS_STATIC_STABILITY_FLOOR_KELVIN = 0.05
++_POST_DFI_THICKNESS_SIGMA_ZERO_TOP = 0.25
++_POST_DFI_THICKNESS_SIGMA_FULL_TOP = 0.40
++_POST_DFI_THICKNESS_SIGMA_FULL_BOTTOM = 0.70
++_POST_DFI_THICKNESS_SIGMA_ZERO_BOTTOM = 0.85
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -167,6 +178,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
++    apply_post_dfi_low_mode_thickness_recenter: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -236,6 +248,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             output_count=max(forecast_input.lead_steps) + 1,
+             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
+             ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
++            pressure_levels_hpa=pressure_levels_hpa,
++            latitude_reversed=grid.latitude_reversed,
+         )
+ 
+         forecasts = []
+@@ -261,6 +275,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 ),
+                 initialize_sim_time=self.use_pressure_ramped_vertical_dse_increment,
+             )
++            post_dfi_analysis_geopotential = None
++            if self.apply_post_dfi_low_mode_thickness_recenter:
++                post_dfi_analysis_geopotential = (
++                    _post_dfi_analysis_geopotential_or_none(
++                        single_state,
++                        latitude_reversed=grid.latitude_reversed,
++                        physics_specs=physics_specs,
++                    )
++                )
+             if (
+                 self.apply_ocean_bulk_sensible_heat_flux
+                 and ocean_bulk_shf_ocean_weight is not None
+@@ -278,6 +301,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 _, trajectory = trajectory_fn(
+                     dinosaur_state,
+                     ocean_bulk_shf_temperature_anchor,
++                    post_dfi_analysis_geopotential,
++                )
++            elif self.apply_post_dfi_low_mode_thickness_recenter:
++                _, trajectory = trajectory_fn(
++                    dinosaur_state,
++                    post_dfi_analysis_geopotential,
+                 )
+             else:
+                 _, trajectory = trajectory_fn(dinosaur_state)
+@@ -346,6 +375,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         output_count: int,
+         use_humidity_in_dynamics: bool,
+         ocean_bulk_shf_ocean_weight: jax.Array | None = None,
++        pressure_levels_hpa: tuple[int, ...] = (),
++        latitude_reversed: bool = False,
+     ):
+         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+         use_coriolis_rotation_split = (
+@@ -538,8 +569,21 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 )
+                 base_trajectory_fn = trajectory_fn
+ 
+-                def initialized_trajectory_fn(dinosaur_state):
+-                    return base_trajectory_fn(initialize_state(dinosaur_state))
++                def initialized_trajectory_fn(
++                    dinosaur_state,
++                    analysis_geopotential=None,
++                ):
++                    initialized_state = initialize_state(dinosaur_state)
++                    if self.apply_post_dfi_low_mode_thickness_recenter:
++                        initialized_state = _post_dfi_low_mode_thickness_recenter(
++                            initialized_state,
++                            analysis_geopotential=analysis_geopotential,
++                            coords=coords,
++                            physics_specs=physics_specs,
++                            reference_temperature=reference_temperature,
++                            pressure_levels_hpa=pressure_levels_hpa,
++                        )
++                    return base_trajectory_fn(initialized_state)
+ 
+                 trajectory_fn = initialized_trajectory_fn
+             return trajectory_fn
+@@ -550,6 +594,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 def trajectory_fn(
+                     dinosaur_state,
+                     ocean_bulk_shf_temperature_anchor,
++                    analysis_geopotential=None,
+                 ):
+                     equilibrium_temperature_offset = (
+                         _analysis_offset_weak_held_suarez_equilibrium(
+@@ -565,11 +610,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                             ocean_bulk_shf_temperature_anchor
+                         ),
+                     )
+-                    return offset_trajectory_fn(dinosaur_state)
++                    return offset_trajectory_fn(dinosaur_state, analysis_geopotential)
+ 
+             else:
+ 
+-                def trajectory_fn(dinosaur_state):
++                def trajectory_fn(dinosaur_state, analysis_geopotential=None):
+                     equilibrium_temperature_offset = (
+                         _analysis_offset_weak_held_suarez_equilibrium(
+                             dinosaur_state,
+@@ -581,20 +626,24 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     offset_trajectory_fn = build_trajectory(
+                         equilibrium_temperature_offset=equilibrium_temperature_offset,
+                     )
+-                    return offset_trajectory_fn(dinosaur_state)
++                    return offset_trajectory_fn(dinosaur_state, analysis_geopotential)
+ 
+         elif use_ocean_bulk_sensible_heat_flux:
+ 
+             def trajectory_fn(
+                 dinosaur_state,
+                 ocean_bulk_shf_temperature_anchor,
++                analysis_geopotential=None,
+             ):
+                 ocean_bulk_shf_trajectory_fn = build_trajectory(
+                     ocean_bulk_shf_temperature_anchor=(
+                         ocean_bulk_shf_temperature_anchor
+                     ),
+                 )
+-                return ocean_bulk_shf_trajectory_fn(dinosaur_state)
++                return ocean_bulk_shf_trajectory_fn(
++                    dinosaur_state,
++                    analysis_geopotential,
++                )
+ 
+         else:
+             trajectory_fn = build_trajectory()
+@@ -1426,6 +1475,307 @@ def _tropical_wtg_low_mode_mask(
+     return low_mode_mask * jnp.asarray(horizontal_grid.mask, dtype=jnp.float32)
+ 
+ 
++def _post_dfi_analysis_geopotential_or_none(
++    state: WeatherState,
++    *,
++    latitude_reversed: bool,
++    physics_specs: Any,
++) -> jax.Array | None:
++    """Return required same-time analysis geopotential or `None` for exact no-op."""
++    required_channels = tuple(
++        f"{GEOPOTENTIAL_VARIABLE}_{pressure_level}"
++        for pressure_level in _POST_DFI_THICKNESS_PRESSURE_LEVELS_HPA
++    )
++    if any(channel not in state.variables for channel in required_channels):
++        return None
++    indices = jnp.asarray(state.variable_indices(required_channels), dtype=jnp.int32)
++    geopotential = jnp.take(state.values, indices, axis=-3)
++    geopotential = _to_dinosaur_latitude_order(geopotential, latitude_reversed)
++    return geopotential * _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++
++
++def _post_dfi_low_mode_thickness_recenter(
++    state: Any,
++    *,
++    analysis_geopotential: jax.Array | None,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    pressure_levels_hpa: tuple[int, ...],
++) -> Any:
++    """Apply one guarded post-DFI low-mode thickness correction to temperature."""
++    if (
++        analysis_geopotential is None
++        or tuple(pressure_levels_hpa) == ()
++        or tuple(analysis_geopotential.shape[-3:])
++        != (
++            len(_POST_DFI_THICKNESS_PRESSURE_LEVELS_HPA),
++            *coords.horizontal.nodal_shape,
++        )
++    ):
++        return state
++
++    dfi_geopotential, pressure_bracket_is_valid = (
++        _post_dfi_geopotential_on_pressure_levels(
++            state,
++            coords=coords,
++            physics_specs=physics_specs,
++            reference_temperature=reference_temperature,
++        )
++    )
++    residual = analysis_geopotential - dfi_geopotential
++    z500_residual = residual[1]
++    thickness_residual = residual[0] - residual[2]
++    low_mode_mask = _post_dfi_thickness_low_mode_mask(coords.horizontal)
++    low_mode_z500_residual = coords.horizontal.to_nodal(
++        coords.horizontal.to_modal(z500_residual) * low_mode_mask
++    )
++    low_mode_thickness_residual = coords.horizontal.to_nodal(
++        coords.horizontal.to_modal(thickness_residual) * low_mode_mask
++    )
++
++    geopotential_unit = _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++    temperature_unit = _unit_factor(physics_specs, "kelvin")
++    residual_cap = jnp.asarray(
++        _POST_DFI_THICKNESS_MAX_RESIDUAL_M2_S2 * geopotential_unit,
++        dtype=low_mode_thickness_residual.dtype,
++    )
++    residual_noop_threshold = jnp.asarray(
++        _POST_DFI_THICKNESS_NOOP_THRESHOLD_M2_S2 * geopotential_unit,
++        dtype=low_mode_thickness_residual.dtype,
++    )
++    temperature_cap = jnp.asarray(
++        _POST_DFI_THICKNESS_MAX_TEMPERATURE_INCREMENT_KELVIN * temperature_unit,
++        dtype=low_mode_thickness_residual.dtype,
++    )
++    temperature_noop_threshold = jnp.asarray(
++        _POST_DFI_THICKNESS_NOOP_TEMPERATURE_INCREMENT_KELVIN * temperature_unit,
++        dtype=low_mode_thickness_residual.dtype,
++    )
++
++    thickness_log_pressure_interval = jnp.log(jnp.asarray(700.0 / 300.0))
++    raw_temperature_increment = (
++        low_mode_thickness_residual
++        / geopotential_unit
++        / (_DRY_AIR_GAS_CONSTANT_SI * thickness_log_pressure_interval)
++        * temperature_unit
++    )
++    vertical_envelope = _post_dfi_thickness_vertical_envelope(coords.vertical)
++    layer_temperature_increment = (
++        vertical_envelope[:, jnp.newaxis, jnp.newaxis]
++        * raw_temperature_increment[jnp.newaxis, ...]
++    )
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    layer_temperature_increment = jax.vmap(
++        lambda layer_increment: _bounded_area_neutral_field(
++            layer_increment,
++            temperature_cap,
++            quadrature_weights,
++        )
++    )(layer_temperature_increment)
++    modal_temperature_increment = coords.horizontal.to_modal(layer_temperature_increment)
++    layer_temperature_increment = coords.horizontal.to_nodal(
++        modal_temperature_increment
++    )
++    projected_increment_max = jnp.max(jnp.abs(layer_temperature_increment))
++    projection_scale = jnp.where(
++        projected_increment_max > temperature_cap,
++        temperature_cap / jnp.maximum(projected_increment_max, 1.0e-30),
++        1.0,
++    )
++    layer_temperature_increment = layer_temperature_increment * projection_scale
++    modal_temperature_increment = coords.horizontal.to_modal(layer_temperature_increment)
++    corrected_temperature_variation = state.temperature_variation + (
++        modal_temperature_increment
++    )
++
++    surface_pressure = jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
++    corrected_temperature = (
++        coords.horizontal.to_nodal(corrected_temperature_variation)
++        + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
++    )
++    static_stability_is_valid = _post_dfi_static_stability_is_valid(
++        corrected_temperature,
++        surface_pressure=surface_pressure,
++        coords=coords,
++        physics_specs=physics_specs,
++    )
++    sign_consistent = (
++        jnp.max(jnp.abs(low_mode_z500_residual)) > residual_noop_threshold
++    ) & (jnp.max(jnp.abs(low_mode_thickness_residual)) > residual_noop_threshold)
++    sign_consistent = sign_consistent & jnp.all(
++        low_mode_z500_residual * low_mode_thickness_residual
++        >= -(residual_noop_threshold**2)
++    )
++    residuals_are_bounded = (
++        jnp.max(jnp.abs(low_mode_z500_residual)) <= residual_cap
++    ) & (jnp.max(jnp.abs(low_mode_thickness_residual)) <= residual_cap)
++    candidate_has_effect = (
++        jnp.max(jnp.abs(layer_temperature_increment)) > temperature_noop_threshold
++    )
++    finite_diagnostics = jnp.all(
++        jnp.asarray(
++            [
++                jnp.all(jnp.isfinite(analysis_geopotential)),
++                jnp.all(jnp.isfinite(dfi_geopotential)),
++                jnp.all(jnp.isfinite(residual)),
++                jnp.all(jnp.isfinite(low_mode_z500_residual)),
++                jnp.all(jnp.isfinite(low_mode_thickness_residual)),
++                jnp.all(jnp.isfinite(raw_temperature_increment)),
++                jnp.all(jnp.isfinite(layer_temperature_increment)),
++                jnp.all(jnp.isfinite(corrected_temperature_variation)),
++                jnp.all(jnp.isfinite(corrected_temperature)),
++                jnp.all(corrected_temperature > 0.0),
++            ]
++        )
++    )
++    use_candidate = (
++        pressure_bracket_is_valid
++        & finite_diagnostics
++        & sign_consistent
++        & residuals_are_bounded
++        & static_stability_is_valid
++        & candidate_has_effect
++    )
++    return _primitive_equation_state(
++        vorticity=state.vorticity,
++        divergence=state.divergence,
++        temperature_variation=jnp.where(
++            use_candidate,
++            corrected_temperature_variation,
++            state.temperature_variation,
++        ),
++        log_surface_pressure=state.log_surface_pressure,
++        tracers=state.tracers,
++        sim_time=state.sim_time,
++    )
++
++
++def _post_dfi_geopotential_on_pressure_levels(
++    state: Any,
++    *,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++) -> tuple[jax.Array, jax.Array]:
++    """Diagnose DFI-state geopotential on the fixed thickness pressure levels."""
++    temperature = (
++        coords.horizontal.to_nodal(state.temperature_variation)
++        + jnp.asarray(reference_temperature)[:, jnp.newaxis, jnp.newaxis]
++    )
++    humidity = None
++    if SPECIFIC_HUMIDITY_VARIABLE in state.tracers:
++        humidity = coords.horizontal.to_nodal(state.tracers[SPECIFIC_HUMIDITY_VARIABLE])
++    geopotential = primitive_equations.get_geopotential_on_sigma(
++        temperature,
++        specific_humidity=humidity,
++        nodal_orography=jnp.zeros(coords.horizontal.nodal_shape, dtype=jnp.float32),
++        sigma=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
++        gravity_acceleration=physics_specs.g,
++        ideal_gas_constant=physics_specs.R,
++        water_vapor_gas_constant=physics_specs.R_vapor,
++    )
++    pressure_factor = _unit_factor(physics_specs, "pascal")
++    surface_pressure = jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))[
++        0
++    ]
++    surface_pressure_hpa = surface_pressure / pressure_factor / 100.0
++    sigma_centers = jnp.asarray(coords.vertical.centers)
++    sigma_pressure_hpa = sigma_centers[:, jnp.newaxis, jnp.newaxis] * (
++        surface_pressure_hpa[jnp.newaxis, ...]
++    )
++    required_pressure_levels = jnp.asarray(
++        _POST_DFI_THICKNESS_PRESSURE_LEVELS_HPA,
++        dtype=surface_pressure_hpa.dtype,
++    )
++    pressure_bracket_is_valid = (
++        jnp.all(jnp.isfinite(surface_pressure_hpa))
++        & jnp.all(surface_pressure_hpa > 0.0)
++        & jnp.all(jnp.min(sigma_pressure_hpa, axis=0) <= required_pressure_levels[0])
++        & jnp.all(jnp.max(sigma_pressure_hpa, axis=0) >= required_pressure_levels[-1])
++    )
++    pressure_fields = vertical_interpolation.interp_sigma_to_pressure(
++        {GEOPOTENTIAL_VARIABLE: geopotential},
++        _pressure_coordinates(_POST_DFI_THICKNESS_PRESSURE_LEVELS_HPA),
++        cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
++        surface_pressure_hpa,
++        interpolate_fn=_FINITE_SIGMA_TO_PRESSURE_INTERPOLATE,
++    )
++    return pressure_fields[GEOPOTENTIAL_VARIABLE], pressure_bracket_is_valid
++
++
++def _post_dfi_thickness_low_mode_mask(
++    horizontal_grid: spherical_harmonic.Grid,
++) -> jax.Array:
++    """Return the fixed low-mode spectral mask for post-DFI thickness residuals."""
++    _, total_wavenumber = horizontal_grid.modal_mesh
++    low_mode_mask = (
++        np.asarray(horizontal_grid.mask)
++        & (total_wavenumber <= _POST_DFI_THICKNESS_LOW_MODE_CUTOFF)
++    )
++    return jnp.asarray(low_mode_mask, dtype=jnp.float32)
++
++
++def _post_dfi_thickness_vertical_envelope(
++    vertical_coords: sigma_coordinates.SigmaCoordinates,
++) -> jax.Array:
++    """Return the fixed smooth middle-column envelope for thickness recentering."""
++    sigma = jnp.asarray(vertical_coords.centers)
++    upper_fraction = jnp.clip(
++        (sigma - _POST_DFI_THICKNESS_SIGMA_ZERO_TOP)
++        / (_POST_DFI_THICKNESS_SIGMA_FULL_TOP - _POST_DFI_THICKNESS_SIGMA_ZERO_TOP),
++        0.0,
++        1.0,
++    )
++    lower_fraction = jnp.clip(
++        (_POST_DFI_THICKNESS_SIGMA_ZERO_BOTTOM - sigma)
++        / (_POST_DFI_THICKNESS_SIGMA_ZERO_BOTTOM - _POST_DFI_THICKNESS_SIGMA_FULL_BOTTOM),
++        0.0,
++        1.0,
++    )
++    upper_taper = upper_fraction * upper_fraction * (3.0 - 2.0 * upper_fraction)
++    lower_taper = lower_fraction * lower_fraction * (3.0 - 2.0 * lower_fraction)
++    return jnp.where(
++        (sigma >= _POST_DFI_THICKNESS_SIGMA_FULL_TOP)
++        & (sigma <= _POST_DFI_THICKNESS_SIGMA_FULL_BOTTOM),
++        1.0,
++        upper_taper * lower_taper,
++    )
++
++
++def _post_dfi_static_stability_is_valid(
++    temperature: jax.Array,
++    *,
++    surface_pressure: jax.Array,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++) -> jax.Array:
++    """Return whether corrected potential temperature keeps a positive floor."""
++    sigma_centers = jnp.asarray(coords.vertical.centers)
++    pressure = sigma_centers[:, jnp.newaxis, jnp.newaxis] * surface_pressure
++    unit_registry = cast(Any, scales.units)
++    reference_pressure = float(
++        physics_specs.nondimensionalize(unit_registry.Quantity(100000.0, "pascal"))
++    )
++    theta = primitive_equations.potential_temperature_from_temperature(
++        temperature,
++        pressure,
++        reference_pressure,
++        physics_specs.kappa,
++    )
++    static_stability_floor = (
++        _POST_DFI_THICKNESS_STATIC_STABILITY_FLOOR_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++    layer_static_stability = theta[:-1] - theta[1:]
++    return (
++        jnp.all(jnp.isfinite(theta))
++        & jnp.all(jnp.isfinite(pressure))
++        & jnp.all(pressure > 0.0)
++        & jnp.all(layer_static_stability >= static_stability_floor)
++    )
++
++
+ def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+     """Return the default Dinosaur primitive-equation dycore model."""
+     return DinosaurPrimitiveEquationsDycoreModel()
+@@ -1823,6 +2173,17 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the Ekman incumbent with guarded post-DFI thickness recentering."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_postdfi_thick",
++        apply_post_dfi_low_mode_thickness_recenter=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..fa61d14 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,15 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_postdfi_thick_model() -> DycoreModel:
++    """Return Ekman incumbent with post-DFI low-mode thickness recentering."""
++    from dynamaxx.dycore.models.dinosaur import (
++        post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model,
++    )
++
++    return post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +344,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_postdfi_thick": dino_ri2m_postdfi_thick_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..af2bbb0 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -250,6 +250,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_postdfi_thick",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..6c2c423 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -1,6 +1,6 @@
+ # Copyright 2026 dynamaxx
+ 
+-from dataclasses import replace
++from dataclasses import fields, replace
+ from typing import Any, cast
+ 
+ import jax
+@@ -31,6 +31,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++    _POST_DFI_THICKNESS_MAX_TEMPERATURE_INCREMENT_KELVIN,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+     _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+@@ -65,6 +66,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _pressure_coordinates,
+     _primitive_equation,
+     _primitive_equation_state,
++    _post_dfi_geopotential_on_pressure_levels,
++    _post_dfi_low_mode_thickness_recenter,
+     _reference_temperature,
+     _scale_separated_residual_low_mode_mask,
+     _split_near_surface_residual_by_scale,
+@@ -96,6 +99,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -733,6 +737,23 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_post_dfi_thickness_factory_preserves_incumbent_except_selector():
++    """The post-DFI candidate adds only its initialization-time selector."""
++    model = post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_postdfi_thick"
++    assert model.apply_post_dfi_low_mode_thickness_recenter
++    assert not incumbent.apply_post_dfi_low_mode_thickness_recenter
++    for model_field in fields(DinosaurPrimitiveEquationsDycoreModel):
++        if model_field.name in {
++            "name",
++            "apply_post_dfi_low_mode_thickness_recenter",
++        }:
++            continue
++        assert getattr(model, model_field.name) == getattr(incumbent, model_field.name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -1623,6 +1644,49 @@ def test_near_surface_residual_forecast_preserves_mass_diagnostics(monkeypatch):
+     )
+ 
+ 
++def test_post_dfi_thickness_candidate_non_jit_forecast_smoke_is_finite(monkeypatch):
++    """The post-DFI candidate runs a small finite non-JIT forecast."""
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    output_variables = (
++        "2m_temperature",
++        "10m_u_component_of_wind",
++        "mean_sea_level_pressure",
++    )
++    model = replace(
++        post_dfi_low_mode_thickness_recenter_dinosaur_dycore_model(),
++        inner_step_seconds=3600.0,
++        spectral_wavenumbers=None,
++        output_variables=output_variables,
++        include_vertical_advection=False,
++        jit_forecast=False,
++    )
++    forecast_input = _forecast_input(
++        _post_dfi_forecast_initial_state(init_count=1),
++        lead_steps=(0,),
++    )
++
++    forecast = model.forecast(forecast_input)
++
++    assert forecast.variables == output_variables
++    assert forecast.values.shape == (1, 1, len(output_variables), 4, 3)
++    assert bool(jnp.isfinite(forecast.values).all())
++
++
+ def test_near_surface_residual_correction_matches_initial_and_decays():
+     """Corrected diagnostics match analysis at lead 0 and decay afterward."""
+     spatial_pattern = jnp.arange(12, dtype=jnp.float32).reshape(4, 3) / 10.0
+@@ -4442,6 +4506,180 @@ def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_str
+     assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+ 
+ 
++def test_post_dfi_thickness_recenter_missing_analysis_is_exact_noop():
++    """Missing required geopotential channels preserve the incumbent DFI state."""
++    coords, physics_specs, reference_temperature, state = _synthetic_post_dfi_state()
++
++    corrected = _post_dfi_low_mode_thickness_recenter(
++        state,
++        analysis_geopotential=None,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        pressure_levels_hpa=(300, 500, 700),
++    )
++
++    _assert_pytree_allclose(corrected, state)
++
++
++def test_post_dfi_thickness_recenter_sign_inconsistent_residual_is_noop():
++    """Opposite-signed Z500 and thickness low modes preserve the DFI state."""
++    coords, physics_specs, reference_temperature, state = _synthetic_post_dfi_state()
++    dfi_geopotential, pressure_bracket_is_valid = (
++        _post_dfi_geopotential_on_pressure_levels(
++            state,
++            coords=coords,
++            physics_specs=physics_specs,
++            reference_temperature=reference_temperature,
++        )
++    )
++    assert bool(pressure_bracket_is_valid)
++    pattern = _post_dfi_low_mode_pattern(coords.horizontal)
++    geopotential_unit = _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++    analysis_geopotential = dfi_geopotential + jnp.stack(
++        [
++            -100.0 * geopotential_unit * pattern,
++            100.0 * geopotential_unit * pattern,
++            100.0 * geopotential_unit * pattern,
++        ]
++    )
++
++    corrected = _post_dfi_low_mode_thickness_recenter(
++        state,
++        analysis_geopotential=analysis_geopotential,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        pressure_levels_hpa=(300, 500, 700),
++    )
++
++    _assert_pytree_allclose(corrected, state)
++
++
++def test_post_dfi_thickness_recenter_applies_bounded_area_neutral_increment():
++    """Sign-consistent low-mode thickness residuals adjust only middle temperature."""
++    coords, physics_specs, reference_temperature, state = _synthetic_post_dfi_state()
++    dfi_geopotential, pressure_bracket_is_valid = (
++        _post_dfi_geopotential_on_pressure_levels(
++            state,
++            coords=coords,
++            physics_specs=physics_specs,
++            reference_temperature=reference_temperature,
++        )
++    )
++    assert bool(pressure_bracket_is_valid)
++    pattern = _post_dfi_low_mode_pattern(coords.horizontal)
++    geopotential_unit = _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++    analysis_geopotential = dfi_geopotential + jnp.stack(
++        [
++            110.0 * geopotential_unit * pattern,
++            80.0 * geopotential_unit * pattern,
++            -110.0 * geopotential_unit * pattern,
++        ]
++    )
++
++    corrected = _post_dfi_low_mode_thickness_recenter(
++        state,
++        analysis_geopotential=analysis_geopotential,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        pressure_levels_hpa=(300, 500, 700),
++    )
++
++    nodal_increment = coords.horizontal.to_nodal(
++        corrected.temperature_variation - state.temperature_variation
++    )
++    temperature_cap = _unit_factor(physics_specs, "kelvin") * (
++        _POST_DFI_THICKNESS_MAX_TEMPERATURE_INCREMENT_KELVIN
++    )
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    layer_means = jnp.sum(
++        nodal_increment * quadrature_weights,
++        axis=(-2, -1),
++    ) / jnp.sum(quadrature_weights)
++
++    assert float(jnp.max(jnp.abs(nodal_increment))) > 0.0
++    assert float(jnp.max(jnp.abs(nodal_increment))) <= temperature_cap + 1.0e-6
++    np.testing.assert_allclose(nodal_increment[0], 0.0, atol=1.0e-6)
++    np.testing.assert_allclose(nodal_increment[-1], 0.0, atol=1.0e-6)
++    np.testing.assert_allclose(layer_means, 0.0, atol=2.0e-6)
++    np.testing.assert_array_equal(corrected.vorticity, state.vorticity)
++    np.testing.assert_array_equal(corrected.divergence, state.divergence)
++    np.testing.assert_array_equal(corrected.log_surface_pressure, state.log_surface_pressure)
++    assert corrected.tracers.keys() == state.tracers.keys()
++    for tracer_name, tracer_value in corrected.tracers.items():
++        np.testing.assert_array_equal(tracer_value, state.tracers[tracer_name])
++    np.testing.assert_array_equal(corrected.sim_time, state.sim_time)
++
++
++def test_post_dfi_thickness_recenter_static_stability_guard_falls_back():
++    """A corrected column below the static-stability floor preserves DFI state."""
++    coords, physics_specs, reference_temperature, state = _synthetic_post_dfi_state(
++        neutral_potential_temperature=True,
++    )
++    dfi_geopotential, _ = _post_dfi_geopotential_on_pressure_levels(
++        state,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++    pattern = _post_dfi_low_mode_pattern(coords.horizontal)
++    geopotential_unit = _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++    analysis_geopotential = dfi_geopotential + jnp.stack(
++        [
++            110.0 * geopotential_unit * pattern,
++            80.0 * geopotential_unit * pattern,
++            -110.0 * geopotential_unit * pattern,
++        ]
++    )
++
++    corrected = _post_dfi_low_mode_thickness_recenter(
++        state,
++        analysis_geopotential=analysis_geopotential,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        pressure_levels_hpa=(300, 500, 700),
++    )
++
++    _assert_pytree_allclose(corrected, state)
++
++
++def test_post_dfi_thickness_recenter_nonfinite_diagnostic_falls_back():
++    """Nonfinite same-time analysis geopotential preserves the DFI state."""
++    coords, physics_specs, reference_temperature, state = _synthetic_post_dfi_state()
++    dfi_geopotential, _ = _post_dfi_geopotential_on_pressure_levels(
++        state,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++    )
++    pattern = _post_dfi_low_mode_pattern(coords.horizontal)
++    geopotential_unit = _unit_factor(physics_specs, "meter ** 2 / second ** 2")
++    analysis_geopotential = (
++        dfi_geopotential
++        + jnp.stack(
++            [
++                110.0 * geopotential_unit * pattern,
++                80.0 * geopotential_unit * pattern,
++                -110.0 * geopotential_unit * pattern,
++            ]
++        )
++    ).at[0, 0, 0].set(jnp.nan)
++
++    corrected = _post_dfi_low_mode_thickness_recenter(
++        state,
++        analysis_geopotential=analysis_geopotential,
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        pressure_levels_hpa=(300, 500, 700),
++    )
++
++    _assert_pytree_allclose(corrected, state)
++
++
+ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+@@ -7500,6 +7738,70 @@ def _synthetic_wtg_mass_dse_state():
+     return coords, physics_specs, prev_state, next_state
+ 
+ 
++def _synthetic_post_dfi_state(
++    *,
++    neutral_potential_temperature: bool = False,
++) -> tuple[coordinate_systems.CoordinateSystem, Any, np.ndarray, Any]:
++    physics_specs = units.SimUnits.from_si()
++    horizontal_grid = spherical_harmonic.Grid(
++        longitude_wavenumbers=6,
++        total_wavenumbers=8,
++        longitude_nodes=16,
++        latitude_nodes=8,
++        latitude_spacing="gauss",
++        radius=physics_specs.radius,
++    )
++    coords = coordinate_systems.CoordinateSystem(
++        horizontal_grid,
++        sigma_coordinates.SigmaCoordinates.equidistant(5),
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    surface_pressure = jnp.full(
++        coords.horizontal.nodal_shape,
++        100_000.0 * _unit_factor(physics_specs, "pascal"),
++        dtype=jnp.float32,
++    )
++    sigma_centers = jnp.asarray(coords.vertical.centers, dtype=jnp.float32)
++    if neutral_potential_temperature:
++        full_temperature = (
++            300.0
++            * sigma_centers[:, jnp.newaxis, jnp.newaxis] ** physics_specs.kappa
++            * _unit_factor(physics_specs, "kelvin")
++        )
++        full_temperature = jnp.broadcast_to(full_temperature, coords.nodal_shape)
++    else:
++        full_temperature = jnp.asarray(
++            [230.0, 245.0, 260.0, 275.0, 290.0],
++            dtype=jnp.float32,
++        )[:, jnp.newaxis, jnp.newaxis] * _unit_factor(physics_specs, "kelvin")
++        full_temperature = jnp.broadcast_to(full_temperature, coords.nodal_shape)
++    state = _primitive_equation_state(
++        vorticity=jnp.zeros(coords.modal_shape, dtype=jnp.float32),
++        divergence=jnp.zeros(coords.modal_shape, dtype=jnp.float32),
++        temperature_variation=coords.horizontal.to_modal(
++            full_temperature - reference_temperature[:, jnp.newaxis, jnp.newaxis]
++        ),
++        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
++            jnp.newaxis
++        ],
++        tracers={
++            "specific_humidity": jnp.zeros(coords.modal_shape, dtype=jnp.float32),
++        },
++        sim_time=jnp.asarray(3.0, dtype=jnp.float32),
++    )
++    return coords, physics_specs, reference_temperature, state
++
++
++def _post_dfi_low_mode_pattern(horizontal_grid: spherical_harmonic.Grid) -> jax.Array:
++    longitude, sin_latitude = horizontal_grid.nodal_mesh
++    pattern = jnp.cos(longitude) * (1.0 - sin_latitude**2)
++    weights = jnp.asarray(horizontal_grid.quadrature_weights)
++    return pattern - jnp.sum(pattern * weights) / jnp.sum(weights)
++
++
+ def _linear_implicit_oscillator_equation(
+     frequency: float,
+ ) -> time_integration.ImplicitExplicitODE:
+@@ -7603,6 +7905,50 @@ def _structured_initial_state(
+     return WeatherState(values=values, variables=tuple(fields))
+ 
+ 
++def _post_dfi_forecast_initial_state(*, init_count: int) -> WeatherState:
++    longitude_count = 4
++    latitude_count = 3
++    lon_pattern = jnp.arange(longitude_count, dtype=jnp.float32)[:, np.newaxis]
++    lat_pattern = jnp.arange(latitude_count, dtype=jnp.float32)[np.newaxis, :]
++    spatial_pattern = lon_pattern + 0.25 * lat_pattern
++    pressure_levels = (300, 500, 700)
++    fields = {}
++    for pressure_level in pressure_levels:
++        pressure_fraction = pressure_level / 1000.0
++        fields[f"temperature_{pressure_level}"] = (
++            240.0 + 45.0 * pressure_fraction + 0.2 * spatial_pattern
++        )
++        fields[f"u_component_of_wind_{pressure_level}"] = (
++            2.0 + 0.4 * pressure_fraction + 0.05 * spatial_pattern
++        )
++        fields[f"v_component_of_wind_{pressure_level}"] = (
++            -1.0 + 0.2 * pressure_fraction - 0.03 * spatial_pattern
++        )
++        fields[f"specific_humidity_{pressure_level}"] = (
++            0.001 + 0.0001 * pressure_fraction
++        ) + 0.0 * spatial_pattern
++        fields[f"geopotential_{pressure_level}"] = (
++            45_000.0
++            - 45.0 * pressure_level
++            + 12.0 * jnp.cos(spatial_pattern)
++        )
++    fields["mean_sea_level_pressure"] = 100_000.0 + 20.0 * spatial_pattern
++    fields["2m_temperature"] = 286.0 + 0.1 * spatial_pattern
++    fields["10m_u_component_of_wind"] = 3.0 + 0.05 * spatial_pattern
++
++    values = jnp.stack(
++        [
++            jnp.broadcast_to(
++                field_value,
++                (init_count, longitude_count, latitude_count),
++            )
++            for field_value in fields.values()
++        ],
++        axis=1,
++    )
++    return WeatherState(values=values, variables=tuple(fields))
++
++
+ def _structured_field(
+     state: WeatherState,
+     variable_name: str,
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..9a488fd 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_postdfi_thick",
+     )
+ 
+ 
+@@ -726,6 +727,20 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_post_dfi_thickness_candidate_model():
++    """The post-DFI thickness alias adds only the initialization selector."""
++    model = create_dycore_model("dino_ri2m_postdfi_thick")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_postdfi_thick"
++    assert model.apply_post_dfi_low_mode_thickness_recenter
++    assert not incumbent.apply_post_dfi_low_mode_thickness_recenter
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_post_dfi_low_mode_thickness_recenter"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

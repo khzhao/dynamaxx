@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "post-dfi-lowmode-thickness-recenter",
+  "candidate_model_name": "dino_ri2m_postdfi_thick",
+  "incumbent_model_name": "dino_ri2m_ekman_coupled",
+  "worker_count": 4,
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "leaderboard_eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+    "current_head": "399e133aa14b83cd8fd3dd16f48d267df8a84bf5",
+    "fixed_eval_code_diff_against_leaderboard": [],
+    "protocols": [
+      "fast",
+      "iteration"
+    ],
+    "validation_skipped": true,
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "test_evidence": [
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -q -k \"post_dfi_thickness\"",
+      "exit_status": 0,
+      "source": "orchestrator_provided",
+      "notes": "Passed: 7 passed, 152 deselected."
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "source": "orchestrator_provided",
+      "notes": "Passed: 215 passed, 1 skipped."
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "source": "orchestrator_provided",
+      "notes": "Passed: 281 passed, 2 skipped."
+    }
+  ],
+  "commands": [
+    {
+      "command": "uv run python -c \"from dynamaxx.dycore.registry import create_dycore_model; print(create_dycore_model('dino_ri2m_postdfi_thick').name); print(create_dycore_model('dino_ri2m_ekman_coupled').name)\"",
+      "exit_status": 0,
+      "notes": "Confirmed candidate and incumbent models are registered."
+    },
+    {
+      "command": "git diff --name-only d187308d30a242bf38aabe5b7eb530fca522a68f -- src/dynamaxx/eval src/dynamaxx/cli.py src/dynamaxx/data src/dynamaxx/utils/consts.py",
+      "exit_status": 0,
+      "notes": "No fixed evaluation, CLI, data-loading, or data-path files differed from the leaderboard eval_code_commit."
+    },
+    {
+      "command": "python -m json.tool outputs/eval/iteration_dino_ri2m_ekman_coupled.json >/dev/null && python -m json.tool outputs/eval/validation_dino_ri2m_ekman_coupled.json >/dev/null",
+      "exit_status": 0,
+      "notes": "Cached incumbent JSON artifacts are readable."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_postdfi_thick",
+      "exit_status": 0,
+      "notes": "Candidate fast gate completed with failed=False and issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_postdfi_thick --workers 4",
+      "exit_status": 0,
+      "notes": "Candidate iteration completed with failed=False and issues=0."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_postdfi_thick --workers 4",
+      "exit_status": null,
+      "skipped": true,
+      "notes": "Skipped because the candidate did not meet the +0.002 iteration primary-score promotion threshold."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_postdfi_thick.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_postdfi_thick.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_postdfi_thick.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_postdfi_thick.csv",
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.1677176844579508,
+    "candidate_iteration": -0.16500616889205458,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.16500618979404214,
+    "incumbent_validation": -0.16591150807771451,
+    "iteration_delta": 2.0901987557442325e-08,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "fast": {
+      "candidate_failed": false,
+      "candidate_issue_count": 0
+    },
+    "iteration": {
+      "candidate_failed": false,
+      "candidate_issue_count": 0,
+      "incumbent_failed": false,
+      "incumbent_issue_count": 0
+    },
+    "validation": {
+      "candidate_failed": null,
+      "candidate_issue_count": null,
+      "incumbent_failed": false,
+      "incumbent_issue_count": 0,
+      "notes": "Incumbent validation artifact was readable and finite, but candidate validation was skipped."
+    }
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": false,
+    "iteration_primary_delta_threshold": 0.002,
+    "iteration_primary_delta_passed": false,
+    "iteration_diagnostics_passed": true,
+    "iteration_guardrails_passed": true,
+    "validation_run": false,
+    "validation_acceptance_gate_passed": null,
+    "validation_skip_reason": "Candidate iteration primary delta was 2.0901987557442325e-08, below the required +0.002 promotion threshold."
+  },
+  "regressions": {
+    "iteration": {
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_days": "1..5",
+          "mean_relative_rmse_regression": -8.723516596195728e-09,
+          "threshold": 0.02,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_days": "1..5",
+          "mean_relative_rmse_regression": -1.2899696632300006e-07,
+          "threshold": 0.02,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "lead_days": "1..5",
+          "mean_relative_rmse_regression": -1.0740548693255246e-06,
+          "threshold": 0.02,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "lead_days": "1..5",
+          "mean_relative_rmse_regression": 4.542720162681533e-08,
+          "threshold": 0.02,
+          "passed": true
+        }
+      ],
+      "max_rmse_regression_by_variable": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "lead_hours": 240,
+          "lead_days": 10.0,
+          "candidate_rmse": 5.1109390957142615,
+          "incumbent_rmse": 5.110938024991469,
+          "relative_regression": 2.0949633647899042e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "2m_temperature",
+          "lead_hours": 360,
+          "lead_days": 15.0,
+          "candidate_rmse": 7.7420392756159,
+          "incumbent_rmse": 7.742036906703233,
+          "relative_regression": 3.0598054432752663e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "geopotential_500",
+          "lead_hours": 312,
+          "lead_days": 13.0,
+          "candidate_rmse": 1068.8691067224208,
+          "incumbent_rmse": 1068.8688972954988,
+          "relative_regression": 1.959332174537666e-07,
+          "threshold": 0.1,
+          "passed": true
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "lead_hours": 336,
+          "lead_days": 14.0,
+          "candidate_rmse": 1023.2346999077437,
+          "incumbent_rmse": 1023.2344489612698,
+          "relative_regression": 2.4524826558813654e-07,
+          "threshold": 0.1,
+          "passed": true
+        }
+      ],
+      "global_max_rmse_regression": {
+        "channel_name": "2m_temperature",
+        "lead_hours": 360,
+        "lead_days": 15.0,
+        "candidate_rmse": 7.7420392756159,
+        "incumbent_rmse": 7.742036906703233,
+        "relative_regression": 3.0598054432752663e-07,
+        "threshold": 0.1,
+        "passed": true
+      }
+    }
+  },
+  "cache_reuse": {
+    "fast": {
+      "status": "not_applicable",
+      "incumbent_recomputed": false,
+      "notes": "Fast is a candidate sanity gate; no incumbent fast comparison was required."
+    },
+    "iteration": {
+      "status": "reused",
+      "incumbent_recomputed": false,
+      "leaderboard_path": ".logbook/leaderboard.json",
+      "metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "fingerprint_data_path_matches": true,
+        "fingerprint_target_variables_match": true,
+        "fingerprint_lead_days_match": true,
+        "fingerprint_protocol_includes_iteration": true,
+        "fixed_eval_code_diff_against_leaderboard_empty": true,
+        "artifact_exists_and_readable": true,
+        "contains_incumbent_rows": true,
+        "finite_primary_score": true,
+        "contains_guardrail_records": true
+      }
+    },
+    "validation": {
+      "status": "cache_valid_but_candidate_validation_skipped",
+      "incumbent_recomputed": false,
+      "leaderboard_path": ".logbook/leaderboard.json",
+      "metrics_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+      "validation_checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "fingerprint_data_path_matches": true,
+        "fingerprint_target_variables_match": true,
+        "fingerprint_lead_days_match": true,
+        "fingerprint_protocol_includes_validation": true,
+        "fixed_eval_code_diff_against_leaderboard_empty": true,
+        "artifact_exists_and_readable": true,
+        "contains_incumbent_rows": true,
+        "finite_primary_score": true,
+        "contains_guardrail_records": true
+      },
+      "notes": "No incumbent validation rerun was performed. The cache remained valid, but no validation comparison was needed because candidate validation was skipped."
+    }
+  }
+}

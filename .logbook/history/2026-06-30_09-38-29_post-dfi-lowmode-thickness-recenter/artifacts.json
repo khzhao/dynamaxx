@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "post-dfi-lowmode-thickness-recenter",
+  "history_path": ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py",
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_postdfi_thick.json",
+    "outputs/eval/fast_dino_ri2m_postdfi_thick.csv",
+    "outputs/eval/iteration_dino_ri2m_postdfi_thick.json",
+    "outputs/eval/iteration_dino_ri2m_postdfi_thick.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/proposal.md",
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/resource_snapshot.md",
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/implementation.md",
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/scores.json",
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/scoring_notes.md",
+    ".logbook/history/2026-06-30_09-38-29_post-dfi-lowmode-thickness-recenter/decision.md"
+  ],
+  "notes": "Candidate rejected because iteration delta was +2.0901987557442325e-08, below the +0.002 promotion threshold. Incumbent metrics were reused from valid leaderboard cache artifacts; no incumbent rerun was performed. Candidate validation and golden were not run."
+}
