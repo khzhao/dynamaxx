@@ -1,0 +1,748 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..895bec7 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -64,6 +64,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
++    roughness_weighted_ekman_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     stability_aware_surface_residual_dinosaur_dycore_model,
+@@ -117,6 +118,7 @@ __all__ = [
+     "pytree_utils",
+     "radiation",
+     "richardson_10m_wind_diagnostic_dinosaur_dycore_model",
++    "roughness_weighted_ekman_dinosaur_dycore_model",
+     "scales",
+     "scale_separated_surface_residual_dinosaur_dycore_model",
+     "semi_implicit_offcenter_dinosaur_dycore_model",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..4f985b2 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -103,6 +103,12 @@ _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
+ _EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR = 0.85
+ _EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
+ _EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
++_EKMAN_ROUGHNESS_RAW_OCEAN_MULTIPLIER = 0.86
++_EKMAN_ROUGHNESS_RAW_LAND_MULTIPLIER = 1.20
++_EKMAN_ROUGHNESS_RAW_COAST_BUMP = 0.04
++_EKMAN_ROUGHNESS_NORMALIZED_MIN = 0.75
++_EKMAN_ROUGHNESS_NORMALIZED_MAX = 1.35
++_EKMAN_ROUGHNESS_AREA_MEAN_ATOL = 2.0e-6
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -167,6 +173,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
++    use_static_roughness_weighted_ekman_coupling: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -210,6 +217,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             self.use_land_sea_surface_temperature_residual
+             or self.use_land_ocean_low_mode_t2m_memory
+             or self.apply_ocean_bulk_sensible_heat_flux
++            or self.use_static_roughness_weighted_ekman_coupling
+         ):
+             land_sea_fraction = _load_land_sea_fraction_for_grid(
+                 longitude=forecast_input.longitude,
+@@ -227,6 +235,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     valid_land_sea_fraction,
+                     grid.latitude_reversed,
+                 )
++        ekman_roughness_multiplier = None
++        if self.use_static_roughness_weighted_ekman_coupling:
++            ekman_roughness_multiplier = (
++                _static_roughness_weighted_ekman_multiplier_or_none(
++                    land_sea_fraction,
++                    quadrature_weights=grid.coords.horizontal.quadrature_weights,
++                    latitude_reversed=grid.latitude_reversed,
++                )
++            )
+ 
+         trajectory_fn = self._trajectory_function(
+             coords=grid.coords,
+@@ -236,6 +253,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             output_count=max(forecast_input.lead_steps) + 1,
+             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
+             ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
++            ekman_roughness_multiplier=ekman_roughness_multiplier,
+         )
+ 
+         forecasts = []
+@@ -346,6 +364,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         output_count: int,
+         use_humidity_in_dynamics: bool,
+         ocean_bulk_shf_ocean_weight: jax.Array | None = None,
++        ekman_roughness_multiplier: jax.Array | None = None,
+     ):
+         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+         use_coriolis_rotation_split = (
+@@ -493,6 +512,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        surface_drag_multiplier=(
++                            ekman_roughness_multiplier
++                            if self.use_static_roughness_weighted_ekman_coupling
++                            else None
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -970,6 +994,7 @@ def _ekman_coupled_surface_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    surface_drag_multiplier: jax.Array | None = None,
+ ) -> Any:
+     """Return a weak coupled stress and pressure filter for the lower layers."""
+     assert step_seconds > 0.0
+@@ -1007,6 +1032,21 @@ def _ekman_coupled_surface_step_filter(
+         _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+         dtype=jnp.float32,
+     )
++    valid_surface_drag_multiplier = _valid_ekman_surface_drag_multiplier_or_none(
++        surface_drag_multiplier,
++        horizontal_grid.nodal_shape,
++        quadrature_weights,
++    )
++    if valid_surface_drag_multiplier is None:
++        coupled_drag_coefficient = jnp.asarray(
++            _EKMAN_COUPLED_DRAG_COEFFICIENT,
++            dtype=jnp.float32,
++        )
++    else:
++        coupled_drag_coefficient = (
++            jnp.asarray(_EKMAN_COUPLED_DRAG_COEFFICIENT, dtype=jnp.float32)
++            * valid_surface_drag_multiplier
++        )
+     fallback_temperature = jnp.asarray(
+         250.0 * temperature_unit_factor, dtype=jnp.float32
+     )
+@@ -1071,16 +1111,10 @@ def _ekman_coupled_surface_step_filter(
+             jnp.maximum(lowest_u_wind_si**2 + lowest_v_wind_si**2, 0.0)
+         )
+         stress_u = (
+-            safe_density
+-            * _EKMAN_COUPLED_DRAG_COEFFICIENT
+-            * wind_speed_si
+-            * lowest_u_wind_si
++            safe_density * coupled_drag_coefficient * wind_speed_si * lowest_u_wind_si
+         )
+         stress_v = (
+-            safe_density
+-            * _EKMAN_COUPLED_DRAG_COEFFICIENT
+-            * wind_speed_si
+-            * lowest_v_wind_si
++            safe_density * coupled_drag_coefficient * wind_speed_si * lowest_v_wind_si
+         )
+         surface_u_acceleration = (
+             -stress_u
+@@ -1311,6 +1345,131 @@ def _ekman_coupled_equatorial_taper(
+     return taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
+ 
+ 
++def _static_roughness_weighted_ekman_multiplier_or_none(
++    land_sea_fraction: jax.Array | None,
++    *,
++    quadrature_weights: jax.Array,
++    latitude_reversed: bool,
++) -> jax.Array | None:
++    """Return a bounded, area-normalized static Ekman drag multiplier."""
++    try:
++        weights = np.asarray(jax.device_get(quadrature_weights), dtype=np.float64)
++    except Exception:
++        return None
++    valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
++        land_sea_fraction,
++        tuple(int(size) for size in weights.shape),
++    )
++    if valid_land_sea_fraction is None:
++        return None
++    try:
++        land_fraction = np.asarray(
++            jax.device_get(
++                _to_dinosaur_latitude_order(
++                    valid_land_sea_fraction,
++                    latitude_reversed,
++                )
++            ),
++            dtype=np.float64,
++        )
++    except Exception:
++        return None
++    if weights.shape != land_fraction.shape:
++        return None
++    if weights.size == 0 or not bool(np.isfinite(weights).all()):
++        return None
++    total_weight = float(np.sum(weights))
++    if not np.isfinite(total_weight) or total_weight <= 0.0:
++        return None
++
++    smooth_land_weight = land_fraction * land_fraction * (3.0 - 2.0 * land_fraction)
++    coastline_weight = 4.0 * land_fraction * (1.0 - land_fraction)
++    raw_multiplier = (
++        _EKMAN_ROUGHNESS_RAW_OCEAN_MULTIPLIER
++        + (_EKMAN_ROUGHNESS_RAW_LAND_MULTIPLIER - _EKMAN_ROUGHNESS_RAW_OCEAN_MULTIPLIER)
++        * smooth_land_weight
++        + _EKMAN_ROUGHNESS_RAW_COAST_BUMP * coastline_weight
++    )
++    raw_multiplier = np.clip(
++        raw_multiplier,
++        _EKMAN_ROUGHNESS_NORMALIZED_MIN,
++        _EKMAN_ROUGHNESS_NORMALIZED_MAX,
++    )
++    raw_area_mean = float(np.sum(raw_multiplier * weights) / total_weight)
++    if not np.isfinite(raw_area_mean) or raw_area_mean <= 0.0:
++        return None
++
++    normalized_multiplier = raw_multiplier / raw_area_mean
++    normalized_multiplier = normalized_multiplier.astype(np.float32)
++    cast_area_mean = float(
++        np.sum(normalized_multiplier.astype(np.float64) * weights) / total_weight
++    )
++    if not np.isfinite(cast_area_mean) or cast_area_mean <= 0.0:
++        return None
++    normalized_multiplier = (
++        normalized_multiplier.astype(np.float64) / cast_area_mean
++    ).astype(np.float32)
++    correction_mean = float(
++        np.sum(normalized_multiplier.astype(np.float64) * weights) / total_weight
++    )
++    if np.isfinite(correction_mean) and correction_mean > 0.0:
++        residual = 1.0 - correction_mean
++        max_weight_index = np.unravel_index(int(np.argmax(weights)), weights.shape)
++        normalized_multiplier[max_weight_index] = np.float32(
++            normalized_multiplier[max_weight_index]
++            + residual * total_weight / float(weights[max_weight_index])
++        )
++
++    return _valid_ekman_surface_drag_multiplier_or_none(
++        normalized_multiplier,
++        land_fraction.shape,
++        weights,
++    )
++
++
++def _valid_ekman_surface_drag_multiplier_or_none(
++    surface_drag_multiplier: jax.Array | None,
++    spatial_shape: tuple[int, int],
++    quadrature_weights: jax.Array,
++) -> jax.Array | None:
++    """Return a finite mean-one Ekman multiplier or `None` for exact fallback."""
++    if surface_drag_multiplier is None:
++        return None
++    try:
++        candidate = np.asarray(
++            jax.device_get(surface_drag_multiplier),
++            dtype=np.float32,
++        )
++        weights = np.asarray(jax.device_get(quadrature_weights), dtype=np.float64)
++    except Exception:
++        return None
++    if candidate.shape != tuple(spatial_shape) or weights.shape != tuple(spatial_shape):
++        return None
++    if candidate.size == 0 or not bool(np.isfinite(candidate).all()):
++        return None
++    if weights.size == 0 or not bool(np.isfinite(weights).all()):
++        return None
++    total_weight = float(np.sum(weights))
++    if not np.isfinite(total_weight) or total_weight <= 0.0:
++        return None
++    if (
++        float(np.min(candidate)) < _EKMAN_ROUGHNESS_NORMALIZED_MIN
++        or float(np.max(candidate)) > _EKMAN_ROUGHNESS_NORMALIZED_MAX
++    ):
++        return None
++    area_mean = float(np.sum(candidate.astype(np.float64) * weights) / total_weight)
++    if (
++        not np.isfinite(area_mean)
++        or area_mean <= 0.0
++        or abs(area_mean - 1.0) > _EKMAN_ROUGHNESS_AREA_MEAN_ATOL
++    ):
++        return None
++    if bool(np.allclose(candidate, 1.0, rtol=0.0, atol=1.0e-7)):
++        return None
++    candidate.setflags(write=False)
++    return jnp.asarray(candidate, dtype=jnp.float32)
++
++
+ def _area_weighted_mean(nodal_field: jax.Array, weights: jax.Array) -> jax.Array:
+     """Return the horizontal area mean over the final two axes."""
+     return jnp.sum(nodal_field * weights, axis=(-2, -1)) / jnp.sum(weights)
+@@ -1823,6 +1982,17 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def roughness_weighted_ekman_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the coupled Ekman dycore with static roughness drag placement."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_z0",
++        use_static_roughness_weighted_ekman_coupling=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..1c8a24e 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,15 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_z0_model() -> DycoreModel:
++    """Return coupled Ekman candidate with static roughness drag placement."""
++    from dynamaxx.dycore.models.dinosaur import (
++        roughness_weighted_ekman_dinosaur_dycore_model,
++    )
++
++    return roughness_weighted_ekman_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +344,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_ekman_z0": dino_ri2m_ekman_z0_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..2945184 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -146,6 +146,9 @@ assert (
+ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
++assert dinosaur.roughness_weighted_ekman_dinosaur_dycore_model().name == (
++    "dino_ri2m_ekman_z0"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -250,6 +253,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_z0",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -830,6 +834,29 @@ def test_dinosaur_ekman_coupled_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_roughness_weighted_ekman_model_is_registered():
++    """The roughness-weighted Ekman candidate extends only the incumbent selector."""
++    model = create_dycore_model("dino_ri2m_ekman_z0")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_z0"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_static_roughness_weighted_ekman_coupling
++    assert not incumbent.use_static_roughness_weighted_ekman_coupling
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_static_roughness_weighted_ekman_coupling"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..dd2d44e 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -28,6 +28,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO,
+     _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
+     _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
++    _EKMAN_ROUGHNESS_NORMALIZED_MAX,
++    _EKMAN_ROUGHNESS_NORMALIZED_MIN,
+     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+@@ -69,6 +71,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _scale_separated_residual_low_mode_mask,
+     _split_near_surface_residual_by_scale,
+     _stability_aware_near_surface_residual_decay_hours,
++    _static_roughness_weighted_ekman_multiplier_or_none,
+     _surface_layer_richardson_10m_wind,
+     _symmetric_exact_coriolis_rotation_step,
+     _theta_layer_mean_recenter_step_filter,
+@@ -98,6 +101,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
++    roughness_weighted_ekman_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
+     split_pressure_level_channel,
+@@ -190,6 +194,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
+     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
+     assert not model.use_bulk_richardson_2m_temperature_diagnostic
+     assert not model.apply_coupled_ekman_surface_closure
++    assert not model.use_static_roughness_weighted_ekman_coupling
+     assert not model.use_log_pressure_initialization
+     assert not model.apply_weak_held_suarez_relaxation
+     assert not model.apply_exact_coriolis_rotation_split
+@@ -733,6 +738,21 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_roughness_weighted_ekman_factory_preserves_incumbent_except_selector():
++    """The roughness candidate only opts into static Ekman drag placement."""
++    model = roughness_weighted_ekman_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_z0"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_static_roughness_weighted_ekman_coupling
++    assert not incumbent.use_static_roughness_weighted_ekman_coupling
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_static_roughness_weighted_ekman_coupling"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4442,6 +4462,270 @@ def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_str
+     assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+ 
+ 
++def test_static_roughness_ekman_multiplier_preserves_global_mean_drag():
++    """The static roughness map redistributes, but does not retune, mean drag."""
++    land_sea_fraction = jnp.asarray(
++        [
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++        ],
++        dtype=jnp.float32,
++    )
++    quadrature_weights = jnp.asarray(
++        [
++            [0.8, 1.0, 0.8],
++            [0.8, 1.0, 0.8],
++            [0.8, 1.0, 0.8],
++            [0.8, 1.0, 0.8],
++        ],
++        dtype=jnp.float32,
++    )
++
++    multiplier = _static_roughness_weighted_ekman_multiplier_or_none(
++        land_sea_fraction,
++        quadrature_weights=quadrature_weights,
++        latitude_reversed=False,
++    )
++
++    assert multiplier is not None
++    multiplier_array = np.asarray(multiplier)
++    weights_array = np.asarray(quadrature_weights)
++    area_mean = np.sum(multiplier_array * weights_array) / np.sum(weights_array)
++    np.testing.assert_allclose(area_mean, 1.0, rtol=0.0, atol=2.0e-7)
++    assert float(np.min(multiplier_array)) >= _EKMAN_ROUGHNESS_NORMALIZED_MIN
++    assert float(np.max(multiplier_array)) <= _EKMAN_ROUGHNESS_NORMALIZED_MAX
++
++
++def test_static_roughness_ekman_multiplier_orders_ocean_coast_land():
++    """The bounded land/sea classes increase drag from ocean to coast to land."""
++    land_sea_fraction = jnp.asarray(
++        [
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++        ],
++        dtype=jnp.float32,
++    )
++    quadrature_weights = jnp.ones_like(land_sea_fraction)
++
++    multiplier = _static_roughness_weighted_ekman_multiplier_or_none(
++        land_sea_fraction,
++        quadrature_weights=quadrature_weights,
++        latitude_reversed=False,
++    )
++
++    assert multiplier is not None
++    multiplier_array = np.asarray(multiplier)
++    ocean_multiplier = float(np.mean(multiplier_array[:, 0]))
++    coast_multiplier = float(np.mean(multiplier_array[:, 1]))
++    land_multiplier = float(np.mean(multiplier_array[:, 2]))
++    assert ocean_multiplier < coast_multiplier < land_multiplier
++    assert ocean_multiplier >= _EKMAN_ROUGHNESS_NORMALIZED_MIN
++    assert land_multiplier <= _EKMAN_ROUGHNESS_NORMALIZED_MAX
++
++
++def test_static_roughness_ekman_multiplier_uses_dinosaur_latitude_order():
++    """Latitude reversal is applied before the multiplier reaches the filter."""
++    source_order_land_fraction = jnp.asarray(
++        [
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++            [0.0, 0.5, 1.0],
++        ],
++        dtype=jnp.float32,
++    )
++    quadrature_weights = jnp.ones_like(source_order_land_fraction)
++
++    multiplier = _static_roughness_weighted_ekman_multiplier_or_none(
++        source_order_land_fraction,
++        quadrature_weights=quadrature_weights,
++        latitude_reversed=True,
++    )
++
++    assert multiplier is not None
++    multiplier_array = np.asarray(multiplier)
++    assert float(np.mean(multiplier_array[:, 0])) > float(
++        np.mean(multiplier_array[:, 1])
++    )
++    assert float(np.mean(multiplier_array[:, 1])) > float(
++        np.mean(multiplier_array[:, 2])
++    )
++
++
++def test_static_roughness_ekman_multiplier_invalid_fields_fall_back():
++    """Missing, nonfinite, or shape-incompatible static fields are ignored."""
++    quadrature_weights = jnp.ones((4, 3), dtype=jnp.float32)
++
++    assert (
++        _static_roughness_weighted_ekman_multiplier_or_none(
++            None,
++            quadrature_weights=quadrature_weights,
++            latitude_reversed=False,
++        )
++        is None
++    )
++    assert (
++        _static_roughness_weighted_ekman_multiplier_or_none(
++            jnp.ones((2, 2), dtype=jnp.float32),
++            quadrature_weights=quadrature_weights,
++            latitude_reversed=False,
++        )
++        is None
++    )
++    assert (
++        _static_roughness_weighted_ekman_multiplier_or_none(
++            jnp.asarray(
++                [
++                    [0.0, 0.5, 1.0],
++                    [0.0, jnp.nan, 1.0],
++                    [0.0, 0.5, 1.0],
++                    [0.0, 0.5, 1.0],
++                ],
++                dtype=jnp.float32,
++            ),
++            quadrature_weights=quadrature_weights,
++            latitude_reversed=False,
++        )
++        is None
++    )
++
++
++def test_ekman_coupled_filter_all_one_roughness_matches_incumbent():
++    """An all-one multiplier is removed so the filter is bitwise incumbent."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    filter_kwargs = {
++        "coords": coords,
++        "physics_specs": physics_specs,
++        "reference_temperature": _reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
++    }
++    incumbent_filter = _ekman_coupled_surface_step_filter(**filter_kwargs)
++    all_one_filter = _ekman_coupled_surface_step_filter(
++        **filter_kwargs,
++        surface_drag_multiplier=jnp.ones(
++            coords.horizontal.nodal_shape,
++            dtype=jnp.float32,
++        ),
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    candidate = all_one_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(candidate.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(candidate.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        candidate.temperature_variation,
++        incumbent.temperature_variation,
++    )
++    np.testing.assert_array_equal(
++        candidate.log_surface_pressure,
++        incumbent.log_surface_pressure,
++    )
++    assert candidate.tracers.keys() == incumbent.tracers.keys()
++    for tracer_name, tracer_value in candidate.tracers.items():
++        np.testing.assert_array_equal(tracer_value, incumbent.tracers[tracer_name])
++
++
++def test_ekman_coupled_filter_invalid_roughness_matches_incumbent():
++    """Invalid multipliers fail closed to the accepted coupled Ekman filter."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    filter_kwargs = {
++        "coords": coords,
++        "physics_specs": physics_specs,
++        "reference_temperature": _reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
++    }
++    incumbent_filter = _ekman_coupled_surface_step_filter(**filter_kwargs)
++    invalid_filter = _ekman_coupled_surface_step_filter(
++        **filter_kwargs,
++        surface_drag_multiplier=jnp.full(
++            coords.horizontal.nodal_shape,
++            2.0,
++            dtype=jnp.float32,
++        ),
++    )
++
++    incumbent = incumbent_filter(prev_state, next_state)
++    candidate = invalid_filter(prev_state, next_state)
++
++    np.testing.assert_array_equal(candidate.vorticity, incumbent.vorticity)
++    np.testing.assert_array_equal(candidate.divergence, incumbent.divergence)
++    np.testing.assert_array_equal(
++        candidate.temperature_variation,
++        incumbent.temperature_variation,
++    )
++    np.testing.assert_array_equal(
++        candidate.log_surface_pressure,
++        incumbent.log_surface_pressure,
++    )
++
++
++def test_ekman_coupled_filter_applies_valid_static_roughness():
++    """A valid static multiplier changes the accepted stress-pumping path."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    land_sea_fraction = jnp.broadcast_to(
++        jnp.linspace(
++            0.0,
++            1.0,
++            coords.horizontal.nodal_shape[-1],
++            dtype=jnp.float32,
++        )[jnp.newaxis, :],
++        coords.horizontal.nodal_shape,
++    )
++    surface_drag_multiplier = _static_roughness_weighted_ekman_multiplier_or_none(
++        land_sea_fraction,
++        quadrature_weights=coords.horizontal.quadrature_weights,
++        latitude_reversed=False,
++    )
++    assert surface_drag_multiplier is not None
++    filter_kwargs = {
++        "coords": coords,
++        "physics_specs": physics_specs,
++        "reference_temperature": _reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
++    }
++    incumbent = _ekman_coupled_surface_step_filter(**filter_kwargs)(
++        prev_state,
++        next_state,
++    )
++    candidate = _ekman_coupled_surface_step_filter(
++        **filter_kwargs,
++        surface_drag_multiplier=surface_drag_multiplier,
++    )(prev_state, next_state)
++
++    assert float(jnp.max(jnp.abs(candidate.vorticity - incumbent.vorticity))) > 0.0
++    assert (
++        float(
++            jnp.max(
++                jnp.abs(candidate.log_surface_pressure - incumbent.log_surface_pressure)
++            )
++        )
++        > 0.0
++    )
++    assert bool(jnp.all(jnp.isfinite(candidate.vorticity)))
++    assert bool(jnp.all(jnp.isfinite(candidate.divergence)))
++    assert bool(jnp.all(jnp.isfinite(candidate.log_surface_pressure)))
++
++
+ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..2fff214 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_z0",
+     )
+ 
+ 
+@@ -726,6 +727,29 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_roughness_weighted_ekman_candidate_model():
++    """The roughness-weighted alias adds only static Ekman drag placement."""
++    model = create_dycore_model("dino_ri2m_ekman_z0")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_z0"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_static_roughness_weighted_ekman_coupling
++    assert not incumbent.use_static_roughness_weighted_ekman_coupling
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_static_roughness_weighted_ekman_coupling"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):
