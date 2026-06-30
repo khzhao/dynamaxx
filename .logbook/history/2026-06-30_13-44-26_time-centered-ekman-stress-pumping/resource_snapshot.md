@@ -1,0 +1,33 @@
+# Resource Snapshot
+
+## Identity
+
+- Timestamp: 2026-06-30T13:44:26Z
+- Proposal slug: time-centered-ekman-stress-pumping
+- Candidate model name: dino_ri2m_ekman_tcenter
+- Incumbent model name: dino_ri2m_ekman_coupled
+- Baseline commit before implementation: 3fdb5437dfb22b191c9776a06ae6f0e537b75d2f
+- Accepted incumbent source commit: d187308d30a242bf38aabe5b7eb530fca522a68f
+- Pre-existing worktree status: untracked `gifs/` only
+
+## Machine Resources
+
+- CPU count: 48
+- Available RAM: approximately 170 GiB
+- GPU count: 4
+- GPU memory: 4 x NVIDIA L4, each 23034 MiB total and approximately 22566 MiB free
+- Free disk for repository/output paths: approximately 4.1 TiB
+- Selected evaluation workers: 4
+
+## Worker Rationale
+
+`--workers 4` follows the protocol's conservative defaults: available RAM is above 128 GiB, CPU count is 48, GPU memory is idle, and disk space is well above the 50 GiB minimum.
+
+## Incumbent Cache Status
+
+- Leaderboard incumbent metrics are present and readable.
+- Iteration artifact: `outputs/eval/iteration_dino_ri2m_ekman_coupled.json`
+- Validation artifact: `outputs/eval/validation_dino_ri2m_ekman_coupled.json`
+- Cached iteration primary score: -0.16500618979404214
+- Cached validation primary score: -0.16591150807771451
+- Cache validity rationale: accepted incumbent artifacts match the requested incumbent, data path, target variables, lead days, and fixed eval code. Current candidate edits do not invalidate the accepted incumbent cache under `roles/PROTOCOL.md`.

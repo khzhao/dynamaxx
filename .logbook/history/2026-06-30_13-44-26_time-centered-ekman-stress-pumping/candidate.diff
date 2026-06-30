@@ -1,0 +1,547 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..de8c29b 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -69,6 +69,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     stability_aware_surface_residual_dinosaur_dycore_model,
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
++    time_centered_ekman_coupled_dinosaur_dycore_model,
+     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+ )
+@@ -127,6 +128,7 @@ __all__ = [
+     "stability_aware_surface_residual_dinosaur_dycore_model",
+     "theta_mean_recenter_dinosaur_dycore_model",
+     "theta_tendency_dinosaur_dycore_model",
++    "time_centered_ekman_coupled_dinosaur_dycore_model",
+     "time_integration",
+     "tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model",
+     "typing",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..2f09328 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -167,6 +167,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_pressure_ramped_vertical_dse_increment: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
++    use_time_centered_ekman_coupled_closure: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -493,6 +494,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         physics_specs=physics_specs,
+                         reference_temperature=reference_temperature,
+                         step_seconds=step_seconds,
++                        use_time_centered_closure=(
++                            self.use_time_centered_ekman_coupled_closure
++                        ),
+                     )
+                 )
+             if self.apply_theta_layer_mean_recentering:
+@@ -970,6 +974,7 @@ def _ekman_coupled_surface_step_filter(
+     physics_specs: Any,
+     reference_temperature: np.ndarray,
+     step_seconds: float,
++    use_time_centered_closure: bool = False,
+ ) -> Any:
+     """Return a weak coupled stress and pressure filter for the lower layers."""
+     assert step_seconds > 0.0
+@@ -1012,22 +1017,58 @@ def _ekman_coupled_surface_step_filter(
+     )
+     fallback_pressure = jnp.asarray(100_000.0 * pressure_unit_factor, dtype=jnp.float32)
+ 
+-    def ekman_coupled_surface_filter(prev_state: Any, next_state: Any) -> Any:
+-        del prev_state
++    def diagnose_surface_inputs(state: Any) -> tuple[jax.Array, ...]:
+         u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+             horizontal_grid,
+-            next_state.vorticity,
+-            next_state.divergence,
++            state.vorticity,
++            state.divergence,
+         )
+         lowest_u_wind = u_wind[-1]
+         lowest_v_wind = v_wind[-1]
+         nodal_temperature = (
+-            horizontal_grid.to_nodal(next_state.temperature_variation)
++            horizontal_grid.to_nodal(state.temperature_variation)
+             + reference_temperature[:, jnp.newaxis, jnp.newaxis]
+         )
+         lowest_temperature = nodal_temperature[-1]
+         surface_pressure = jnp.exp(
+-            horizontal_grid.to_nodal(next_state.log_surface_pressure)[0]
++            horizontal_grid.to_nodal(state.log_surface_pressure)[0]
++        )
++        return lowest_u_wind, lowest_v_wind, lowest_temperature, surface_pressure
++
++    def diagnostics_have_matching_shapes(
++        left_diagnostics: tuple[jax.Array, ...],
++        right_diagnostics: tuple[jax.Array, ...],
++    ) -> bool:
++        return all(
++            left.shape == right.shape
++            for left, right in zip(left_diagnostics, right_diagnostics)
++        )
++
++    def surface_diagnostics_are_valid(
++        surface_diagnostics: tuple[jax.Array, ...],
++    ) -> jax.Array:
++        lowest_u_wind, lowest_v_wind, lowest_temperature, surface_pressure = (
++            surface_diagnostics
++        )
++        return jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(lowest_u_wind)),
++                    jnp.all(jnp.isfinite(lowest_v_wind)),
++                    jnp.all(jnp.isfinite(lowest_temperature)),
++                    jnp.all(jnp.isfinite(surface_pressure)),
++                    jnp.all(lowest_temperature > 0.0),
++                    jnp.all(surface_pressure > 0.0),
++                ]
++            )
++        )
++
++    def apply_surface_diagnostics(
++        next_state: Any,
++        surface_diagnostics: tuple[jax.Array, ...],
++    ) -> Any:
++        lowest_u_wind, lowest_v_wind, lowest_temperature, surface_pressure = (
++            surface_diagnostics
+         )
+         lower_pressure = lowest_sigma * surface_pressure
+         lower_temperature_si = lowest_temperature / temperature_unit_factor
+@@ -1275,6 +1316,67 @@ def _ekman_coupled_surface_step_filter(
+             sim_time=next_state.sim_time,
+         )
+ 
++    def select_midpoint_state(
++        *,
++        midpoint_diagnostics_are_valid: jax.Array,
++        midpoint_state: Any,
++        endpoint_state: Any,
++        next_state: Any,
++    ) -> Any:
++        return _primitive_equation_state(
++            vorticity=jnp.where(
++                midpoint_diagnostics_are_valid,
++                midpoint_state.vorticity,
++                endpoint_state.vorticity,
++            ),
++            divergence=jnp.where(
++                midpoint_diagnostics_are_valid,
++                midpoint_state.divergence,
++                endpoint_state.divergence,
++            ),
++            temperature_variation=next_state.temperature_variation,
++            log_surface_pressure=jnp.where(
++                midpoint_diagnostics_are_valid,
++                midpoint_state.log_surface_pressure,
++                endpoint_state.log_surface_pressure,
++            ),
++            tracers=next_state.tracers,
++            sim_time=next_state.sim_time,
++        )
++
++    def ekman_coupled_surface_filter(prev_state: Any, next_state: Any) -> Any:
++        next_diagnostics = diagnose_surface_inputs(next_state)
++        endpoint_state = apply_surface_diagnostics(next_state, next_diagnostics)
++        if not use_time_centered_closure:
++            return endpoint_state
++
++        try:
++            prev_diagnostics = diagnose_surface_inputs(prev_state)
++        except (AssertionError, IndexError, TypeError, ValueError):
++            return endpoint_state
++        if not diagnostics_have_matching_shapes(prev_diagnostics, next_diagnostics):
++            return endpoint_state
++
++        midpoint_diagnostics = tuple(
++            0.5 * (prev_diagnostic + next_diagnostic)
++            for prev_diagnostic, next_diagnostic in zip(
++                prev_diagnostics,
++                next_diagnostics,
++            )
++        )
++        midpoint_diagnostics_are_valid = (
++            surface_diagnostics_are_valid(prev_diagnostics)
++            & surface_diagnostics_are_valid(next_diagnostics)
++            & surface_diagnostics_are_valid(midpoint_diagnostics)
++        )
++        midpoint_state = apply_surface_diagnostics(next_state, midpoint_diagnostics)
++        return select_midpoint_state(
++            midpoint_diagnostics_are_valid=midpoint_diagnostics_are_valid,
++            midpoint_state=midpoint_state,
++            endpoint_state=endpoint_state,
++            next_state=next_state,
++        )
++
+     return ekman_coupled_surface_filter
+ 
+ 
+@@ -1823,6 +1925,17 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def time_centered_ekman_coupled_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the coupled Ekman candidate with midpoint source diagnostics."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_tcenter",
++        use_time_centered_ekman_coupled_closure=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..e9e3799 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,15 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_tcenter_model() -> DycoreModel:
++    """Return RI2m Ekman candidate with midpoint source diagnostics."""
++    from dynamaxx.dycore.models.dinosaur import (
++        time_centered_ekman_coupled_dinosaur_dycore_model,
++    )
++
++    return time_centered_ekman_coupled_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +344,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_ekman_tcenter": dino_ri2m_ekman_tcenter_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..40c7f08 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -250,6 +250,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_tcenter",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..29cf94f 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -105,6 +105,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     supported_output_variables,
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
++    time_centered_ekman_coupled_dinosaur_dycore_model,
+     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
+     weak_held_suarez_dinosaur_dycore_model,
+     weather_state_to_dinosaur_state,
+@@ -726,6 +727,7 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+     assert model.use_land_ocean_low_mode_t2m_memory
+     assert model.use_bulk_richardson_2m_temperature_diagnostic
+     assert model.apply_coupled_ekman_surface_closure
++    assert not model.use_time_centered_ekman_coupled_closure
+     assert not incumbent.apply_coupled_ekman_surface_closure
+     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+         if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
+@@ -733,6 +735,22 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_ekman_tcenter_factory_preserves_coupled_except_selector():
++    """The time-centered Ekman candidate changes only name and midpoint selector."""
++    model = time_centered_ekman_coupled_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_tcenter"
++    assert len(model.name) < 32
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_time_centered_ekman_coupled_closure
++    assert not incumbent.use_time_centered_ekman_coupled_closure
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_time_centered_ekman_coupled_closure"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4442,6 +4460,220 @@ def test_ekman_coupled_filter_pressure_increment_is_mass_neutral_and_tied_to_str
+     assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
+ 
+ 
++def test_ekman_tcenter_identical_states_match_endpoint_closure():
++    """Identical endpoints reproduce the accepted endpoint Ekman closure."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=4.0,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    endpoint_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    midpoint_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        use_time_centered_closure=True,
++    )
++
++    endpoint_corrected = endpoint_filter(prev_state, next_state)
++    midpoint_corrected = midpoint_filter(next_state, next_state)
++
++    np.testing.assert_allclose(
++        midpoint_corrected.vorticity,
++        endpoint_corrected.vorticity,
++        rtol=1.0e-6,
++        atol=5.0e-7,
++    )
++    np.testing.assert_allclose(
++        midpoint_corrected.divergence,
++        endpoint_corrected.divergence,
++        rtol=1.0e-6,
++        atol=5.0e-7,
++    )
++    np.testing.assert_allclose(
++        midpoint_corrected.log_surface_pressure,
++        endpoint_corrected.log_surface_pressure,
++        rtol=1.0e-6,
++        atol=5.0e-8,
++    )
++    np.testing.assert_array_equal(
++        midpoint_corrected.temperature_variation,
++        endpoint_corrected.temperature_variation,
++    )
++    assert midpoint_corrected.tracers.keys() == endpoint_corrected.tracers.keys()
++    for tracer_name, tracer_value in midpoint_corrected.tracers.items():
++        np.testing.assert_array_equal(
++            tracer_value,
++            endpoint_corrected.tracers[tracer_name],
++        )
++    np.testing.assert_array_equal(
++        midpoint_corrected.sim_time,
++        endpoint_corrected.sim_time,
++    )
++
++
++def test_ekman_tcenter_invalid_prev_diagnostics_fall_back_to_endpoint():
++    """Bad previous diagnostics use the accepted endpoint closure, not no-op."""
++    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=8.0,
++    )
++    bad_prev_state = _primitive_equation_state(
++        vorticity=prev_state.vorticity,
++        divergence=prev_state.divergence,
++        temperature_variation=prev_state.temperature_variation,
++        log_surface_pressure=prev_state.log_surface_pressure.at[0, 0, 0].set(
++            jnp.nan,
++        ),
++        tracers=prev_state.tracers,
++        sim_time=prev_state.sim_time,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    endpoint_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    midpoint_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        use_time_centered_closure=True,
++    )
++
++    endpoint_corrected = endpoint_filter(prev_state, next_state)
++    midpoint_corrected = midpoint_filter(bad_prev_state, next_state)
++
++    np.testing.assert_allclose(
++        midpoint_corrected.vorticity,
++        endpoint_corrected.vorticity,
++        rtol=1.0e-6,
++        atol=5.0e-7,
++    )
++    np.testing.assert_allclose(
++        midpoint_corrected.divergence,
++        endpoint_corrected.divergence,
++        rtol=1.0e-6,
++        atol=5.0e-7,
++    )
++    np.testing.assert_allclose(
++        midpoint_corrected.log_surface_pressure,
++        endpoint_corrected.log_surface_pressure,
++        rtol=1.0e-6,
++        atol=5.0e-8,
++    )
++    endpoint_increment_norm = (
++        jnp.max(jnp.abs(endpoint_corrected.vorticity - next_state.vorticity))
++        + jnp.max(jnp.abs(endpoint_corrected.divergence - next_state.divergence))
++        + jnp.max(
++            jnp.abs(
++                endpoint_corrected.log_surface_pressure
++                - next_state.log_surface_pressure
++            )
++        )
++    )
++    assert float(endpoint_increment_norm) > 0.0
++
++
++def test_ekman_tcenter_midpoint_path_preserves_caps_and_state_fields():
++    """The midpoint path keeps incumbent caps and only updates wind/log pressure."""
++    coords, physics_specs, _, next_state = _synthetic_ekman_coupled_state(
++        wind_scale=2.0,
++    )
++    _, _, prev_state, _ = _synthetic_ekman_coupled_state(wind_scale=0.5)
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    endpoint_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++    midpoint_filter = _ekman_coupled_surface_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++        use_time_centered_closure=True,
++    )
++
++    endpoint_corrected = endpoint_filter(prev_state, next_state)
++    corrected = midpoint_filter(prev_state, next_state)
++
++    initial_u_wind, initial_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++        coords.horizontal,
++        next_state.vorticity,
++        next_state.divergence,
++    )
++    corrected_u_wind, corrected_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++        coords.horizontal,
++        corrected.vorticity,
++        corrected.divergence,
++    )
++    u_increment = corrected_u_wind - initial_u_wind
++    v_increment = corrected_v_wind - initial_v_wind
++    wind_increment_cap = (
++        _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND
++        * _unit_factor(physics_specs, "meter / second")
++    )
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    log_pressure_increment = coords.horizontal.to_nodal(
++        corrected.log_surface_pressure - next_state.log_surface_pressure
++    )[0]
++    log_pressure_mean = jnp.sum(
++        log_pressure_increment * quadrature_weights,
++        axis=(-2, -1),
++    ) / jnp.sum(quadrature_weights)
++    applied_surface_wind_increment = jnp.sqrt(
++        u_increment[-1] ** 2 + v_increment[-1] ** 2
++    )
++    stress_tied_cap = min(
++        _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
++        _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO
++        * float(jnp.max(applied_surface_wind_increment)),
++    )
++    endpoint_difference = (
++        jnp.max(jnp.abs(corrected.vorticity - endpoint_corrected.vorticity))
++        + jnp.max(jnp.abs(corrected.divergence - endpoint_corrected.divergence))
++        + jnp.max(
++            jnp.abs(
++                corrected.log_surface_pressure
++                - endpoint_corrected.log_surface_pressure
++            )
++        )
++    )
++
++    assert float(endpoint_difference) > 1.0e-9
++    np.testing.assert_allclose(u_increment[0], 0.0, atol=2.0e-6)
++    np.testing.assert_allclose(v_increment[0], 0.0, atol=2.0e-6)
++    assert float(jnp.max(jnp.abs(u_increment))) <= wind_increment_cap * 1.001
++    assert float(jnp.max(jnp.abs(v_increment))) <= wind_increment_cap * 1.001
++    np.testing.assert_allclose(log_pressure_mean, 0.0, atol=5.0e-9)
++    assert float(jnp.max(jnp.abs(log_pressure_increment))) <= stress_tied_cap * 1.001
++    np.testing.assert_array_equal(
++        corrected.temperature_variation,
++        next_state.temperature_variation,
++    )
++    assert corrected.tracers.keys() == next_state.tracers.keys()
++    for tracer_name, tracer_value in corrected.tracers.items():
++        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
++    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
++
++
+ def test_tropical_wtg_mass_dse_filter_changes_only_temperature_and_is_neutral():
+     """WTG relaxation is thermal-only, masked vertically, and layer neutral."""
+     coords, physics_specs, prev_state, next_state = _synthetic_wtg_mass_dse_state()
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..40b692b 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_ekman_tcenter",
+     )
+ 
+ 
+@@ -719,6 +720,7 @@ def test_registry_creates_ekman_coupled_candidate_model():
+     assert model.use_land_ocean_low_mode_t2m_memory
+     assert model.use_bulk_richardson_2m_temperature_diagnostic
+     assert model.apply_coupled_ekman_surface_closure
++    assert not model.use_time_centered_ekman_coupled_closure
+     assert not incumbent.apply_coupled_ekman_surface_closure
+     for field_name in model.__dataclass_fields__:
+         if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
+@@ -726,6 +728,21 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_ekman_tcenter_candidate_model():
++    """The time-centered Ekman alias changes only name and midpoint selector."""
++    model = create_dycore_model("dino_ri2m_ekman_tcenter")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_ekman_tcenter"
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_time_centered_ekman_coupled_closure
++    assert not incumbent.use_time_centered_ekman_coupled_closure
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_time_centered_ekman_coupled_closure"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):
