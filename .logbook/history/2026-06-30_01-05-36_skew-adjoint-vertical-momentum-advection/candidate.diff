@@ -1,0 +1,657 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index fc4a4fe..4f9cf0e 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -66,6 +66,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
++    skew_vertical_advection_dinosaur_dycore_model,
+     stability_aware_surface_residual_dinosaur_dycore_model,
+     theta_mean_recenter_dinosaur_dycore_model,
+     theta_tendency_dinosaur_dycore_model,
+@@ -120,6 +121,7 @@ __all__ = [
+     "scales",
+     "scale_separated_surface_residual_dinosaur_dycore_model",
+     "semi_implicit_offcenter_dinosaur_dycore_model",
++    "skew_vertical_advection_dinosaur_dycore_model",
+     "shallow_water",
+     "shallow_water_states",
+     "sigma_coordinates",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 34d8caa..05cd655 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -165,6 +165,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
++    use_skew_adjoint_vertical_momentum_advection: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
+     semi_implicit_offcentering: float = 0.0
+@@ -395,6 +396,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_pressure_ramped_vertical_dse_increment=(
+                     self.use_pressure_ramped_vertical_dse_increment
+                 ),
++                use_skew_adjoint_vertical_momentum_advection=(
++                    self.use_skew_adjoint_vertical_momentum_advection
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -1823,6 +1827,17 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
+     )
+ 
+ 
++def skew_vertical_advection_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the Ekman incumbent with skew-adjoint vertical momentum advection."""
++    return replace(
++        ekman_coupled_dinosaur_dycore_model(),
++        name="dino_ri2m_skewvadv",
++        use_skew_adjoint_vertical_momentum_advection=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -3241,6 +3256,7 @@ def _primitive_equation(
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+     use_pressure_ramped_vertical_dse_increment: bool = False,
++    use_skew_adjoint_vertical_momentum_advection: bool = False,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -3265,6 +3281,9 @@ def _primitive_equation(
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_skew_adjoint_vertical_momentum_advection=(
++                use_skew_adjoint_vertical_momentum_advection
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3290,6 +3309,9 @@ def _primitive_equation(
+         use_pressure_ramped_vertical_dse_increment=(
+             use_pressure_ramped_vertical_dse_increment
+         ),
++        use_skew_adjoint_vertical_momentum_advection=(
++            use_skew_adjoint_vertical_momentum_advection
++        ),
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 4c30004..9fce2b3 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -990,6 +990,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_skew_adjoint_vertical_momentum_advection: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1124,6 +1128,32 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         )
+         return self.coords.horizontal.to_modal(nodal_curl_term)
+ 
++    @jax.named_call
++    def _vertical_momentum_terms(
++        self, sigma_dot: Array, u: Array, v: Array
++    ) -> tuple[Array, Array]:
++        """Return guarded momentum-only vertical advection terms."""
++        centered_u = -self._vertical_tendency(sigma_dot, u)
++        centered_v = -self._vertical_tendency(sigma_dot, v)
++        if not self.use_skew_adjoint_vertical_momentum_advection:
++            return centered_u, centered_v
++
++        skew_u = -sigma_coordinates.skew_adjoint_vertical_advection(
++            sigma_dot,
++            u,
++            self.coords.vertical,
++        )
++        skew_v = -sigma_coordinates.skew_adjoint_vertical_advection(
++            sigma_dot,
++            v,
++            self.coords.vertical,
++        )
++        finite_skew = jnp.all(jnp.isfinite(skew_u)) & jnp.all(jnp.isfinite(skew_v))
++        return (
++            jnp.where(finite_skew, skew_u, centered_u),
++            jnp.where(finite_skew, skew_v, centered_v),
++        )
++
+     @jax.named_call
+     def _t_omega_over_sigma_sp(
+         self, temperature_field: Array, g_term: Array, v_dot_grad_log_sp: Array
+@@ -1192,9 +1222,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         # vertical and pressure gradient terms
+         d𝜎_dt = aux_state.sigma_dot_full
+         if self.include_vertical_advection:
+-            # vertical tendency is equal to `-1 * dot{sigma} * u`, hence negation here
+-            sigma_dot_u = -self._vertical_tendency(d𝜎_dt, u)
+-            sigma_dot_v = -self._vertical_tendency(d𝜎_dt, v)
++            sigma_dot_u, sigma_dot_v = self._vertical_momentum_terms(d𝜎_dt, u, v)
+         else:
+             sigma_dot_u = 0
+             sigma_dot_v = 0
+@@ -3380,6 +3408,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_skew_adjoint_vertical_momentum_advection: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3409,6 +3438,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_skew_adjoint_vertical_momentum_advection=(
++                use_skew_adjoint_vertical_momentum_advection
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3442,6 +3474,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_skew_adjoint_vertical_momentum_advection: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3471,6 +3504,9 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_skew_adjoint_vertical_momentum_advection=(
++                use_skew_adjoint_vertical_momentum_advection
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -3501,6 +3537,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_skew_adjoint_vertical_momentum_advection: bool = False,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3533,6 +3570,9 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_skew_adjoint_vertical_momentum_advection=(
++                use_skew_adjoint_vertical_momentum_advection
++            ),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/sigma_coordinates.py b/src/dynamaxx/dycore/models/dinosaur/sigma_coordinates.py
+index 4416f38..9c44cb9 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/sigma_coordinates.py
++++ b/src/dynamaxx/dycore/models/dinosaur/sigma_coordinates.py
+@@ -405,6 +405,67 @@ def centered_vertical_advection(
+     )
+ 
+ 
++@jax.named_call
++def skew_adjoint_vertical_advection(
++    w: Array,
++    x: Array,
++    coordinates: SigmaCoordinates,
++    axis: int = -3,
++) -> jnp.ndarray:
++    """Compute skew-adjoint vertical advection on sigma layers.
++
++    This operator uses zero top and bottom interface velocities and satisfies
++    ``sum(layer_thickness * x * A(x)) == 0`` up to roundoff for finite inputs and
++    positive layer thicknesses.
++    """
++    if coordinates.layers != x.shape[axis]:
++        raise ValueError(
++            "`x.shape[axis]` must be equal to `coordinates.layers`; "
++            f"got {x.shape[axis]} and {coordinates.layers}."
++        )
++    if coordinates.layers - 1 != w.shape[axis]:
++        raise ValueError(
++            "`w.shape[axis]` must be equal to `coordinates.layers - 1`; "
++            f"got {w.shape[axis]} and {coordinates.layers - 1}."
++        )
++
++    w_slc_shape = _slice_shape_along_axis(w, axis)
++    w_boundary_values = (
++        jnp.zeros(w_slc_shape, dtype=jax.dtypes.canonicalize_dtype(w.dtype)),
++        jnp.zeros(w_slc_shape, dtype=jax.dtypes.canonicalize_dtype(w.dtype)),
++    )
++    w_top, w_bottom = w_boundary_values
++    w_interfaces = jnp.concatenate([w_top, w, w_bottom], axis=axis)
++    w_lower = lax.slice_in_dim(w_interfaces, 0, -1, axis=axis)
++    w_upper = lax.slice_in_dim(w_interfaces, 1, None, axis=axis)
++
++    x_slc_shape = _slice_shape_along_axis(x, axis)
++    x_boundary = jnp.zeros(
++        x_slc_shape,
++        dtype=jax.dtypes.canonicalize_dtype(x.dtype),
++    )
++    x_lower = jnp.concatenate(
++        [x_boundary, lax.slice_in_dim(x, 0, -1, axis=axis)],
++        axis=axis,
++    )
++    x_upper = jnp.concatenate(
++        [lax.slice_in_dim(x, 1, None, axis=axis), x_boundary],
++        axis=axis,
++    )
++
++    numerator = w_upper * x_upper - w_lower * x_lower
++    numerator_axes = range(numerator.ndim)
++    inv_d𝜎 = 1 / coordinates.layer_thickness
++    inv_d𝜎_axes = [numerator_axes[axis]]
++    return -0.5 * einsum(
++        numerator,
++        numerator_axes,
++        inv_d𝜎,
++        inv_d𝜎_axes,
++        numerator_axes,
++    )
++
++
+ @jax.named_call
+ def upwind_vertical_advection(
+     w: Array,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index 7305663..89bb493 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -249,6 +249,15 @@ def dino_ri2m_ekman_coupled_model() -> DycoreModel:
+     return ekman_coupled_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_skewvadv_model() -> DycoreModel:
++    """Return Ekman incumbent with skew-adjoint vertical momentum advection."""
++    from dynamaxx.dycore.models.dinosaur import (
++        skew_vertical_advection_dinosaur_dycore_model,
++    )
++
++    return skew_vertical_advection_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -335,6 +344,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m_model
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
++    "dino_ri2m_skewvadv": dino_ri2m_skewvadv_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 285210e..f4b10ab 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -146,6 +146,9 @@ assert (
+ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
++assert dinosaur.skew_vertical_advection_dinosaur_dycore_model().name == (
++    "dino_ri2m_skewvadv"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -250,6 +253,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_skewvadv",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -830,6 +834,29 @@ def test_dinosaur_ekman_coupled_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_skew_vertical_advection_model_is_registered():
++    """The skew-VADV candidate is side-by-side with the Ekman incumbent."""
++    model = create_dycore_model("dino_ri2m_skewvadv")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_skewvadv"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_skew_adjoint_vertical_momentum_advection
++    assert not incumbent.use_skew_adjoint_vertical_momentum_advection
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_skew_adjoint_vertical_momentum_advection"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index b25f70e..6f738af 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -100,6 +100,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+     semi_implicit_offcenter_dinosaur_dycore_model,
++    skew_vertical_advection_dinosaur_dycore_model,
+     split_pressure_level_channel,
+     stability_aware_surface_residual_dinosaur_dycore_model,
+     supported_output_variables,
+@@ -733,6 +734,249 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_skew_vertical_advection_factory_preserves_incumbent_except_selector():
++    """The skew-VADV candidate changes only vertical momentum advection."""
++    model = skew_vertical_advection_dinosaur_dycore_model()
++    incumbent = ekman_coupled_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_skewvadv"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_skew_adjoint_vertical_momentum_advection
++    assert not incumbent.use_skew_adjoint_vertical_momentum_advection
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "use_skew_adjoint_vertical_momentum_advection"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
++def test_skew_adjoint_vertical_advection_identity_on_unequal_layers():
++    """The opt-in vertical momentum stencil is skew under layer-mass weights."""
++    coordinates = sigma_coordinates.SigmaCoordinates(
++        np.asarray([0.0, 0.08, 0.31, 0.67, 1.0], dtype=np.float32)
++    )
++    x = jnp.asarray(
++        [
++            [[0.2, -1.1], [0.7, 1.4]],
++            [[-0.8, 0.5], [1.9, -0.3]],
++            [[1.2, -0.4], [-1.7, 0.9]],
++            [[0.6, 1.5], [-0.2, -1.0]],
++        ],
++        dtype=jnp.float32,
++    )
++    sigma_dot = jnp.asarray(
++        [
++            [[0.03, -0.08], [0.11, -0.04]],
++            [[-0.07, 0.05], [0.02, 0.09]],
++            [[0.12, -0.06], [-0.10, 0.04]],
++        ],
++        dtype=jnp.float32,
++    )
++
++    skew_tendency = sigma_coordinates.skew_adjoint_vertical_advection(
++        sigma_dot,
++        x,
++        coordinates,
++    )
++    layer_thickness = jnp.asarray(coordinates.layer_thickness)[
++        :, jnp.newaxis, jnp.newaxis
++    ]
++    weighted_quadratic_form = jnp.sum(layer_thickness * x * skew_tendency)
++
++    np.testing.assert_allclose(weighted_quadratic_form, 0.0, atol=2e-8)
++
++
++def test_centered_vertical_advection_does_not_satisfy_skew_identity_generally():
++    """The skew identity test is not a no-op for the incumbent centered stencil."""
++    coordinates = sigma_coordinates.SigmaCoordinates(
++        np.asarray([0.0, 0.08, 0.31, 0.67, 1.0], dtype=np.float32)
++    )
++    x = jnp.asarray(
++        [
++            [[0.2, -1.1], [0.7, 1.4]],
++            [[-0.8, 0.5], [1.9, -0.3]],
++            [[1.2, -0.4], [-1.7, 0.9]],
++            [[0.6, 1.5], [-0.2, -1.0]],
++        ],
++        dtype=jnp.float32,
++    )
++    sigma_dot = jnp.asarray(
++        [
++            [[0.03, -0.08], [0.11, -0.04]],
++            [[-0.07, 0.05], [0.02, 0.09]],
++            [[0.12, -0.06], [-0.10, 0.04]],
++        ],
++        dtype=jnp.float32,
++    )
++
++    centered_tendency = sigma_coordinates.centered_vertical_advection(
++        sigma_dot,
++        x,
++        coordinates,
++    )
++    skew_tendency = sigma_coordinates.skew_adjoint_vertical_advection(
++        sigma_dot,
++        x,
++        coordinates,
++    )
++    layer_thickness = jnp.asarray(coordinates.layer_thickness)[
++        :, jnp.newaxis, jnp.newaxis
++    ]
++    centered_quadratic_form = jnp.sum(layer_thickness * x * centered_tendency)
++
++    assert abs(float(centered_quadratic_form)) > 1e-3
++    assert not jnp.allclose(centered_tendency, skew_tendency)
++
++
++def test_skew_momentum_selector_leaves_scalar_vertical_tendencies_unchanged():
++    """The opt-in selector does not alter temperature or tracer vertical paths."""
++    grid = grid_metadata(
++        longitude=np.asarray([0.0, 90.0, 180.0, 270.0]),
++        latitude=np.asarray([90.0, 0.0, -90.0]),
++        layer_count=4,
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    common_kwargs = {
++        "reference_temperature": _reference_temperature(
++            layer_count=4,
++            temperature_kelvin=250.0,
++        ),
++        "orography": jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": grid.coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    skew_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_skew_adjoint_vertical_momentum_advection=True,
++    )
++    temperature_variation = jnp.asarray(
++        [
++            [[0.1, -0.2, 0.3], [0.4, -0.5, 0.6], [-0.7, 0.8, -0.9], [1.0, -1.1, 1.2]],
++            [[-0.3, 0.2, -0.1], [0.9, -0.8, 0.7], [-0.6, 0.5, -0.4], [0.3, -0.2, 0.1]],
++            [[1.1, -1.0, 0.9], [-0.8, 0.7, -0.6], [0.5, -0.4, 0.3], [-0.2, 0.1, 0.0]],
++            [[-1.2, 1.1, -1.0], [0.9, -0.8, 0.7], [-0.6, 0.5, -0.4], [0.3, -0.2, 0.1]],
++        ],
++        dtype=jnp.float32,
++    )
++    sigma_dot = jnp.asarray(
++        [
++            [
++                [0.02, -0.04, 0.06],
++                [-0.08, 0.10, -0.12],
++                [0.14, -0.16, 0.18],
++                [-0.20, 0.22, -0.24],
++            ],
++            [
++                [-0.03, 0.05, -0.07],
++                [0.09, -0.11, 0.13],
++                [-0.15, 0.17, -0.19],
++                [0.21, -0.23, 0.25],
++            ],
++            [
++                [0.04, -0.06, 0.08],
++                [-0.10, 0.12, -0.14],
++                [0.16, -0.18, 0.20],
++                [-0.22, 0.24, -0.26],
++            ],
++        ],
++        dtype=jnp.float32,
++    )
++    aux_state = primitive_equations.DiagnosticStateSigma(
++        vorticity=jnp.zeros_like(temperature_variation),
++        divergence=jnp.zeros_like(temperature_variation),
++        temperature_variation=temperature_variation,
++        cos_lat_u=(
++            jnp.zeros_like(temperature_variation),
++            jnp.zeros_like(temperature_variation),
++        ),
++        sigma_dot_explicit=sigma_dot,
++        sigma_dot_full=sigma_dot,
++        cos_lat_grad_log_sp=jnp.zeros(
++            (2,) + grid.coords.horizontal.nodal_shape,
++            dtype=jnp.float32,
++        ),
++        u_dot_grad_log_sp=jnp.zeros(grid.coords.nodal_shape, dtype=jnp.float32),
++        tracers={"test_tracer": temperature_variation * 0.5},
++    )
++
++    np.testing.assert_allclose(
++        skew_equation.nodal_temperature_vertical_tendency(aux_state),
++        incumbent_equation.nodal_temperature_vertical_tendency(aux_state),
++        rtol=0.0,
++        atol=0.0,
++    )
++    np.testing.assert_allclose(
++        skew_equation._vertical_tendency(sigma_dot, aux_state.tracers["test_tracer"]),
++        incumbent_equation._vertical_tendency(
++            sigma_dot,
++            aux_state.tracers["test_tracer"],
++        ),
++        rtol=0.0,
++        atol=0.0,
++    )
++
++
++def test_nonfinite_skew_momentum_tendency_falls_back_to_centered(monkeypatch):
++    """Nonfinite skew momentum terms fall back exactly to centered terms."""
++    grid = grid_metadata(
++        longitude=np.asarray([0.0, 90.0, 180.0, 270.0]),
++        latitude=np.asarray([90.0, 0.0, -90.0]),
++        layer_count=4,
++        spectral_wavenumbers=None,
++    )
++    physics_specs = units.SimUnits.from_si()
++    common_kwargs = {
++        "reference_temperature": _reference_temperature(
++            layer_count=4,
++            temperature_kelvin=250.0,
++        ),
++        "orography": jnp.zeros(grid.coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": grid.coords,
++        "physics_specs": cast(Any, physics_specs),
++        "include_vertical_advection": True,
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquations(**common_kwargs)
++    skew_equation = primitive_equations.PrimitiveEquations(
++        **common_kwargs,
++        use_skew_adjoint_vertical_momentum_advection=True,
++    )
++    sigma_dot = jnp.ones((3,) + grid.coords.horizontal.nodal_shape, dtype=jnp.float32)
++    u = jnp.arange(np.prod(grid.coords.nodal_shape), dtype=jnp.float32).reshape(
++        grid.coords.nodal_shape
++    )
++    v = u * -0.25
++
++    def nonfinite_skew_tendency(w, x, coordinates, axis=-3):
++        del w, coordinates, axis
++        return jnp.full_like(x, jnp.nan)
++
++    monkeypatch.setattr(
++        primitive_equations.sigma_coordinates,
++        "skew_adjoint_vertical_advection",
++        nonfinite_skew_tendency,
++    )
++
++    centered_u, centered_v = incumbent_equation._vertical_momentum_terms(
++        sigma_dot,
++        u,
++        v,
++    )
++    guarded_u, guarded_v = skew_equation._vertical_momentum_terms(sigma_dot, u, v)
++
++    np.testing.assert_array_equal(guarded_u, centered_u)
++    np.testing.assert_array_equal(guarded_v, centered_v)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index f81c512..13bfa45 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -59,6 +59,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
++        "dino_ri2m_skewvadv",
+     )
+ 
+ 
+@@ -726,6 +727,29 @@ def test_registry_creates_ekman_coupled_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_skew_vertical_advection_candidate_model():
++    """The skew-VADV alias adds only the vertical momentum-advection selector."""
++    model = create_dycore_model("dino_ri2m_skewvadv")
++    incumbent = create_dycore_model("dino_ri2m_ekman_coupled")
++
++    assert model.name == "dino_ri2m_skewvadv"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_skew_adjoint_vertical_momentum_advection
++    assert not incumbent.use_skew_adjoint_vertical_momentum_advection
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "use_skew_adjoint_vertical_momentum_advection"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

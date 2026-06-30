@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "skew-adjoint-vertical-momentum-advection",
+  "history_path": ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection",
+  "source_artifacts": [
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_skewvadv.json",
+    "outputs/eval/fast_dino_ri2m_skewvadv.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/proposal.md",
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/resource_snapshot.md",
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/implementation.md",
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/scores.json",
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/scoring_notes.md",
+    ".logbook/history/2026-06-30_01-05-36_skew-adjoint-vertical-momentum-advection/decision.md"
+  ],
+  "notes": "Rejected because the candidate passed pytest but failed the fast evaluation gate with nonfinite forecasts and nonfinite metrics. Candidate iteration and validation were not run. Cached incumbent iteration and validation artifacts were verified and reused; no incumbent rerun was performed. Candidate source and test changes were reverted after preserving candidate.diff."
+}

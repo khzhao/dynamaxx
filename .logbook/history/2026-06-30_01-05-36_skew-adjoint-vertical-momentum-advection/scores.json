@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "skew-adjoint-vertical-momentum-advection",
+  "candidate_model_name": "dino_ri2m_skewvadv",
+  "incumbent_model_name": "dino_ri2m_ekman_coupled",
+  "created_at": "2026-06-30T01:39:10Z",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer: 280 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_skewvadv",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Provided by Implementer and verified from artifact: diagnostics failed with nonfinite_forecast and nonfinite_metric."
+    },
+    {
+      "command": "uv run python - <<'PY' ... dycore_model_names registration check ... PY",
+      "exit_status": 0,
+      "started_at": "2026-06-30T01:39:10Z",
+      "finished_at": "2026-06-30T01:39:10Z",
+      "notes": "Confirmed dino_ri2m_skewvadv and dino_ri2m_ekman_coupled are registered."
+    },
+    {
+      "command": "jq '{model_name, primary_score, diagnostics, records_len:(.records|length), first_record:.records[0]}' outputs/eval/fast_dino_ri2m_skewvadv.json",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified candidate fast artifact is readable, has 120 records, primary score sentinel, and failed diagnostics."
+    },
+    {
+      "command": "jq '{model_name, primary_score, diagnostics, records_len:(.records|length), first_record:.records[0]}' outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified cached incumbent iteration artifact is readable, finite on primary score, clean on diagnostics, and has 120 records."
+    },
+    {
+      "command": "jq '{model_name, primary_score, diagnostics, records_len:(.records|length), first_record:.records[0]}' outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified cached incumbent validation artifact is readable, finite on primary score, clean on diagnostics, and has 120 records."
+    },
+    {
+      "command": "python - <<'PY' ... finite incumbent metric field check ... PY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed incumbent iteration and validation records have finite rmse, mae, bias, and skill_vs_persistence values."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_skewvadv.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_skewvadv.csv",
+    "candidate_iteration_json": null,
+    "candidate_iteration_csv": null,
+    "candidate_validation_json": null,
+    "candidate_validation_csv": null,
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -1.7976931348623157e+308,
+    "candidate_iteration": null,
+    "candidate_validation": null,
+    "incumbent_iteration": -0.16500618979404214,
+    "incumbent_validation": -0.16591150807771451,
+    "iteration_delta": null,
+    "validation_delta": null
+  },
+  "diagnostics": {
+    "candidate_failed": true,
+    "candidate_issue_count": 2,
+    "candidate_fast_failed": true,
+    "candidate_fast_issue_count": 2,
+    "candidate_fast_issues": [
+      {
+        "code": "nonfinite_forecast",
+        "message": "Forecast contains NaN or Inf values.",
+        "severity": "error",
+        "value": 400752000
+      },
+      {
+        "code": "nonfinite_metric",
+        "message": "Metric records contain NaN or Inf values.",
+        "severity": "error",
+        "value": 240
+      }
+    ],
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": false,
+    "iteration_promotes_to_validation": false,
+    "validation_acceptance_gate_passed": null,
+    "candidate_iteration_run": false,
+    "candidate_validation_run": false,
+    "reason": "Fast diagnostics failed; iteration and validation are gated off by protocol."
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [],
+    "max_rmse_regression_by_variable_and_lead": []
+  },
+  "cache_reuse": {
+    "incumbent_rerun_performed": false,
+    "iteration": {
+      "status": "reused_for_comparison_baseline",
+      "artifact_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "artifact_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+      "primary_score": -0.16500618979404214,
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "artifact_json_exists": true,
+        "artifact_csv_exists": true,
+        "artifact_json_readable": true,
+        "contains_incumbent_rows": true,
+        "records_needed_for_guardrails_present": true,
+        "primary_score_finite": true,
+        "diagnostics_clean": true,
+        "protocol_in_fingerprint": true,
+        "data_path_compatible": true,
+        "target_variables_compatible": true,
+        "lead_days_compatible": true,
+        "candidate_source_edits_do_not_invalidate_cache": true
+      },
+      "reason": "Leaderboard cache is valid under roles/SCORER.md. Candidate fast failure prevented a candidate iteration run, but the cached incumbent iteration baseline was still verified and recorded."
+    },
+    "validation": {
+      "status": "reused_for_comparison_baseline",
+      "artifact_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "artifact_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+      "primary_score": -0.16591150807771451,
+      "checks": {
+        "requested_incumbent_matches_leaderboard": true,
+        "artifact_json_exists": true,
+        "artifact_csv_exists": true,
+        "artifact_json_readable": true,
+        "contains_incumbent_rows": true,
+        "records_needed_for_guardrails_present": true,
+        "primary_score_finite": true,
+        "diagnostics_clean": true,
+        "protocol_in_fingerprint": true,
+        "data_path_compatible": true,
+        "target_variables_compatible": true,
+        "lead_days_compatible": true,
+        "candidate_source_edits_do_not_invalidate_cache": true
+      },
+      "reason": "Leaderboard cache is valid under roles/SCORER.md. Candidate validation was not eligible to run because the fast gate failed, but the cached incumbent validation baseline was still verified and recorded."
+    }
+  }
+}
