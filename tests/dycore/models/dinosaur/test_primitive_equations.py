@@ -25,6 +25,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_LONGITUDE_WAVENUMBER,
     _ANALYSIS_OFFSET_HELD_SUAREZ_MAX_TOTAL_WAVENUMBER,
     _DRY_AIR_GAS_CONSTANT_SI,
+    _EKMAN_CORIOLIS_DEPTH_MAX_METERS,
+    _EKMAN_CORIOLIS_DEPTH_MIN_METERS,
     _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO,
     _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT,
     _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
@@ -49,8 +51,10 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _bulk_richardson_2m_temperature,
     _compose_ocean_bulk_sensible_heat_flux_equation,
     _compose_weak_held_suarez_equation,
+    _ekman_coriolis_scaled_depth,
     _ekman_coupled_equatorial_taper,
     _ekman_coupled_surface_step_filter,
+    _ekman_depth_vertical_weights,
     _exact_coriolis_rotation_step_filter,
     _horizontal_diffusion_step_filter,
     _hydrostatic_temperature_from_geopotential_thickness,
@@ -86,6 +90,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     dinosaur_state_to_weather_state,
     dry_static_energy_hsl_transport_dinosaur_dycore_model,
     ekman_coupled_dinosaur_dycore_model,
+    ekman_depth_dinosaur_dycore_model,
     horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
     hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
@@ -190,6 +195,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_bulk_richardson_2m_temperature_diagnostic
     assert not model.apply_coupled_ekman_surface_closure
+    assert not model.use_coriolis_scaled_ekman_depth
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
@@ -729,6 +735,29 @@ def test_ekman_coupled_factory_preserves_incumbent_except_selector():
     assert not incumbent.apply_coupled_ekman_surface_closure
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_ekman_depth_factory_preserves_incumbent_except_depth_selector():
+    """The depth candidate preserves coupled Ekman settings except depth geometry."""
+    model = ekman_depth_dinosaur_dycore_model()
+    incumbent = ekman_coupled_dinosaur_dycore_model()
+
+    assert model.name == "dino_ri2m_ekman_depth"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_coupled_ekman_surface_closure
+    assert model.use_coriolis_scaled_ekman_depth
+    assert not incumbent.use_coriolis_scaled_ekman_depth
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_coriolis_scaled_ekman_depth"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -4277,6 +4306,76 @@ def test_ekman_coupled_equatorial_taper_suppresses_equatorial_pumping():
     assert bool(jnp.all((taper >= 0.0) & (taper <= 1.0)))
 
 
+def test_ekman_coriolis_scaled_depth_is_bounded_finite_and_monotone():
+    """The neutral Ekman depth increases with u* and decreases with |f|."""
+    coriolis_floor = jnp.asarray(3.0e-5, dtype=jnp.float32)
+    increasing_friction_velocity = jnp.asarray([0.02, 0.08, 0.16], dtype=jnp.float32)
+    fixed_coriolis = jnp.full_like(increasing_friction_velocity, 8.0e-5)
+    depth_by_wind = _ekman_coriolis_scaled_depth(
+        increasing_friction_velocity,
+        coriolis_parameter=fixed_coriolis,
+        coriolis_floor=coriolis_floor,
+    )
+
+    fixed_friction_velocity = jnp.full((3,), 0.16, dtype=jnp.float32)
+    increasing_coriolis = jnp.asarray([5.0e-5, 8.0e-5, 1.6e-4], dtype=jnp.float32)
+    depth_by_rotation = _ekman_coriolis_scaled_depth(
+        fixed_friction_velocity,
+        coriolis_parameter=increasing_coriolis,
+        coriolis_floor=coriolis_floor,
+    )
+
+    assert bool(jnp.all(jnp.isfinite(depth_by_wind)))
+    assert bool(jnp.all(jnp.isfinite(depth_by_rotation)))
+    assert float(jnp.min(depth_by_wind)) >= _EKMAN_CORIOLIS_DEPTH_MIN_METERS
+    assert float(jnp.max(depth_by_wind)) <= _EKMAN_CORIOLIS_DEPTH_MAX_METERS
+    assert float(jnp.min(depth_by_rotation)) >= _EKMAN_CORIOLIS_DEPTH_MIN_METERS
+    assert float(jnp.max(depth_by_rotation)) <= _EKMAN_CORIOLIS_DEPTH_MAX_METERS
+    assert bool(jnp.all(jnp.diff(depth_by_wind) >= 0.0))
+    assert bool(jnp.all(jnp.diff(depth_by_rotation) <= 0.0))
+
+
+def test_ekman_depth_weights_are_lower_confined_and_impulse_normalized():
+    """Depth weights are nonnegative and conserve the column stress impulse."""
+    sigma_centers = jnp.asarray([1.0 / 6.0, 0.5, 5.0 / 6.0], dtype=jnp.float32)
+    temperature = jnp.asarray(
+        [
+            [[245.0, 246.0], [247.0, 248.0]],
+            [[265.0, 266.0], [267.0, 268.0]],
+            [[285.0, 286.0], [287.0, 288.0]],
+        ],
+        dtype=jnp.float32,
+    )
+    surface_pressure = jnp.full((2, 2), 100_000.0, dtype=jnp.float32)
+    ekman_depth = jnp.full((2, 2), 2_000.0, dtype=jnp.float32)
+
+    weights, valid_columns = _ekman_depth_vertical_weights(
+        temperature=temperature,
+        surface_pressure=surface_pressure,
+        sigma_centers=sigma_centers,
+        ekman_depth_meters=ekman_depth,
+        pressure_unit_factor=1.0,
+        temperature_unit_factor=1.0,
+    )
+    surface_acceleration = jnp.asarray(
+        [[-2.0e-4, -1.0e-4], [1.0e-4, 2.0e-4]],
+        dtype=jnp.float32,
+    )
+    weighted_acceleration = weights * surface_acceleration[jnp.newaxis, ...]
+
+    assert bool(jnp.all(valid_columns))
+    assert bool(jnp.all(weights >= 0.0))
+    np.testing.assert_allclose(jnp.sum(weights, axis=0), 1.0, rtol=1.0e-6)
+    assert bool(jnp.all(weights[-1] >= weights[-2]))
+    assert bool(jnp.all(weights[-2] >= weights[0]))
+    np.testing.assert_allclose(
+        jnp.sum(weighted_acceleration, axis=0),
+        surface_acceleration,
+        rtol=1.0e-6,
+        atol=1.0e-10,
+    )
+
+
 def test_ekman_coupled_filter_zero_wind_is_exact_noop():
     """No surface stress leaves the positive-time filter exactly inactive."""
     coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
@@ -4306,6 +4405,46 @@ def test_ekman_coupled_filter_zero_wind_is_exact_noop():
     )
     assert corrected.tracers.keys() == next_state.tracers.keys()
     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+
+
+def test_ekman_depth_off_selector_matches_fixed_depth_filter_exactly():
+    """The default-false selector preserves the incumbent fixed-depth filter."""
+    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+        wind_scale=4.0,
+    )
+    filter_kwargs = {
+        "coords": coords,
+        "physics_specs": physics_specs,
+        "reference_temperature": _reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
+    }
+    default_corrected = _ekman_coupled_surface_step_filter(**filter_kwargs)(
+        prev_state,
+        next_state,
+    )
+    off_corrected = _ekman_coupled_surface_step_filter(
+        **filter_kwargs,
+        use_coriolis_scaled_ekman_depth=False,
+    )(prev_state, next_state)
+
+    np.testing.assert_array_equal(off_corrected.vorticity, default_corrected.vorticity)
+    np.testing.assert_array_equal(
+        off_corrected.divergence,
+        default_corrected.divergence,
+    )
+    np.testing.assert_array_equal(
+        off_corrected.temperature_variation,
+        default_corrected.temperature_variation,
+    )
+    np.testing.assert_array_equal(
+        off_corrected.log_surface_pressure,
+        default_corrected.log_surface_pressure,
+    )
+    assert off_corrected.tracers.keys() == default_corrected.tracers.keys()
+    np.testing.assert_array_equal(off_corrected.sim_time, default_corrected.sim_time)
 
 
 def test_ekman_coupled_filter_nonfinite_pressure_falls_back_to_noop():
@@ -4344,6 +4483,52 @@ def test_ekman_coupled_filter_nonfinite_pressure_falls_back_to_noop():
     np.testing.assert_array_equal(
         corrected.log_surface_pressure,
         bad_next_state.log_surface_pressure,
+    )
+
+
+def test_ekman_depth_nonfinite_pressure_matches_fixed_depth_fallback():
+    """Invalid depth pressure diagnostics fall back to the fixed-depth path."""
+    coords, physics_specs, prev_state, next_state = _synthetic_ekman_coupled_state(
+        wind_scale=1.0,
+    )
+    bad_next_state = _primitive_equation_state(
+        vorticity=next_state.vorticity,
+        divergence=next_state.divergence,
+        temperature_variation=next_state.temperature_variation,
+        log_surface_pressure=next_state.log_surface_pressure.at[0, 0, 0].set(
+            jnp.nan,
+        ),
+        tracers=next_state.tracers,
+        sim_time=next_state.sim_time,
+    )
+    filter_kwargs = {
+        "coords": coords,
+        "physics_specs": physics_specs,
+        "reference_temperature": _reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
+    }
+
+    fixed_corrected = _ekman_coupled_surface_step_filter(
+        **filter_kwargs,
+        use_coriolis_scaled_ekman_depth=False,
+    )(prev_state, bad_next_state)
+    depth_corrected = _ekman_coupled_surface_step_filter(
+        **filter_kwargs,
+        use_coriolis_scaled_ekman_depth=True,
+    )(prev_state, bad_next_state)
+
+    np.testing.assert_array_equal(depth_corrected.vorticity, fixed_corrected.vorticity)
+    np.testing.assert_array_equal(depth_corrected.divergence, fixed_corrected.divergence)
+    np.testing.assert_array_equal(
+        depth_corrected.temperature_variation,
+        fixed_corrected.temperature_variation,
+    )
+    np.testing.assert_array_equal(
+        depth_corrected.log_surface_pressure,
+        fixed_corrected.log_surface_pressure,
     )
 
 

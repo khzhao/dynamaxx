@@ -97,6 +97,9 @@ _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.25
 _EKMAN_COUPLED_DRAG_COEFFICIENT = 3.0e-4
 _EKMAN_COUPLED_BOUNDARY_LAYER_DEPTH_METERS = 2_000.0
 _EKMAN_COUPLED_SECOND_LAYER_FRACTION = 0.35
+_EKMAN_CORIOLIS_DEPTH_COEFFICIENT = 1.2
+_EKMAN_CORIOLIS_DEPTH_MIN_METERS = 500.0
+_EKMAN_CORIOLIS_DEPTH_MAX_METERS = 2_500.0
 _EKMAN_COUPLED_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND = 0.25
 _EKMAN_COUPLED_MAX_LOGP_STEP_INCREMENT = 2.0e-5
 _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
@@ -167,6 +170,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_pressure_ramped_vertical_dse_increment: bool = False
     apply_tropical_wtg_mass_dse_relaxation: bool = False
     apply_coupled_ekman_surface_closure: bool = False
+    use_coriolis_scaled_ekman_depth: bool = False
     semi_implicit_offcentering: float = 0.0
     jit_forecast: bool = True
 
@@ -493,6 +497,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         physics_specs=physics_specs,
                         reference_temperature=reference_temperature,
                         step_seconds=step_seconds,
+                        use_coriolis_scaled_ekman_depth=(
+                            self.use_coriolis_scaled_ekman_depth
+                        ),
                     )
                 )
             if self.apply_theta_layer_mean_recentering:
@@ -970,6 +977,7 @@ def _ekman_coupled_surface_step_filter(
     physics_specs: Any,
     reference_temperature: np.ndarray,
     step_seconds: float,
+    use_coriolis_scaled_ekman_depth: bool = False,
 ) -> Any:
     """Return a weak coupled stress and pressure filter for the lower layers."""
     assert step_seconds > 0.0
@@ -1082,26 +1090,93 @@ def _ekman_coupled_surface_step_filter(
             * wind_speed_si
             * lowest_v_wind_si
         )
-        surface_u_acceleration = (
+        fixed_surface_u_acceleration = (
             -stress_u
             / (safe_density * _EKMAN_COUPLED_BOUNDARY_LAYER_DEPTH_METERS)
             * acceleration_unit_factor
         )
-        surface_v_acceleration = (
+        fixed_surface_v_acceleration = (
             -stress_v
             / (safe_density * _EKMAN_COUPLED_BOUNDARY_LAYER_DEPTH_METERS)
             * acceleration_unit_factor
         )
-        raw_u_increment = (
+        fixed_raw_u_increment = (
             step_seconds
             * vertical_taper[:, jnp.newaxis, jnp.newaxis]
-            * surface_u_acceleration[jnp.newaxis, ...]
+            * fixed_surface_u_acceleration[jnp.newaxis, ...]
         )
-        raw_v_increment = (
+        fixed_raw_v_increment = (
             step_seconds
             * vertical_taper[:, jnp.newaxis, jnp.newaxis]
-            * surface_v_acceleration[jnp.newaxis, ...]
+            * fixed_surface_v_acceleration[jnp.newaxis, ...]
         )
+        if use_coriolis_scaled_ekman_depth:
+            friction_velocity = (
+                jnp.sqrt(_EKMAN_COUPLED_DRAG_COEFFICIENT) * wind_speed_si
+            )
+            ekman_depth = _ekman_coriolis_scaled_depth(
+                friction_velocity,
+                coriolis_parameter=coriolis_parameter,
+                coriolis_floor=coriolis_floor,
+            )
+            depth_weights, valid_depth_weights = _ekman_depth_vertical_weights(
+                temperature=nodal_temperature,
+                surface_pressure=surface_pressure,
+                sigma_centers=sigma_centers,
+                ekman_depth_meters=ekman_depth,
+                pressure_unit_factor=pressure_unit_factor,
+                temperature_unit_factor=temperature_unit_factor,
+            )
+            depth_surface_u_acceleration = (
+                -stress_u / (safe_density * ekman_depth) * acceleration_unit_factor
+            )
+            depth_surface_v_acceleration = (
+                -stress_v / (safe_density * ekman_depth) * acceleration_unit_factor
+            )
+            valid_depth_diagnostics = (
+                finite_stress_inputs
+                & valid_depth_weights
+                & jnp.isfinite(friction_velocity)
+                & jnp.isfinite(ekman_depth)
+                & jnp.isfinite(depth_surface_u_acceleration)
+                & jnp.isfinite(depth_surface_v_acceleration)
+            )
+            depth_raw_u_increment = (
+                step_seconds
+                * depth_weights
+                * depth_surface_u_acceleration[jnp.newaxis, ...]
+            )
+            depth_raw_v_increment = (
+                step_seconds
+                * depth_weights
+                * depth_surface_v_acceleration[jnp.newaxis, ...]
+            )
+            use_depth_column = valid_depth_diagnostics[jnp.newaxis, ...]
+            raw_u_increment = jnp.where(
+                use_depth_column,
+                depth_raw_u_increment,
+                fixed_raw_u_increment,
+            )
+            raw_v_increment = jnp.where(
+                use_depth_column,
+                depth_raw_v_increment,
+                fixed_raw_v_increment,
+            )
+            surface_u_acceleration = jnp.where(
+                valid_depth_diagnostics,
+                depth_surface_u_acceleration,
+                fixed_surface_u_acceleration,
+            )
+            surface_v_acceleration = jnp.where(
+                valid_depth_diagnostics,
+                depth_surface_v_acceleration,
+                fixed_surface_v_acceleration,
+            )
+        else:
+            raw_u_increment = fixed_raw_u_increment
+            raw_v_increment = fixed_raw_v_increment
+            surface_u_acceleration = fixed_surface_u_acceleration
+            surface_v_acceleration = fixed_surface_v_acceleration
         u_increment = jax.vmap(
             lambda layer_increment: _bounded_area_neutral_field(
                 layer_increment,
@@ -1288,6 +1363,61 @@ def _ekman_coupled_vertical_taper(
     if layer_count > 1:
         taper[-2] = _EKMAN_COUPLED_SECOND_LAYER_FRACTION
     return jnp.asarray(taper)
+
+
+def _ekman_coriolis_scaled_depth(
+    friction_velocity: jax.Array,
+    *,
+    coriolis_parameter: jax.Array,
+    coriolis_floor: jax.Array | float,
+) -> jax.Array:
+    """Return bounded neutral Ekman depth from friction velocity over rotation."""
+    safe_coriolis = jnp.maximum(jnp.abs(coriolis_parameter), coriolis_floor)
+    raw_depth = _EKMAN_CORIOLIS_DEPTH_COEFFICIENT * friction_velocity / safe_coriolis
+    return jnp.clip(
+        raw_depth,
+        _EKMAN_CORIOLIS_DEPTH_MIN_METERS,
+        _EKMAN_CORIOLIS_DEPTH_MAX_METERS,
+    )
+
+
+def _ekman_depth_vertical_weights(
+    *,
+    temperature: jax.Array,
+    surface_pressure: jax.Array,
+    sigma_centers: jax.Array,
+    ekman_depth_meters: jax.Array,
+    pressure_unit_factor: float | jax.Array,
+    temperature_unit_factor: float | jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Return normalized lower-column weights for depth-varying Ekman stress."""
+    sigma = sigma_centers[:, jnp.newaxis, jnp.newaxis]
+    layer_pressure = sigma * surface_pressure[jnp.newaxis, ...]
+    temperature_si = temperature / temperature_unit_factor
+    surface_pressure_si = surface_pressure / pressure_unit_factor
+    layer_pressure_si = layer_pressure / pressure_unit_factor
+    height_meters = (
+        _DRY_AIR_GAS_CONSTANT_SI
+        * temperature_si
+        / _GRAVITY_ACCELERATION_SI
+        * jnp.log(jnp.maximum(surface_pressure_si, 1.0) / layer_pressure_si)
+    )
+    raw_weights = jnp.exp(-jnp.maximum(height_meters, 0.0) / ekman_depth_meters)
+    weight_sum = jnp.sum(raw_weights, axis=0)
+    valid_columns = (
+        jnp.all(jnp.isfinite(temperature), axis=0)
+        & jnp.isfinite(surface_pressure)
+        & jnp.isfinite(ekman_depth_meters)
+        & jnp.all(jnp.isfinite(height_meters), axis=0)
+        & jnp.all(jnp.isfinite(raw_weights), axis=0)
+        & (surface_pressure > 0.0)
+        & (ekman_depth_meters > 0.0)
+        & (weight_sum > 0.0)
+    )
+    safe_weight_sum = jnp.where(valid_columns, weight_sum, 1.0)
+    weights = raw_weights / safe_weight_sum[jnp.newaxis, ...]
+    weights = jnp.where(valid_columns[jnp.newaxis, ...], weights, 0.0)
+    return weights, valid_columns
 
 
 def _ekman_coupled_equatorial_taper(
@@ -1820,6 +1950,15 @@ def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreMod
         bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model(),
         name="dino_ri2m_ekman_coupled",
         apply_coupled_ekman_surface_closure=True,
+    )
+
+
+def ekman_depth_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return coupled Ekman with bounded Coriolis-scaled stress depth."""
+    return replace(
+        ekman_coupled_dinosaur_dycore_model(),
+        name="dino_ri2m_ekman_depth",
+        use_coriolis_scaled_ekman_depth=True,
     )
 
 
