@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "coriolis-scaled-ekman-depth-coupling",
+  "history_path": ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_depth.json",
+    "outputs/eval/fast_dino_ri2m_ekman_depth.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+    "outputs/eval/validation_dino_ri2m_ekman_coupled.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/proposal.md",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/resource_snapshot.md",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/implementation.md",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/scores.json",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/scoring_notes.md",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/decision.md",
+    ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling/artifacts.json",
+    ".logbook/leaderboard.json"
+  ],
+  "notes": "Accepted candidate committed as b40f5515ec79abeec4f10db4addfd0abbe44da13. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed."
+}

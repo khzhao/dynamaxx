@@ -2,7 +2,7 @@
 schema_version: 1
 slug: coriolis-scaled-ekman-depth-coupling
 title: Coriolis-Scaled Depth For The Coupled Ekman Closure
-status: staging
+status: ready
 created_at: 2026-06-30T00:57:29Z
 author_role: Researcher
 target_model: dino_ri2m_ekman_coupled
@@ -204,3 +204,42 @@ setting must be fixed before implementation, the mean-depth calibration must not
 use validation feedback, and tests should prove depth bounds, monotonicity with
 `u_star` and `|f|`, stress-impulse normalization, exact incumbent fallback, and
 preservation of every non-depth Ekman option.
+
+### 2026-07-01T03:32:52Z
+
+Decision: promote to `ready`; ranked 1 of the fresh staging re-triage.
+
+The ready queue is empty and the latest history makes most staged families less
+suitable for the next implementation slot. Lower-boundary T2m memory and skin
+reservoir proposals are now poor choices after
+`prognostic-force-restore-skin-reservoir` improved the primary score but failed
+fixed T2m guardrails, while recent ocean/T2m memory follow-ups were negative or
+subthreshold. Semi-Lagrangian vorticity-divergence work is too high-risk after
+the invalid implementation attempt. Direct 10 m wind veering/geostrophic output
+diagnostics and direct Z500/MSLP residual-output proposals are also
+deprioritized because recent metric-facing variants were neutral, negative, or
+too close to the forbidden families.
+
+This proposal is still risky because it edits the accepted high-signal Ekman
+closure, and recent Ekman-adjacent variants were not successful:
+static-roughness weighting was effectively neutral, exact mass-neutral pumping
+was slightly negative, spinup ramping and time-centering regressed, and
+pressure-work thermal coupling was only subthreshold positive. It ranks above
+the alternatives because it is not another output diagnostic, not a scalar
+T2m-memory reservoir, not a pressure-work heat add-on, not a roughness class,
+and not a coefficient-only sweep. It changes the physically meaningful vertical
+projection/depth geometry of the already accepted stress-pumping pair while
+preserving the incumbent drag coefficient, caps, equatorial taper,
+area-neutral pressure projection, forecast contract, and cached-incumbent
+comparison path.
+
+Implementation should keep the blast radius tight: add exactly one side-by-side
+candidate such as `dino_ri2m_ekman_depth`; fix the Coriolis-depth coefficient
+before any score run; calibrate only to keep a plausible mean depth, not to fit
+iteration or validation metrics; preserve exact incumbent behavior when the new
+selector is off; and require focused tests for bounded finite depth,
+monotonicity with `u_star` and `|f|`, nonnegative normalized lower-layer
+weights, stress-impulse conservation before existing caps, finite fallback to
+the fixed 2000 m incumbent path, and unchanged non-Ekman settings. If this
+candidate is clean but subthreshold or negative, the Ekman-geometry refinement
+family should return to staging rather than receive immediate constant tuning.

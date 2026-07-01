@@ -1,0 +1,449 @@
+{
+  "anomalies": [
+    "Initial registration helper command imported a non-existent get_model symbol and exited 1; registration was then verified through the actual create_dycore_model API.",
+    "Evaluation JSON records include 60 model rows and 60 persistence reference rows. Final guardrails filter by model_name before comparing candidate and incumbent RMSE."
+  ],
+  "artifacts": {
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_depth.csv",
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_depth.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_coupled.json"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "checks": [
+        "requested incumbent matched leaderboard incumbent_model_name",
+        "data_path, target_variables, lead_days, and protocol list matched the leaderboard fingerprint",
+        "no fixed evaluation, metric, CLI, pyproject, or protocol code changes were present relative to leaderboard eval_code_commit",
+        "artifact was present, readable JSON, finite primary_score, diagnostics were clean, and 60 incumbent model rows existed for guardrail comparisons",
+        "current candidate dycore, registry, and test edits were not treated as incumbent cache invalidation"
+      ],
+      "csv_artifact": "outputs/eval/iteration_dino_ri2m_ekman_coupled.csv",
+      "invalidation_reason": null,
+      "json_artifact": "outputs/eval/iteration_dino_ri2m_ekman_coupled.json",
+      "recomputed": false,
+      "reused": true,
+      "source": ".logbook/leaderboard.json"
+    },
+    "validation": {
+      "checks": [
+        "requested incumbent matched leaderboard incumbent_model_name",
+        "data_path, target_variables, lead_days, and protocol list matched the leaderboard fingerprint",
+        "no fixed evaluation, metric, CLI, pyproject, or protocol code changes were present relative to leaderboard eval_code_commit",
+        "artifact was present, readable JSON, finite primary_score, diagnostics were clean, and 60 incumbent model rows existed for guardrail comparisons",
+        "current candidate dycore, registry, and test edits were not treated as incumbent cache invalidation"
+      ],
+      "csv_artifact": "outputs/eval/validation_dino_ri2m_ekman_coupled.csv",
+      "invalidation_reason": null,
+      "json_artifact": "outputs/eval/validation_dino_ri2m_ekman_coupled.json",
+      "recomputed": false,
+      "reused": true,
+      "source": ".logbook/leaderboard.json"
+    }
+  },
+  "candidate_model_name": "dino_ri2m_ekman_depth",
+  "commands": [
+    {
+      "command": "uv run python - <<'PY' (registration check via create_dycore_model/dycore_model_names) PY",
+      "exit_status": 0,
+      "notes": "Confirmed dino_ri2m_ekman_depth and dino_ri2m_ekman_coupled registered. An earlier helper attempt importing get_model exited 1 because that helper does not exist; it was not a candidate failure."
+    },
+    {
+      "command": "uv run python - <<'PY' (incumbent cache validation for iteration and validation artifacts) PY",
+      "exit_status": 0,
+      "notes": "Validated cached incumbent JSON artifacts were readable, finite, clean, and contained required model rows. Candidate edits did not invalidate cache."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_depth",
+      "exit_status": 0,
+      "notes": "Fast completed cleanly."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_depth --workers 4",
+      "exit_status": 0,
+      "notes": "Iteration completed cleanly; incumbent iteration metrics were loaded from leaderboard cache."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_depth --workers 4",
+      "exit_status": 0,
+      "notes": "Validation completed cleanly after iteration gate passed; incumbent validation metrics were loaded from leaderboard cache."
+    },
+    {
+      "command": "uv run python - <<'PY' (final model-row comparison and artifact write) PY",
+      "exit_status": 0,
+      "notes": "Computed primary deltas and RMSE guardrails after filtering out persistence reference rows."
+    }
+  ],
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": false,
+    "candidate_validation_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "evaluation_fingerprint": {
+    "candidate_source_state": "uncommitted candidate implementation in worktree",
+    "candidate_worktree_head": "2d592c9fb419a0a157fd6d0b8cba8ff862bdfc46",
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "d187308d30a242bf38aabe5b7eb530fca522a68f",
+    "lead_days": "1..15",
+    "protocols": [
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ]
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "scorer_decision": "not_applicable_scorer_reports_only",
+    "validation_acceptance_gate_passed_for_reporting": true
+  },
+  "generated_at": "2026-07-01T07:49:22Z",
+  "history_path": ".logbook/history/2026-07-01_03-35-19_coriolis-scaled-ekman-depth-coupling",
+  "incumbent_model_name": "dino_ri2m_ekman_coupled",
+  "lessons": [
+    "Coriolis-scaled Ekman depth produced large primary-score gains on both iteration and validation with clean diagnostics.",
+    "Early-lead RMSE movement was favorable for every target variable in both protocols; strongest improvements were in mean sea level pressure.",
+    "Worst single-lead RMSE regressions were small and confined to later 2m_temperature leads, below fixed guardrail limits."
+  ],
+  "primary_scores": {
+    "candidate_fast": -0.1369589966316166,
+    "candidate_iteration": -0.13590520069778708,
+    "candidate_validation": -0.13767474868567484,
+    "incumbent_iteration": -0.16500618979404214,
+    "incumbent_validation": -0.16591150807771451,
+    "iteration_delta": 0.029100989096255053,
+    "validation_delta": 0.02823675939203968
+  },
+  "proposal_slug": "coriolis-scaled-ekman-depth-coupling",
+  "regressions": {
+    "iteration": {
+      "max_rmse_regression_by_variable_and_lead": {
+        "candidate_rmse": 7.834159265551044,
+        "channel_name": "2m_temperature",
+        "incumbent_rmse": 7.742036906703233,
+        "lead_hours": 360,
+        "rmse_regression_percent": 1.1898982135831615
+      },
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "leads": [
+            {
+              "candidate_rmse": 2.772735449693775,
+              "incumbent_rmse": 2.90456140061588,
+              "lead_hours": 24,
+              "rmse_regression_percent": -4.538583721940012
+            },
+            {
+              "candidate_rmse": 3.5248392071555963,
+              "incumbent_rmse": 3.6745202812426285,
+              "lead_hours": 48,
+              "rmse_regression_percent": -4.073486132356138
+            },
+            {
+              "candidate_rmse": 4.070087639674317,
+              "incumbent_rmse": 4.260898857382782,
+              "lead_hours": 72,
+              "rmse_regression_percent": -4.478191670235249
+            },
+            {
+              "candidate_rmse": 4.4219797118524395,
+              "incumbent_rmse": 4.6459108221848995,
+              "lead_hours": 96,
+              "rmse_regression_percent": -4.819961443580801
+            },
+            {
+              "candidate_rmse": 4.632224291945126,
+              "incumbent_rmse": 4.8787729919311245,
+              "lead_hours": 120,
+              "rmse_regression_percent": -5.053498090478061
+            }
+          ],
+          "mean_rmse_regression_percent": -4.592744211718053
+        },
+        {
+          "channel_name": "2m_temperature",
+          "leads": [
+            {
+              "candidate_rmse": 2.551936510660791,
+              "incumbent_rmse": 2.5771819215572767,
+              "lead_hours": 24,
+              "rmse_regression_percent": -0.9795742661903745
+            },
+            {
+              "candidate_rmse": 3.898488321594281,
+              "incumbent_rmse": 3.9526545857468083,
+              "lead_hours": 48,
+              "rmse_regression_percent": -1.3703768689490294
+            },
+            {
+              "candidate_rmse": 4.928739099860077,
+              "incumbent_rmse": 4.999905992942424,
+              "lead_hours": 72,
+              "rmse_regression_percent": -1.4233646229109609
+            },
+            {
+              "candidate_rmse": 5.688742745792509,
+              "incumbent_rmse": 5.758320799301203,
+              "lead_hours": 96,
+              "rmse_regression_percent": -1.2083045723527226
+            },
+            {
+              "candidate_rmse": 6.230227751708614,
+              "incumbent_rmse": 6.28474348701087,
+              "lead_hours": 120,
+              "rmse_regression_percent": -0.867429759304058
+            }
+          ],
+          "mean_rmse_regression_percent": -1.1698100179414292
+        },
+        {
+          "channel_name": "geopotential_500",
+          "leads": [
+            {
+              "candidate_rmse": 237.75491578041434,
+              "incumbent_rmse": 241.8231154250732,
+              "lead_hours": 24,
+              "rmse_regression_percent": -1.6823038763303717
+            },
+            {
+              "candidate_rmse": 420.3628381492332,
+              "incumbent_rmse": 433.40538642720895,
+              "lead_hours": 48,
+              "rmse_regression_percent": -3.009318454828726
+            },
+            {
+              "candidate_rmse": 585.5598786414029,
+              "incumbent_rmse": 604.3634887664401,
+              "lead_hours": 72,
+              "rmse_regression_percent": -3.1113080909995263
+            },
+            {
+              "candidate_rmse": 718.4264952233337,
+              "incumbent_rmse": 742.3535739282104,
+              "lead_hours": 96,
+              "rmse_regression_percent": -3.2231378072668257
+            },
+            {
+              "candidate_rmse": 819.9794942738341,
+              "incumbent_rmse": 847.1609400853847,
+              "lead_hours": 120,
+              "rmse_regression_percent": -3.2085338836338453
+            }
+          ],
+          "mean_rmse_regression_percent": -2.846920422611859
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "leads": [
+            {
+              "candidate_rmse": 358.0374208476039,
+              "incumbent_rmse": 369.4725437868634,
+              "lead_hours": 24,
+              "rmse_regression_percent": -3.0949858471367317
+            },
+            {
+              "candidate_rmse": 564.4378837297033,
+              "incumbent_rmse": 598.7163163048411,
+              "lead_hours": 48,
+              "rmse_regression_percent": -5.725321265118932
+            },
+            {
+              "candidate_rmse": 724.9911135535758,
+              "incumbent_rmse": 777.7979374951708,
+              "lead_hours": 72,
+              "rmse_regression_percent": -6.789272817006261
+            },
+            {
+              "candidate_rmse": 819.5594899274369,
+              "incumbent_rmse": 889.2687229306417,
+              "lead_hours": 96,
+              "rmse_regression_percent": -7.838939029978887
+            },
+            {
+              "candidate_rmse": 887.0692654514938,
+              "incumbent_rmse": 969.8250391266339,
+              "lead_hours": 120,
+              "rmse_regression_percent": -8.533062185078757
+            }
+          ],
+          "mean_rmse_regression_percent": -6.396316228863914
+        }
+      ]
+    },
+    "validation": {
+      "max_rmse_regression_by_variable_and_lead": {
+        "candidate_rmse": 7.599843630457525,
+        "channel_name": "2m_temperature",
+        "incumbent_rmse": 7.530145736761082,
+        "lead_hours": 288,
+        "rmse_regression_percent": 0.9255849240232976
+      },
+      "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+        {
+          "channel_name": "10m_u_component_of_wind",
+          "leads": [
+            {
+              "candidate_rmse": 2.759020695910573,
+              "incumbent_rmse": 2.888634124503253,
+              "lead_hours": 24,
+              "rmse_regression_percent": -4.487014381406613
+            },
+            {
+              "candidate_rmse": 3.4987565177589386,
+              "incumbent_rmse": 3.649861927252089,
+              "lead_hours": 48,
+              "rmse_regression_percent": -4.140030842397227
+            },
+            {
+              "candidate_rmse": 4.033005465124436,
+              "incumbent_rmse": 4.225059283881785,
+              "lead_hours": 72,
+              "rmse_regression_percent": -4.545588732683974
+            },
+            {
+              "candidate_rmse": 4.372405575814936,
+              "incumbent_rmse": 4.59013956803203,
+              "lead_hours": 96,
+              "rmse_regression_percent": -4.743515725175328
+            },
+            {
+              "candidate_rmse": 4.577747280414256,
+              "incumbent_rmse": 4.816421409050514,
+              "lead_hours": 120,
+              "rmse_regression_percent": -4.955424543786123
+            }
+          ],
+          "mean_rmse_regression_percent": -4.574314845089853
+        },
+        {
+          "channel_name": "2m_temperature",
+          "leads": [
+            {
+              "candidate_rmse": 2.5623979144755094,
+              "incumbent_rmse": 2.5893306058532564,
+              "lead_hours": 24,
+              "rmse_regression_percent": -1.040141081902206
+            },
+            {
+              "candidate_rmse": 3.90774634493009,
+              "incumbent_rmse": 3.967129126690051,
+              "lead_hours": 48,
+              "rmse_regression_percent": -1.4968704033464684
+            },
+            {
+              "candidate_rmse": 4.924467208666985,
+              "incumbent_rmse": 5.0022137358109315,
+              "lead_hours": 72,
+              "rmse_regression_percent": -1.55424240646412
+            },
+            {
+              "candidate_rmse": 5.6735058080840775,
+              "incumbent_rmse": 5.750435118033632,
+              "lead_hours": 96,
+              "rmse_regression_percent": -1.337799807675437
+            },
+            {
+              "candidate_rmse": 6.214870851498902,
+              "incumbent_rmse": 6.277495827886089,
+              "lead_hours": 120,
+              "rmse_regression_percent": -0.9976108006156219
+            }
+          ],
+          "mean_rmse_regression_percent": -1.2853329000007707
+        },
+        {
+          "channel_name": "geopotential_500",
+          "leads": [
+            {
+              "candidate_rmse": 232.84968511072628,
+              "incumbent_rmse": 236.7516063650643,
+              "lead_hours": 24,
+              "rmse_regression_percent": -1.6481076155071015
+            },
+            {
+              "candidate_rmse": 414.56396841031614,
+              "incumbent_rmse": 427.0023623655417,
+              "lead_hours": 48,
+              "rmse_regression_percent": -2.912956707386438
+            },
+            {
+              "candidate_rmse": 579.3868910499684,
+              "incumbent_rmse": 597.1060296265969,
+              "lead_hours": 72,
+              "rmse_regression_percent": -2.9675028717611824
+            },
+            {
+              "candidate_rmse": 711.1077852138737,
+              "incumbent_rmse": 733.1795459335609,
+              "lead_hours": 96,
+              "rmse_regression_percent": -3.010416867478634
+            },
+            {
+              "candidate_rmse": 811.1614402767065,
+              "incumbent_rmse": 835.3041755872076,
+              "lead_hours": 120,
+              "rmse_regression_percent": -2.8902926641698095
+            }
+          ],
+          "mean_rmse_regression_percent": -2.685855345260633
+        },
+        {
+          "channel_name": "mean_sea_level_pressure",
+          "leads": [
+            {
+              "candidate_rmse": 350.3511526126128,
+              "incumbent_rmse": 361.30301691827395,
+              "lead_hours": 24,
+              "rmse_regression_percent": -3.031213079557111
+            },
+            {
+              "candidate_rmse": 553.3644795794847,
+              "incumbent_rmse": 586.1146166370673,
+              "lead_hours": 48,
+              "rmse_regression_percent": -5.587667689553983
+            },
+            {
+              "candidate_rmse": 712.4313348311647,
+              "incumbent_rmse": 762.1105234806826,
+              "lead_hours": 72,
+              "rmse_regression_percent": -6.518633074717949
+            },
+            {
+              "candidate_rmse": 807.3428181555821,
+              "incumbent_rmse": 872.3720120437498,
+              "lead_hours": 96,
+              "rmse_regression_percent": -7.454296216567119
+            },
+            {
+              "candidate_rmse": 870.9026348077427,
+              "incumbent_rmse": 947.7169495362823,
+              "lead_hours": 120,
+              "rmse_regression_percent": -8.10519583575294
+            }
+          ],
+          "mean_rmse_regression_percent": -6.139401179229821
+        }
+      ]
+    }
+  },
+  "schema_version": 1
+}
