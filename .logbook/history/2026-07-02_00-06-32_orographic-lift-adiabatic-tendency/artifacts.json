@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "orographic-lift-adiabatic-tendency",
+  "history_path": ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/models/dinosaur/test_primitive_equations.py",
+    "tests/dycore/test_registry.py",
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_theta.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/proposal.md",
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/resource_snapshot.md",
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/implementation.md",
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/scores.json",
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/scoring_notes.md",
+    ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency/decision.md"
+  ],
+  "notes": "Accepted candidate. Incumbent iteration and validation metrics were reused from the leaderboard cache after fingerprint checks; no incumbent rerun was performed. Candidate source/test changes were committed as 7af558f97f2d1286203664f9d6bac17bb8cacbc0."
+}

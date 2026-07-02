@@ -1,0 +1,1036 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index df1e3a6..9d02e9a 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -63,6 +63,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    orographic_lift_theta_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -113,6 +114,7 @@ __all__ = [
+     "log_pressure_initialization_dinosaur_dycore_model",
+     "midpoint_semilagrangian_theta_departure_dinosaur_dycore_model",
+     "ocean_bulk_sensible_heat_flux_dinosaur_dycore_model",
++    "orographic_lift_theta_dinosaur_dycore_model",
+     "pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model",
+     "primitive_equations",
+     "primitive_equations_states",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index b577235..bec3a8d 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -106,6 +106,18 @@ _EKMAN_COUPLED_LOGP_PER_WIND_STEP_RATIO = 0.08
+ _EKMAN_COUPLED_PROJECTION_SAFETY_FACTOR = 0.85
+ _EKMAN_COUPLED_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
+ _EKMAN_COUPLED_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
++_GEOPOTENTIAL_AT_SURFACE_CHANNEL = "geopotential_at_surface"
++_OROGRAPHIC_LIFT_LOW_MODE_CUTOFF = 12.0
++_OROGRAPHIC_LIFT_TAPER_ZERO_MODE = 20.0
++_OROGRAPHIC_LIFT_RAMP_FULL_HOURS = 48.0
++_OROGRAPHIC_LIFT_SIGMA_ZERO_TOP = 0.35
++_OROGRAPHIC_LIFT_SIGMA_FULL_TOP = 0.45
++_OROGRAPHIC_LIFT_SIGMA_FULL_BOTTOM = 0.80
++_OROGRAPHIC_LIFT_SIGMA_ZERO_BOTTOM = 0.90
++_OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
++_OROGRAPHIC_LIFT_EQUATORIAL_ZERO_LATITUDE_DEGREES = 5.0
++_OROGRAPHIC_LIFT_EQUATORIAL_FULL_LATITUDE_DEGREES = 15.0
++_OROGRAPHIC_LIFT_WEAK_FLOW_FULL_METERS_PER_SECOND = 2.0
+ _DRY_AIR_GAS_CONSTANT_SI = float(
+     scales.IDEAL_GAS_CONSTANT.to("meter ** 2 / second ** 2 / kelvin").magnitude
+ )
+@@ -117,6 +129,8 @@ _WATER_VAPOR_GAS_CONSTANT_SI = float(
+ )
+ _LandSeaMaskCacheKey = tuple[str, tuple[int, ...], bytes, tuple[int, ...], bytes]
+ _LAND_SEA_FRACTION_CACHE: dict[_LandSeaMaskCacheKey, jax.Array] = {}
++_TerrainHeightCacheKey = tuple[str, tuple[int, ...], bytes, tuple[int, ...], bytes]
++_TERRAIN_HEIGHT_CACHE: dict[_TerrainHeightCacheKey, jax.Array] = {}
+ 
+ 
+ @dataclass(frozen=True)
+@@ -171,6 +185,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
+     use_coriolis_scaled_ekman_depth: bool = False
++    apply_orographic_lift_theta_tendency: bool = False
+     semi_implicit_offcentering: float = 0.0
+     jit_forecast: bool = True
+ 
+@@ -231,6 +246,18 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                     valid_land_sea_fraction,
+                     grid.latitude_reversed,
+                 )
++        terrain_height_meters = None
++        if self.apply_orographic_lift_theta_tendency:
++            terrain_height_meters = _load_surface_geopotential_height_for_grid(
++                longitude=forecast_input.longitude,
++                latitude=forecast_input.latitude,
++                initial_time=forecast_input.initial_times[0],
++            )
++            if terrain_height_meters is not None:
++                terrain_height_meters = _to_dinosaur_latitude_order(
++                    terrain_height_meters,
++                    grid.latitude_reversed,
++                )
+ 
+         trajectory_fn = self._trajectory_function(
+             coords=grid.coords,
+@@ -240,6 +267,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             output_count=max(forecast_input.lead_steps) + 1,
+             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
+             ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
++            terrain_height_meters=terrain_height_meters,
+         )
+ 
+         forecasts = []
+@@ -263,7 +291,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_layer_mean_hydrostatic_temperature_initialization=(
+                     self.use_layer_mean_hydrostatic_temperature_initialization
+                 ),
+-                initialize_sim_time=self.use_pressure_ramped_vertical_dse_increment,
++                initialize_sim_time=(
++                    self.use_pressure_ramped_vertical_dse_increment
++                    or self.apply_orographic_lift_theta_tendency
++                ),
+             )
+             if (
+                 self.apply_ocean_bulk_sensible_heat_flux
+@@ -350,6 +381,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+         output_count: int,
+         use_humidity_in_dynamics: bool,
+         ocean_bulk_shf_ocean_weight: jax.Array | None = None,
++        terrain_height_meters: jax.Array | None = None,
+     ):
+         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
+         use_coriolis_rotation_split = (
+@@ -502,6 +534,16 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                         ),
+                     )
+                 )
++            if self.apply_orographic_lift_theta_tendency:
++                filters.append(
++                    _orographic_lift_theta_tendency_step_filter(
++                        coords=coords,
++                        physics_specs=physics_specs,
++                        reference_temperature=reference_temperature,
++                        terrain_height_meters=terrain_height_meters,
++                        step_seconds=step_seconds,
++                    )
++                )
+             if self.apply_theta_layer_mean_recentering:
+                 filters.append(
+                     _theta_layer_mean_recenter_step_filter(
+@@ -1441,6 +1483,348 @@ def _ekman_coupled_equatorial_taper(
+     return taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
+ 
+ 
++def _orographic_lift_theta_tendency_step_filter(
++    *,
++    coords: coordinate_systems.CoordinateSystem,
++    physics_specs: Any,
++    reference_temperature: np.ndarray,
++    terrain_height_meters: jax.Array | None,
++    step_seconds: float,
++) -> Any:
++    """Return a thermal-only orographic lift filter for positive forecast times."""
++    assert step_seconds > 0.0
++    horizontal_grid = coords.horizontal
++    terrain_height = _valid_terrain_height_or_none(
++        terrain_height_meters,
++        horizontal_grid.nodal_shape,
++    )
++    if terrain_height is None:
++
++        def no_orographic_lift_filter(prev_state: Any, next_state: Any) -> Any:
++            del prev_state
++            return next_state
++
++        return no_orographic_lift_filter
++
++    length_unit_factor = _unit_factor(physics_specs, "meter")
++    wind_unit_factor = _unit_factor(physics_specs, "meter / second")
++    temperature_unit_factor = _unit_factor(physics_specs, "kelvin")
++    terrain_height = jnp.asarray(terrain_height, dtype=jnp.float32) * length_unit_factor
++    low_mode_mask = _orographic_lift_low_mode_mask(horizontal_grid)
++    smoothed_terrain = horizontal_grid.to_nodal(
++        horizontal_grid.to_modal(terrain_height) * low_mode_mask
++    )
++    terrain_gradient = _terrain_gradient(horizontal_grid, smoothed_terrain)
++    sigma_envelope = _orographic_lift_sigma_envelope(coords.vertical)
++    latitude_envelope = _orographic_lift_equatorial_taper(horizontal_grid)
++    quadrature_weights = jnp.asarray(horizontal_grid.quadrature_weights)
++    reference_temperature = jnp.asarray(reference_temperature)
++    reference_pressure = _unit_factor(physics_specs, "pascal") * 100_000.0
++    temperature_increment_cap = (
++        _OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN * temperature_unit_factor
++    )
++
++    def orographic_lift_filter(prev_state: Any, next_state: Any) -> Any:
++        del prev_state
++        if next_state.sim_time is None:
++            return next_state
++
++        ramp = _orographic_lift_forecast_time_ramp(
++            next_state.sim_time,
++            physics_specs,
++        )
++        u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
++            horizontal_grid,
++            next_state.vorticity,
++            next_state.divergence,
++        )
++        lowest_u_wind = u_wind[-1]
++        lowest_v_wind = v_wind[-1]
++        wind_speed = jnp.sqrt(jnp.maximum(lowest_u_wind**2 + lowest_v_wind**2, 0.0))
++        weak_flow_taper = jnp.clip(
++            wind_speed
++            / (_OROGRAPHIC_LIFT_WEAK_FLOW_FULL_METERS_PER_SECOND * wind_unit_factor),
++            0.0,
++            1.0,
++        )
++        weak_flow_taper = (
++            weak_flow_taper * weak_flow_taper * (3.0 - 2.0 * weak_flow_taper)
++        )
++        w_terrain = (
++            lowest_u_wind * terrain_gradient[0] + lowest_v_wind * terrain_gradient[1]
++        )
++        w_terrain = w_terrain * latitude_envelope * weak_flow_taper * ramp
++
++        nodal_temperature = (
++            horizontal_grid.to_nodal(next_state.temperature_variation)
++            + reference_temperature[:, jnp.newaxis, jnp.newaxis]
++        )
++        surface_pressure = jnp.exp(
++            horizontal_grid.to_nodal(next_state.log_surface_pressure)[0]
++        )
++        theta = _orographic_lift_potential_temperature(
++            temperature=nodal_temperature,
++            surface_pressure=surface_pressure,
++            sigma_centers=jnp.asarray(coords.vertical.centers),
++            reference_pressure=reference_pressure,
++            kappa=physics_specs.kappa,
++        )
++        height = _orographic_lift_layer_height(
++            temperature=nodal_temperature,
++            sigma_centers=jnp.asarray(coords.vertical.centers),
++            gas_constant=physics_specs.R,
++            gravity=physics_specs.g,
++        )
++        dtheta_dz = _vertical_derivative(theta, height)
++        raw_temperature_increment = (
++            -step_seconds
++            * w_terrain[jnp.newaxis, ...]
++            * dtheta_dz
++            * sigma_envelope[:, jnp.newaxis, jnp.newaxis]
++        )
++        temperature_increment = jax.vmap(
++            lambda layer_increment: _bounded_area_neutral_field(
++                layer_increment,
++                temperature_increment_cap,
++                quadrature_weights,
++            )
++        )(raw_temperature_increment)
++        modal_temperature_increment = horizontal_grid.to_modal(temperature_increment)
++        projected_temperature_increment = horizontal_grid.to_nodal(
++            modal_temperature_increment
++        )
++        projected_increment_max = jnp.max(jnp.abs(projected_temperature_increment))
++        projection_scale = jnp.minimum(
++            1.0,
++            temperature_increment_cap / jnp.maximum(projected_increment_max, 1.0e-30),
++        )
++        temperature_increment = projected_temperature_increment * projection_scale
++        modal_temperature_increment = modal_temperature_increment * projection_scale
++        corrected_temperature_variation = (
++            next_state.temperature_variation + modal_temperature_increment
++        )
++        finite_diagnostics = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(jnp.isfinite(smoothed_terrain)),
++                    jnp.all(jnp.isfinite(terrain_gradient[0])),
++                    jnp.all(jnp.isfinite(terrain_gradient[1])),
++                    jnp.all(jnp.isfinite(sigma_envelope)),
++                    jnp.all(jnp.isfinite(latitude_envelope)),
++                    jnp.all(jnp.isfinite(lowest_u_wind)),
++                    jnp.all(jnp.isfinite(lowest_v_wind)),
++                    jnp.all(jnp.isfinite(wind_speed)),
++                    jnp.all(jnp.isfinite(w_terrain)),
++                    jnp.all(jnp.isfinite(nodal_temperature)),
++                    jnp.all(jnp.isfinite(surface_pressure)),
++                    jnp.all(surface_pressure > 0.0),
++                    jnp.all(nodal_temperature > 0.0),
++                    jnp.all(jnp.isfinite(theta)),
++                    jnp.all(jnp.isfinite(height)),
++                    jnp.all(jnp.isfinite(dtheta_dz)),
++                    jnp.all(jnp.isfinite(raw_temperature_increment)),
++                    jnp.all(jnp.isfinite(projected_temperature_increment)),
++                    jnp.isfinite(projection_scale),
++                    jnp.all(jnp.isfinite(temperature_increment)),
++                    jnp.all(jnp.isfinite(corrected_temperature_variation)),
++                    jnp.isfinite(ramp),
++                ]
++            )
++        )
++        candidate_has_effect = jnp.max(jnp.abs(temperature_increment)) > 0.0
++        use_candidate = finite_diagnostics & candidate_has_effect
++        return _primitive_equation_state(
++            vorticity=next_state.vorticity,
++            divergence=next_state.divergence,
++            temperature_variation=jnp.where(
++                use_candidate,
++                corrected_temperature_variation,
++                next_state.temperature_variation,
++            ),
++            log_surface_pressure=next_state.log_surface_pressure,
++            tracers=next_state.tracers,
++            sim_time=next_state.sim_time,
++        )
++
++    return orographic_lift_filter
++
++
++def _valid_terrain_height_or_none(
++    terrain_height_meters: jax.Array | None,
++    spatial_shape: tuple[int, int],
++) -> jax.Array | None:
++    """Return finite terrain height matching the Dinosaur grid or `None`."""
++    if terrain_height_meters is None:
++        return None
++    try:
++        candidate = np.asarray(jax.device_get(terrain_height_meters), dtype=np.float32)
++    except Exception:
++        return None
++    if candidate.shape != tuple(spatial_shape):
++        return None
++    if candidate.size == 0:
++        return None
++    if not bool(np.isfinite(candidate).all()):
++        return None
++    candidate.setflags(write=False)
++    return jnp.asarray(candidate, dtype=jnp.float32)
++
++
++def _terrain_gradient(
++    horizontal_grid: spherical_harmonic.Grid,
++    terrain_height: jax.Array,
++) -> tuple[jax.Array, jax.Array]:
++    """Return nodal eastward and northward terrain slopes."""
++    modal_terrain = horizontal_grid.to_modal(terrain_height)
++    cos_lat_gradient = horizontal_grid.cos_lat_grad(modal_terrain)
++    tiny_cos_lat = jnp.asarray(1.0e-6, dtype=terrain_height.dtype)
++    safe_cos_lat = jnp.where(
++        horizontal_grid.cos_lat >= 0.0,
++        jnp.maximum(horizontal_grid.cos_lat, tiny_cos_lat),
++        jnp.minimum(horizontal_grid.cos_lat, -tiny_cos_lat),
++    )
++    return (
++        horizontal_grid.to_nodal(cos_lat_gradient[0]) / safe_cos_lat,
++        horizontal_grid.to_nodal(cos_lat_gradient[1]) / safe_cos_lat,
++    )
++
++
++def _orographic_lift_potential_temperature(
++    *,
++    temperature: jax.Array,
++    surface_pressure: jax.Array,
++    sigma_centers: jax.Array,
++    reference_pressure: float,
++    kappa: float,
++) -> jax.Array:
++    """Return dry potential temperature on sigma layers."""
++    pressure = sigma_centers[:, jnp.newaxis, jnp.newaxis] * surface_pressure
++    safe_pressure = jnp.maximum(pressure, jnp.finfo(temperature.dtype).tiny)
++    return temperature * (reference_pressure / safe_pressure) ** kappa
++
++
++def _orographic_lift_layer_height(
++    *,
++    temperature: jax.Array,
++    sigma_centers: jax.Array,
++    gas_constant: float,
++    gravity: float,
++) -> jax.Array:
++    """Return a hydrostatic layer height proxy above the lower boundary."""
++    sigma = jnp.maximum(
++        sigma_centers[:, jnp.newaxis, jnp.newaxis],
++        jnp.finfo(temperature.dtype).tiny,
++    )
++    return (gas_constant * temperature / gravity) * jnp.log(1.0 / sigma)
++
++
++def _vertical_derivative(field: jax.Array, coordinate: jax.Array) -> jax.Array:
++    """Differentiate layer fields along the leading vertical axis."""
++    if field.shape[0] < 2:
++        return jnp.zeros_like(field)
++    coordinate_difference = coordinate[1:] - coordinate[:-1]
++    safe_difference = jnp.where(
++        jnp.abs(coordinate_difference) > jnp.finfo(field.dtype).tiny,
++        coordinate_difference,
++        jnp.where(coordinate_difference >= 0.0, 1.0, -1.0)
++        * jnp.finfo(field.dtype).tiny,
++    )
++    layer_derivative = (field[1:] - field[:-1]) / safe_difference
++    if field.shape[0] == 2:
++        return jnp.concatenate([layer_derivative[:1], layer_derivative[-1:]], axis=0)
++    return jnp.concatenate(
++        [
++            layer_derivative[:1],
++            0.5 * (layer_derivative[1:] + layer_derivative[:-1]),
++            layer_derivative[-1:],
++        ],
++        axis=0,
++    )
++
++
++def _orographic_lift_forecast_time_ramp(
++    sim_time: jax.Array,
++    physics_specs: Any,
++) -> jax.Array:
++    """Return a raised-cosine ramp that is full after 48 forecast hours."""
++    full_time = _nondimensionalize_seconds(
++        physics_specs,
++        _OROGRAPHIC_LIFT_RAMP_FULL_HOURS * 3600.0,
++    )
++    ramp_fraction = jnp.clip(
++        sim_time / jnp.asarray(full_time, dtype=sim_time.dtype), 0.0, 1.0
++    )
++    return 0.5 * (1.0 - jnp.cos(jnp.pi * ramp_fraction))
++
++
++def _orographic_lift_sigma_envelope(
++    vertical_coords: sigma_coordinates.SigmaCoordinates,
++) -> jax.Array:
++    """Return the lower/mid-tropospheric envelope for terrain-lift heating."""
++    sigma = jnp.asarray(vertical_coords.centers)
++    upper_fraction = jnp.clip(
++        (sigma - _OROGRAPHIC_LIFT_SIGMA_ZERO_TOP)
++        / (_OROGRAPHIC_LIFT_SIGMA_FULL_TOP - _OROGRAPHIC_LIFT_SIGMA_ZERO_TOP),
++        0.0,
++        1.0,
++    )
++    lower_fraction = jnp.clip(
++        (_OROGRAPHIC_LIFT_SIGMA_ZERO_BOTTOM - sigma)
++        / (_OROGRAPHIC_LIFT_SIGMA_ZERO_BOTTOM - _OROGRAPHIC_LIFT_SIGMA_FULL_BOTTOM),
++        0.0,
++        1.0,
++    )
++    upper_taper = 0.5 * (1.0 - jnp.cos(jnp.pi * upper_fraction))
++    lower_taper = 0.5 * (1.0 - jnp.cos(jnp.pi * lower_fraction))
++    return jnp.where(
++        (sigma >= _OROGRAPHIC_LIFT_SIGMA_FULL_TOP)
++        & (sigma <= _OROGRAPHIC_LIFT_SIGMA_FULL_BOTTOM),
++        1.0,
++        upper_taper * lower_taper,
++    )
++
++
++def _orographic_lift_equatorial_taper(
++    horizontal_grid: spherical_harmonic.Grid,
++) -> jax.Array:
++    """Return a smooth taper that suppresses terrain lift near the equator."""
++    _, sin_latitude = horizontal_grid.nodal_mesh
++    absolute_sin_latitude = jnp.abs(sin_latitude)
++    zero_sin_latitude = jnp.sin(
++        jnp.deg2rad(_OROGRAPHIC_LIFT_EQUATORIAL_ZERO_LATITUDE_DEGREES)
++    )
++    full_sin_latitude = jnp.sin(
++        jnp.deg2rad(_OROGRAPHIC_LIFT_EQUATORIAL_FULL_LATITUDE_DEGREES)
++    )
++    taper_fraction = jnp.clip(
++        (absolute_sin_latitude - zero_sin_latitude)
++        / (full_sin_latitude - zero_sin_latitude),
++        0.0,
++        1.0,
++    )
++    return taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
++
++
++def _orographic_lift_low_mode_mask(
++    horizontal_grid: spherical_harmonic.Grid,
++) -> jax.Array:
++    """Return the fixed terrain taper: full through wavenumber 12, zero by 20."""
++    _, total_wavenumber = horizontal_grid.modal_mesh
++    total_wavenumber = jnp.asarray(total_wavenumber, dtype=jnp.float32)
++    transition = jnp.clip(
++        (total_wavenumber - _OROGRAPHIC_LIFT_LOW_MODE_CUTOFF)
++        / (_OROGRAPHIC_LIFT_TAPER_ZERO_MODE - _OROGRAPHIC_LIFT_LOW_MODE_CUTOFF),
++        0.0,
++        1.0,
++    )
++    taper = 0.5 * (1.0 + jnp.cos(jnp.pi * transition))
++    return jnp.where(
++        total_wavenumber <= _OROGRAPHIC_LIFT_LOW_MODE_CUTOFF,
++        1.0,
++        jnp.where(total_wavenumber >= _OROGRAPHIC_LIFT_TAPER_ZERO_MODE, 0.0, taper),
++    ) * jnp.asarray(horizontal_grid.mask, dtype=jnp.float32)
++
++
+ def _area_weighted_mean(nodal_field: jax.Array, weights: jax.Array) -> jax.Array:
+     """Return the horizontal area mean over the final two axes."""
+     return jnp.sum(nodal_field * weights, axis=(-2, -1)) / jnp.sum(weights)
+@@ -1962,6 +2346,17 @@ def ekman_depth_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel
+     )
+ 
+ 
++def orographic_lift_theta_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the Ekman-depth incumbent with thermal orographic lift enabled."""
++    return replace(
++        ekman_depth_dinosaur_dycore_model(),
++        name="dino_ri2m_ekman_depth_orolift_theta",
++        apply_orographic_lift_theta_tendency=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -2876,6 +3271,49 @@ def _load_land_sea_fraction_for_grid(
+     return mask
+ 
+ 
++def _load_surface_geopotential_height_for_grid(
++    *,
++    longitude: np.ndarray,
++    latitude: np.ndarray,
++    initial_time: np.datetime64,
++) -> jax.Array | None:
++    """Load fixed surface geopotential as terrain height in meters."""
++    from dynamaxx.data.weatherbench2 import WeatherBench2Source
++
++    longitude = np.asarray(longitude, dtype=np.float64)
++    latitude = np.asarray(latitude, dtype=np.float64)
++    source = WeatherBench2Source()
++    cache_key = _terrain_height_cache_key(source.path, longitude, latitude)
++    cached_height = _TERRAIN_HEIGHT_CACHE.get(cache_key)
++    if cached_height is not None:
++        return cached_height
++
++    try:
++        source_longitude, source_latitude = source.spatial_coordinates(
++            time=initial_time
++        )
++        if not (
++            np.array_equal(source_longitude, longitude)
++            and np.array_equal(source_latitude, latitude)
++        ):
++            return None
++        constants = source.read_constants([_GEOPOTENTIAL_AT_SURFACE_CHANNEL])
++        constants_array = np.asarray(jax.device_get(constants))
++    except Exception:
++        return None
++
++    if constants_array.shape != (1, longitude.size, latitude.size):
++        return None
++    terrain_height = _valid_terrain_height_or_none(
++        constants_array[0] / _GRAVITY_ACCELERATION_SI,
++        (longitude.size, latitude.size),
++    )
++    if terrain_height is None:
++        return None
++    _TERRAIN_HEIGHT_CACHE[cache_key] = terrain_height
++    return terrain_height
++
++
+ def _land_sea_fraction_cache_key(
+     path: str,
+     longitude: np.ndarray,
+@@ -2893,6 +3331,23 @@ def _land_sea_fraction_cache_key(
+     )
+ 
+ 
++def _terrain_height_cache_key(
++    path: str,
++    longitude: np.ndarray,
++    latitude: np.ndarray,
++) -> _TerrainHeightCacheKey:
++    """Build a value-based key so terrain constants cannot cross grids."""
++    longitude = np.ascontiguousarray(np.asarray(longitude, dtype=np.float64))
++    latitude = np.ascontiguousarray(np.asarray(latitude, dtype=np.float64))
++    return (
++        str(path),
++        tuple(int(size) for size in longitude.shape),
++        longitude.tobytes(),
++        tuple(int(size) for size in latitude.shape),
++        latitude.tobytes(),
++    )
++
++
+ def _scale_separated_residual_decays(
+     trajectory_state: WeatherState,
+     *,
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index efe65fb..212087b 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -256,6 +256,15 @@ def dino_ri2m_ekman_depth_model() -> DycoreModel:
+     return ekman_depth_dinosaur_dycore_model()
+ 
+ 
++def dino_ri2m_ekman_depth_orolift_theta_model() -> DycoreModel:
++    """Return Ekman-depth with thermal orographic lift enabled."""
++    from dynamaxx.dycore.models.dinosaur import (
++        orographic_lift_theta_dinosaur_dycore_model,
++    )
++
++    return orographic_lift_theta_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -343,6 +352,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     ),
+     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
+     "dino_ri2m_ekman_depth": dino_ri2m_ekman_depth_model,
++    "dino_ri2m_ekman_depth_orolift_theta": (dino_ri2m_ekman_depth_orolift_theta_model),
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index 03cf834..7bb11e2 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -147,6 +147,9 @@ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
+     "dino_ri2m_ekman_coupled"
+ )
+ assert dinosaur.ekman_depth_dinosaur_dycore_model().name == "dino_ri2m_ekman_depth"
++assert dinosaur.orographic_lift_theta_dinosaur_dycore_model().name == (
++    "dino_ri2m_ekman_depth_orolift_theta"
++)
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -252,6 +255,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
+         "dino_ri2m_ekman_depth",
++        "dino_ri2m_ekman_depth_orolift_theta",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+@@ -855,6 +859,20 @@ def test_dinosaur_ekman_depth_model_is_registered():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_dinosaur_orographic_lift_theta_model_is_registered():
++    """The orographic lift thermal candidate is side-by-side with incumbent."""
++    model = create_dycore_model("dino_ri2m_ekman_depth_orolift_theta")
++    incumbent = create_dycore_model("dino_ri2m_ekman_depth")
++
++    assert model.name == "dino_ri2m_ekman_depth_orolift_theta"
++    assert model.apply_orographic_lift_theta_tendency
++    assert not incumbent.apply_orographic_lift_theta_tendency
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_dinosaur_has_local_runtime_modules_and_data():
+     """The vendored runtime resolves classes and data from Dynamaxx."""
+     assert UPSTREAM_VERSION == "1.3.6"
+diff --git a/tests/dycore/models/dinosaur/test_primitive_equations.py b/tests/dycore/models/dinosaur/test_primitive_equations.py
+index 79b7b72..fb8d095 100644
+--- a/tests/dycore/models/dinosaur/test_primitive_equations.py
++++ b/tests/dycore/models/dinosaur/test_primitive_equations.py
+@@ -33,6 +33,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
+     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
+     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
++    _OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
+     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+     _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+@@ -66,6 +67,9 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     _nondimensionalize_seconds,
+     _ocean_bulk_sensible_heat_flux_temperature_anchor,
+     _OceanBulkSensibleHeatFluxForcingSigma,
++    _orographic_lift_forecast_time_ramp,
++    _orographic_lift_sigma_envelope,
++    _orographic_lift_theta_tendency_step_filter,
+     _pressure_coordinates,
+     _primitive_equation,
+     _primitive_equation_state,
+@@ -101,6 +105,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     log_pressure_initialization_dinosaur_dycore_model,
+     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
++    orographic_lift_theta_dinosaur_dycore_model,
+     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
+     scale_separated_surface_residual_dinosaur_dycore_model,
+@@ -762,6 +767,30 @@ def test_ekman_depth_factory_preserves_incumbent_except_depth_selector():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_orographic_lift_factory_preserves_incumbent_except_selector():
++    """The orographic-lift candidate changes only name and thermal selector."""
++    model = orographic_lift_theta_dinosaur_dycore_model()
++    incumbent = ekman_depth_dinosaur_dycore_model()
++
++    assert model.name == "dino_ri2m_ekman_depth_orolift_theta"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_coriolis_scaled_ekman_depth
++    assert model.apply_orographic_lift_theta_tendency
++    assert not incumbent.apply_orographic_lift_theta_tendency
++    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
++        if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
+     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
+     equation = _linear_implicit_oscillator_equation(frequency=2.0)
+@@ -4521,7 +4550,9 @@ def test_ekman_depth_nonfinite_pressure_matches_fixed_depth_fallback():
+     )(prev_state, bad_next_state)
+ 
+     np.testing.assert_array_equal(depth_corrected.vorticity, fixed_corrected.vorticity)
+-    np.testing.assert_array_equal(depth_corrected.divergence, fixed_corrected.divergence)
++    np.testing.assert_array_equal(
++        depth_corrected.divergence, fixed_corrected.divergence
++    )
+     np.testing.assert_array_equal(
+         depth_corrected.temperature_variation,
+         fixed_corrected.temperature_variation,
+@@ -4708,6 +4739,196 @@ def test_tropical_wtg_mass_dse_filter_falls_back_for_nonfinite_dse():
+     np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+ 
+ 
++def test_orographic_lift_missing_or_zero_terrain_is_exact_noop():
++    """Unavailable or flat-zero terrain leaves the incumbent next state unchanged."""
++    coords, physics_specs, prev_state, next_state, terrain_height = (
++        _synthetic_orographic_lift_state(wind_scale=20.0)
++    )
++    filter_kwargs = {
++        "coords": coords,
++        "physics_specs": physics_specs,
++        "reference_temperature": _reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
++    }
++
++    missing_corrected = _orographic_lift_theta_tendency_step_filter(
++        **filter_kwargs,
++        terrain_height_meters=None,
++    )(prev_state, next_state)
++    zero_corrected = _orographic_lift_theta_tendency_step_filter(
++        **filter_kwargs,
++        terrain_height_meters=jnp.zeros_like(terrain_height),
++    )(prev_state, next_state)
++
++    _assert_pytree_allclose(missing_corrected, next_state)
++    _assert_pytree_allclose(zero_corrected, next_state)
++
++
++def test_orographic_lift_uniform_terrain_or_zero_wind_is_exact_noop():
++    """No terrain slope or no low-level wind gives no thermal increment."""
++    coords, physics_specs, prev_state, next_state, terrain_height = (
++        _synthetic_orographic_lift_state(wind_scale=20.0)
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    step_seconds = _nondimensionalize_seconds(physics_specs, 900.0)
++    uniform_filter = _orographic_lift_theta_tendency_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        terrain_height_meters=jnp.ones_like(terrain_height) * 1500.0,
++        step_seconds=step_seconds,
++    )
++    _, _, calm_prev_state, calm_next_state, _ = _synthetic_orographic_lift_state(
++        wind_scale=0.0,
++    )
++    calm_filter = _orographic_lift_theta_tendency_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=reference_temperature,
++        terrain_height_meters=terrain_height,
++        step_seconds=step_seconds,
++    )
++
++    uniform_corrected = uniform_filter(prev_state, next_state)
++    calm_corrected = calm_filter(calm_prev_state, calm_next_state)
++
++    _assert_pytree_allclose(uniform_corrected, next_state)
++    _assert_pytree_allclose(calm_corrected, calm_next_state)
++
++
++def test_orographic_lift_upslope_cools_and_downslope_warms():
++    """Eastward upslope flow cools where the reversed flow warms."""
++    coords, physics_specs, prev_state, upslope_state, terrain_height = (
++        _synthetic_orographic_lift_state(wind_scale=20.0)
++    )
++    _, _, _, downslope_state, _ = _synthetic_orographic_lift_state(wind_scale=-20.0)
++    step_filter = _orographic_lift_theta_tendency_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        terrain_height_meters=terrain_height,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++
++    upslope_corrected = step_filter(prev_state, upslope_state)
++    downslope_corrected = step_filter(prev_state, downslope_state)
++    upslope_delta = coords.horizontal.to_nodal(
++        upslope_corrected.temperature_variation - upslope_state.temperature_variation
++    )
++    downslope_delta = coords.horizontal.to_nodal(
++        downslope_corrected.temperature_variation
++        - downslope_state.temperature_variation
++    )
++    sample = (1, 0, -1)
++
++    assert float(upslope_delta[sample]) < 0.0
++    assert float(downslope_delta[sample]) > 0.0
++
++
++def test_orographic_lift_increment_is_layerwise_neutral_capped_and_thermal_only():
++    """The terrain-lift filter changes only bounded area-neutral temperature."""
++    coords, physics_specs, prev_state, next_state, terrain_height = (
++        _synthetic_orographic_lift_state(wind_scale=200.0)
++    )
++    step_filter = _orographic_lift_theta_tendency_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        terrain_height_meters=20.0 * terrain_height,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++
++    corrected = step_filter(prev_state, next_state)
++
++    modal_delta = corrected.temperature_variation - next_state.temperature_variation
++    nodal_delta = coords.horizontal.to_nodal(modal_delta)
++    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
++    layer_mean_delta = jnp.sum(
++        nodal_delta * quadrature_weights,
++        axis=(-2, -1),
++    ) / jnp.sum(quadrature_weights)
++    temperature_increment_cap = (
++        _OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++
++    assert float(jnp.max(jnp.abs(nodal_delta))) > 0.0
++    np.testing.assert_allclose(layer_mean_delta, 0.0, atol=2.0e-6)
++    assert float(jnp.max(jnp.abs(nodal_delta))) <= temperature_increment_cap * 1.001
++    np.testing.assert_array_equal(corrected.vorticity, next_state.vorticity)
++    np.testing.assert_array_equal(corrected.divergence, next_state.divergence)
++    np.testing.assert_array_equal(
++        corrected.log_surface_pressure,
++        next_state.log_surface_pressure,
++    )
++    assert corrected.tracers.keys() == next_state.tracers.keys()
++    for tracer_name, tracer_value in corrected.tracers.items():
++        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
++    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
++
++
++def test_orographic_lift_ramp_envelope_and_cap_are_deterministic():
++    """The fixed time ramp, sigma mask, and cap are finite deterministic guards."""
++    coords, physics_specs, prev_state, next_state, terrain_height = (
++        _synthetic_orographic_lift_state(wind_scale=200.0)
++    )
++    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
++    sim_time = jnp.asarray([0.0, 24.0, 48.0, 72.0], dtype=jnp.float32) * hour
++    ramps = _orographic_lift_forecast_time_ramp(sim_time, physics_specs)
++    sigma_envelope = _orographic_lift_sigma_envelope(coords.vertical)
++    zero_time_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=jnp.asarray(0.0, dtype=jnp.float32),
++    )
++    step_filter = _orographic_lift_theta_tendency_step_filter(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=_reference_temperature(
++            layer_count=coords.vertical.layers,
++            temperature_kelvin=250.0,
++        ),
++        terrain_height_meters=20.0 * terrain_height,
++        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
++    )
++
++    zero_time_corrected = step_filter(prev_state, zero_time_state)
++    capped_corrected = step_filter(prev_state, next_state)
++    capped_delta = coords.horizontal.to_nodal(
++        capped_corrected.temperature_variation - next_state.temperature_variation
++    )
++    temperature_increment_cap = (
++        _OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
++        * _unit_factor(physics_specs, "kelvin")
++    )
++
++    np.testing.assert_allclose(np.asarray(ramps)[[0, 2, 3]], [0.0, 1.0, 1.0])
++    assert 0.0 < float(ramps[1]) < 1.0
++    assert bool(jnp.isfinite(sigma_envelope).all())
++    assert float(sigma_envelope[0]) == 0.0
++    assert float(jnp.max(sigma_envelope)) <= 1.0
++    np.testing.assert_array_equal(
++        zero_time_corrected.temperature_variation,
++        zero_time_state.temperature_variation,
++    )
++    assert float(jnp.max(jnp.abs(capped_delta))) <= temperature_increment_cap * 1.001
++
++
+ def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):
+     """Weak HS composition combines one primitive equation with fixed forcing."""
+     compose_calls = []
+@@ -7685,6 +7906,87 @@ def _synthetic_wtg_mass_dse_state():
+     return coords, physics_specs, prev_state, next_state
+ 
+ 
++def _synthetic_orographic_lift_state(
++    *,
++    wind_scale: float,
++) -> tuple[coordinate_systems.CoordinateSystem, Any, Any, Any, jax.Array]:
++    physics_specs = units.SimUnits.from_si()
++    horizontal_grid = spherical_harmonic.Grid(
++        longitude_wavenumbers=10,
++        total_wavenumbers=24,
++        longitude_nodes=32,
++        latitude_nodes=16,
++        latitude_spacing="gauss",
++        radius=physics_specs.radius,
++    )
++    coords = coordinate_systems.CoordinateSystem(
++        horizontal_grid,
++        sigma_coordinates.SigmaCoordinates.equidistant(3),
++    )
++    longitude, sin_latitude = coords.horizontal.nodal_mesh
++    wind_unit = _unit_factor(physics_specs, "meter / second")
++    terrain_height = (
++        8_000.0 * jnp.sin(longitude) * (1.0 - 0.25 * sin_latitude**2)
++    ).astype(jnp.float32)
++    u_wind = (
++        jnp.zeros(coords.nodal_shape, dtype=jnp.float32)
++        .at[-1]
++        .set(wind_scale * wind_unit)
++    )
++    v_wind = jnp.zeros(coords.nodal_shape, dtype=jnp.float32)
++    vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
++        coords.horizontal,
++        u_wind,
++        v_wind,
++    )
++    reference_temperature = _reference_temperature(
++        layer_count=coords.vertical.layers,
++        temperature_kelvin=250.0,
++    )
++    full_temperature = jnp.stack(
++        [
++            jnp.full(coords.horizontal.nodal_shape, 250.0, dtype=jnp.float32),
++            jnp.full(coords.horizontal.nodal_shape, 270.0, dtype=jnp.float32),
++            jnp.full(coords.horizontal.nodal_shape, 290.0, dtype=jnp.float32),
++        ],
++        axis=0,
++    )
++    surface_pressure = jnp.full(
++        coords.horizontal.nodal_shape,
++        100_000.0 * _unit_factor(physics_specs, "pascal"),
++        dtype=jnp.float32,
++    )
++    next_state = _primitive_equation_state(
++        vorticity=vorticity,
++        divergence=divergence,
++        temperature_variation=coords.horizontal.to_modal(
++            full_temperature - reference_temperature[:, np.newaxis, np.newaxis]
++        ),
++        log_surface_pressure=coords.horizontal.to_modal(jnp.log(surface_pressure))[
++            jnp.newaxis
++        ],
++        tracers={
++            "specific_humidity": jnp.zeros(coords.modal_shape, dtype=jnp.float32),
++        },
++        sim_time=jnp.asarray(
++            72.0 * _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR),
++            dtype=jnp.float32,
++        ),
++    )
++    prev_state = _primitive_equation_state(
++        vorticity=next_state.vorticity,
++        divergence=next_state.divergence,
++        temperature_variation=next_state.temperature_variation,
++        log_surface_pressure=next_state.log_surface_pressure,
++        tracers=next_state.tracers,
++        sim_time=jnp.asarray(
++            71.75 * _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR),
++            dtype=jnp.float32,
++        ),
++    )
++    return coords, physics_specs, prev_state, next_state, terrain_height
++
++
+ def _linear_implicit_oscillator_equation(
+     frequency: float,
+ ) -> time_integration.ImplicitExplicitODE:
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index b852e1f..87da7a5 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -60,6 +60,7 @@ def test_registry_lists_default_dycore_models():
+         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
+         "dino_ri2m_ekman_coupled",
+         "dino_ri2m_ekman_depth",
++        "dino_ri2m_ekman_depth_orolift_theta",
+     )
+ 
+ 
+@@ -750,6 +751,30 @@ def test_registry_creates_ekman_depth_candidate_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_orographic_lift_theta_candidate_model():
++    """The terrain-lift thermal candidate preserves the Ekman-depth incumbent."""
++    model = create_dycore_model("dino_ri2m_ekman_depth_orolift_theta")
++    incumbent = create_dycore_model("dino_ri2m_ekman_depth")
++
++    assert model.name == "dino_ri2m_ekman_depth_orolift_theta"
++    assert model.use_horizontal_semilagrangian_theta_transport
++    assert model.use_midpoint_semilagrangian_theta_departure
++    assert model.use_dry_static_energy_hsl_transport
++    assert model.use_layer_mass_weighted_dse_hsl_transport
++    assert model.apply_tropical_wtg_mass_dse_relaxation
++    assert model.use_pressure_ramped_vertical_dse_increment
++    assert model.use_land_ocean_low_mode_t2m_memory
++    assert model.use_bulk_richardson_2m_temperature_diagnostic
++    assert model.apply_coupled_ekman_surface_closure
++    assert model.use_coriolis_scaled_ekman_depth
++    assert model.apply_orographic_lift_theta_tendency
++    assert not incumbent.apply_orographic_lift_theta_tendency
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):

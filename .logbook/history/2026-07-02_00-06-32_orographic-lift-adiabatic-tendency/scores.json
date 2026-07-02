@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "orographic-lift-adiabatic-tendency",
+  "candidate_model_name": "dino_ri2m_ekman_depth_orolift_theta",
+  "incumbent_model_name": "dino_ri2m_ekman_depth",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "b40f5515ec79abeec4f10db4addfd0abbe44da13",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Recorded from Orchestrator handoff: 288 passed, 2 skipped in 296.58s. Not rerun by Scorer."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_depth_orolift_theta",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-07-02T00:25:28Z",
+      "notes": "Recorded from Implementer handoff and verified from existing JSON artifact."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_depth_orolift_theta --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-07-02T03:49:27Z",
+      "notes": "Run by Scorer. Console result: failed=False, issues=0, records=120, primary_score=-0.131566."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_depth_orolift_theta --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-07-02T04:32:15Z",
+      "notes": "Run by Scorer after iteration promotion gate passed. Console result: failed=False, issues=0, records=120, primary_score=-0.133411."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_theta.json",
+    "candidate_fast_csv": null,
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth.csv"
+  },
+  "cache_reuse": {
+    "iteration": {
+      "reused": true,
+      "source": ".logbook/leaderboard.json",
+      "json": "outputs/eval/iteration_dino_ri2m_ekman_depth.json",
+      "csv": "outputs/eval/iteration_dino_ri2m_ekman_depth.csv",
+      "checks": [
+        "requested incumbent equals leaderboard incumbent",
+        "fingerprint data path, target variables, lead days, and protocol are compatible",
+        "candidate source edits are limited to dycore source/tests and do not alter fixed evaluation code",
+        "artifact exists, is readable, has finite primary_score, and has incumbent rows for guardrails"
+      ],
+      "reason_recomputed": null
+    },
+    "validation": {
+      "reused": true,
+      "source": ".logbook/leaderboard.json",
+      "json": "outputs/eval/validation_dino_ri2m_ekman_depth.json",
+      "csv": "outputs/eval/validation_dino_ri2m_ekman_depth.csv",
+      "checks": [
+        "requested incumbent equals leaderboard incumbent",
+        "fingerprint data path, target variables, lead days, and protocol are compatible",
+        "candidate source edits are limited to dycore source/tests and do not alter fixed evaluation code",
+        "artifact exists, is readable, has finite primary_score, and has incumbent rows for guardrails"
+      ],
+      "reason_recomputed": null
+    }
+  },
+  "primary_scores": {
+    "candidate_fast": -0.1329952445293929,
+    "candidate_iteration": -0.13156559713631472,
+    "candidate_validation": -0.13341144990707632,
+    "incumbent_iteration": -0.13590520069778708,
+    "incumbent_validation": -0.13767474868567484,
+    "iteration_delta": 0.004339603561472366,
+    "validation_delta": 0.004263298778598518
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": false,
+    "candidate_validation_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true,
+    "iteration_gate_details": {
+      "diagnostics_clean": true,
+      "primary_delta_threshold": 0.002,
+      "primary_delta_passed": true,
+      "max_mean_rmse_regression_leads_1_to_5_days": 0.007788865200605566,
+      "mean_rmse_regression_threshold": 0.02,
+      "mean_rmse_regression_passed": true,
+      "max_single_rmse_regression": 0.010575566129183667,
+      "single_rmse_regression_threshold": 0.1,
+      "single_rmse_regression_passed": true
+    },
+    "validation_gate_details": {
+      "diagnostics_clean": true,
+      "primary_delta_threshold": 0.001,
+      "primary_delta_passed": true,
+      "max_mean_rmse_regression_leads_1_to_5_days": 0.0071102426167857944,
+      "mean_rmse_regression_threshold": 0.02,
+      "mean_rmse_regression_passed": true,
+      "max_single_rmse_regression": 0.009455183193520166,
+      "single_rmse_regression_threshold": 0.1,
+      "single_rmse_regression_passed": true
+    }
+  },
+  "regressions": {
+    "iteration_mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "2m_temperature",
+        "relative_regression": -0.0007982066111849922
+      },
+      {
+        "variable": "mean_sea_level_pressure",
+        "relative_regression": -0.02205846359981465
+      },
+      {
+        "variable": "geopotential_500",
+        "relative_regression": 0.007788865200605566
+      },
+      {
+        "variable": "10m_u_component_of_wind",
+        "relative_regression": -0.0036638146351543896
+      }
+    ],
+    "iteration_max_rmse_regression_by_variable_and_lead": [
+      {
+        "variable": "2m_temperature",
+        "lead_hours": 360,
+        "relative_regression": 0.005665761761270788,
+        "candidate_rmse": 7.878545745549508,
+        "incumbent_rmse": 7.834159265551044
+      },
+      {
+        "variable": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "relative_regression": -0.011450419873230503,
+        "candidate_rmse": 353.9377420485703,
+        "incumbent_rmse": 358.0374208476039
+      },
+      {
+        "variable": "geopotential_500",
+        "lead_hours": 48,
+        "relative_regression": 0.010575566129183667,
+        "candidate_rmse": 424.80841314233174,
+        "incumbent_rmse": 420.3628381492332
+      },
+      {
+        "variable": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "relative_regression": -0.0021136945509129075,
+        "candidate_rmse": 2.7668747338826343,
+        "incumbent_rmse": 2.772735449693775
+      }
+    ],
+    "validation_mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "2m_temperature",
+        "relative_regression": -0.0002541743067313789
+      },
+      {
+        "variable": "mean_sea_level_pressure",
+        "relative_regression": -0.02253095816832107
+      },
+      {
+        "variable": "geopotential_500",
+        "relative_regression": 0.0071102426167857944
+      },
+      {
+        "variable": "10m_u_component_of_wind",
+        "relative_regression": -0.0034738545017882214
+      }
+    ],
+    "validation_max_rmse_regression_by_variable_and_lead": [
+      {
+        "variable": "2m_temperature",
+        "lead_hours": 360,
+        "relative_regression": 0.007155861758505808,
+        "candidate_rmse": 7.849538113078153,
+        "incumbent_rmse": 7.7937669938918575
+      },
+      {
+        "variable": "mean_sea_level_pressure",
+        "lead_hours": 24,
+        "relative_regression": -0.011002613075368959,
+        "candidate_rmse": 346.4963744399067,
+        "incumbent_rmse": 350.3511526126128
+      },
+      {
+        "variable": "geopotential_500",
+        "lead_hours": 48,
+        "relative_regression": 0.009455183193520166,
+        "candidate_rmse": 418.4837466770684,
+        "incumbent_rmse": 414.56396841031614
+      },
+      {
+        "variable": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "relative_regression": -0.00194867986988757,
+        "candidate_rmse": 2.753644247819849,
+        "incumbent_rmse": 2.759020695910573
+      }
+    ],
+    "early_z500_mslp_guardrails": {
+      "iteration": {
+        "geopotential_500_mean_leads_1_to_5_days": 0.007788865200605566,
+        "geopotential_500_max_leads_1_to_5_days": 0.010575566129183667,
+        "mean_sea_level_pressure_mean_leads_1_to_5_days": -0.02205846359981465,
+        "mean_sea_level_pressure_max_leads_1_to_5_days": -0.011450419873230503
+      },
+      "validation": {
+        "geopotential_500_mean_leads_1_to_5_days": 0.0071102426167857944,
+        "geopotential_500_max_leads_1_to_5_days": 0.009455183193520166,
+        "mean_sea_level_pressure_mean_leads_1_to_5_days": -0.02253095816832107,
+        "mean_sea_level_pressure_max_leads_1_to_5_days": -0.011002613075368959
+      }
+    }
+  },
+  "anomalies": [
+    "Command start timestamps were not captured by a wrapper; artifact modification times are recorded as finished_at.",
+    "The existing fast artifact has no matching CSV artifact recorded by the Scorer."
+  ]
+}
