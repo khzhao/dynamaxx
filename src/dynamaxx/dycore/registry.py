@@ -256,6 +256,15 @@ def dino_ri2m_ekman_depth_model() -> DycoreModel:
     return ekman_depth_dinosaur_dycore_model()
 
 
+def dino_ri2m_ekman_depth_orolift_theta_model() -> DycoreModel:
+    """Return Ekman-depth with thermal orographic lift enabled."""
+    from dynamaxx.dycore.models.dinosaur import (
+        orographic_lift_theta_dinosaur_dycore_model,
+    )
+
+    return orographic_lift_theta_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -343,6 +352,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     ),
     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
     "dino_ri2m_ekman_depth": dino_ri2m_ekman_depth_model,
+    "dino_ri2m_ekman_depth_orolift_theta": (dino_ri2m_ekman_depth_orolift_theta_model),
 }
 
 

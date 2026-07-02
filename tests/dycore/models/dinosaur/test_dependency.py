@@ -147,6 +147,9 @@ assert dinosaur.ekman_coupled_dinosaur_dycore_model().name == (
     "dino_ri2m_ekman_coupled"
 )
 assert dinosaur.ekman_depth_dinosaur_dycore_model().name == "dino_ri2m_ekman_depth"
+assert dinosaur.orographic_lift_theta_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_depth_orolift_theta"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -252,6 +255,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
         "dino_ri2m_ekman_coupled",
         "dino_ri2m_ekman_depth",
+        "dino_ri2m_ekman_depth_orolift_theta",
     )
 
     model = create_dycore_model("dinosaur")
@@ -851,6 +855,20 @@ def test_dinosaur_ekman_depth_model_is_registered():
     assert not incumbent.use_coriolis_scaled_ekman_depth
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_coriolis_scaled_ekman_depth"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_orographic_lift_theta_model_is_registered():
+    """The orographic lift thermal candidate is side-by-side with incumbent."""
+    model = create_dycore_model("dino_ri2m_ekman_depth_orolift_theta")
+    incumbent = create_dycore_model("dino_ri2m_ekman_depth")
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_theta"
+    assert model.apply_orographic_lift_theta_tendency
+    assert not incumbent.apply_orographic_lift_theta_tendency
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
