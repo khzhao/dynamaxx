@@ -33,6 +33,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
+    _OROGRAPHIC_LIFT_LOWER_COLUMN_WIND_WEIGHTS,
     _OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
@@ -68,6 +69,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _ocean_bulk_sensible_heat_flux_temperature_anchor,
     _OceanBulkSensibleHeatFluxForcingSigma,
     _orographic_lift_forecast_time_ramp,
+    _orographic_lift_lower_column_weighted_wind,
     _orographic_lift_sigma_envelope,
     _orographic_lift_theta_tendency_step_filter,
     _pressure_coordinates,
@@ -105,6 +107,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     log_pressure_initialization_dinosaur_dycore_model,
     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
+    orographic_lift_lower_column_wind_dinosaur_dycore_model,
     orographic_lift_theta_dinosaur_dycore_model,
     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
@@ -201,6 +204,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_bulk_richardson_2m_temperature_diagnostic
     assert not model.apply_coupled_ekman_surface_closure
     assert not model.use_coriolis_scaled_ekman_depth
+    assert not model.use_depth_weighted_orographic_lift_wind
     assert not model.use_log_pressure_initialization
     assert not model.apply_weak_held_suarez_relaxation
     assert not model.apply_exact_coriolis_rotation_split
@@ -787,6 +791,21 @@ def test_orographic_lift_factory_preserves_incumbent_except_selector():
     assert not incumbent.apply_orographic_lift_theta_tendency
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_orographic_lift_lower_column_wind_factory_preserves_incumbent():
+    """The lower-column wind candidate only opts into weighted terrain wind."""
+    model = orographic_lift_lower_column_wind_dinosaur_dycore_model()
+    incumbent = orographic_lift_theta_dinosaur_dycore_model()
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind"
+    assert model.apply_orographic_lift_theta_tendency
+    assert model.use_depth_weighted_orographic_lift_wind
+    assert not incumbent.use_depth_weighted_orographic_lift_wind
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_depth_weighted_orographic_lift_wind"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -4800,6 +4819,109 @@ def test_orographic_lift_uniform_terrain_or_zero_wind_is_exact_noop():
 
     _assert_pytree_allclose(uniform_corrected, next_state)
     _assert_pytree_allclose(calm_corrected, calm_next_state)
+
+
+def test_orographic_lift_lower_column_weighted_wind_normalizes_weights():
+    """The depth-weighted wind uses fixed lower-column weights and sigma support."""
+    layer_shape = (2, 3)
+    u_wind = jnp.stack(
+        [
+            jnp.full(layer_shape, 100.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 10.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 4.0, dtype=jnp.float32),
+        ],
+        axis=0,
+    )
+    v_wind = jnp.stack(
+        [
+            jnp.full(layer_shape, -50.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 6.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 2.0, dtype=jnp.float32),
+        ],
+        axis=0,
+    )
+    sigma_envelope = jnp.asarray([0.0, 1.0, 0.75], dtype=jnp.float32)
+
+    effective_u_wind, effective_v_wind = _orographic_lift_lower_column_weighted_wind(
+        u_wind=u_wind,
+        v_wind=v_wind,
+        sigma_envelope=sigma_envelope,
+    )
+
+    raw_weights = (
+        jnp.asarray(_OROGRAPHIC_LIFT_LOWER_COLUMN_WIND_WEIGHTS, dtype=jnp.float32)
+        * sigma_envelope
+    )
+    normalized_weights = raw_weights / jnp.sum(raw_weights)
+    expected_u_wind = jnp.sum(
+        u_wind * normalized_weights[:, jnp.newaxis, jnp.newaxis],
+        axis=0,
+    )
+    expected_v_wind = jnp.sum(
+        v_wind * normalized_weights[:, jnp.newaxis, jnp.newaxis],
+        axis=0,
+    )
+
+    np.testing.assert_allclose(effective_u_wind, expected_u_wind, rtol=1.0e-6)
+    np.testing.assert_allclose(effective_v_wind, expected_v_wind, rtol=1.0e-6)
+
+
+def test_orographic_lift_lower_column_weighted_wind_falls_back_to_lowest_layer():
+    """Degenerate weighted diagnostics preserve the incumbent lowest wind path."""
+    layer_shape = (2, 3)
+    u_wind = jnp.stack(
+        [
+            jnp.full(layer_shape, 100.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 10.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 4.0, dtype=jnp.float32),
+        ],
+        axis=0,
+    )
+    v_wind = jnp.stack(
+        [
+            jnp.full(layer_shape, -50.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 6.0, dtype=jnp.float32),
+            jnp.full(layer_shape, 2.0, dtype=jnp.float32),
+        ],
+        axis=0,
+    )
+    sigma_envelope = jnp.asarray([jnp.nan, jnp.nan, jnp.nan], dtype=jnp.float32)
+
+    effective_u_wind, effective_v_wind = _orographic_lift_lower_column_weighted_wind(
+        u_wind=u_wind,
+        v_wind=v_wind,
+        sigma_envelope=sigma_envelope,
+    )
+
+    np.testing.assert_array_equal(effective_u_wind, u_wind[-1])
+    np.testing.assert_array_equal(effective_v_wind, v_wind[-1])
+
+
+def test_orographic_lift_lower_column_weighted_wind_off_matches_incumbent():
+    """Keeping the weighted selector off exactly preserves the existing filter."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=20.0)
+    )
+    filter_kwargs = {
+        "coords": coords,
+        "physics_specs": physics_specs,
+        "reference_temperature": _reference_temperature(
+            layer_count=coords.vertical.layers,
+            temperature_kelvin=250.0,
+        ),
+        "terrain_height_meters": terrain_height,
+        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
+    }
+    incumbent_filter = _orographic_lift_theta_tendency_step_filter(**filter_kwargs)
+    explicit_off_filter = _orographic_lift_theta_tendency_step_filter(
+        **filter_kwargs,
+        use_depth_weighted_wind=False,
+    )
+
+    _assert_pytree_allclose(
+        explicit_off_filter(prev_state, next_state),
+        incumbent_filter(prev_state, next_state),
+    )
 
 
 def test_orographic_lift_upslope_cools_and_downslope_warms():

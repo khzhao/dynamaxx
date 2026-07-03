@@ -150,6 +150,9 @@ assert dinosaur.ekman_depth_dinosaur_dycore_model().name == "dino_ri2m_ekman_dep
 assert dinosaur.orographic_lift_theta_dinosaur_dycore_model().name == (
     "dino_ri2m_ekman_depth_orolift_theta"
 )
+assert dinosaur.orographic_lift_lower_column_wind_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_depth_orolift_lwind"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -256,6 +259,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_ri2m_ekman_coupled",
         "dino_ri2m_ekman_depth",
         "dino_ri2m_ekman_depth_orolift_theta",
+        "dino_ri2m_ekman_depth_orolift_lwind",
     )
 
     model = create_dycore_model("dinosaur")
@@ -869,6 +873,21 @@ def test_dinosaur_orographic_lift_theta_model_is_registered():
     assert not incumbent.apply_orographic_lift_theta_tendency
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_orographic_lift_lower_column_wind_model_is_registered():
+    """The lower-column terrain-wind candidate preserves orographic lift."""
+    model = create_dycore_model("dino_ri2m_ekman_depth_orolift_lwind")
+    incumbent = create_dycore_model("dino_ri2m_ekman_depth_orolift_theta")
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind"
+    assert model.apply_orographic_lift_theta_tendency
+    assert model.use_depth_weighted_orographic_lift_wind
+    assert not incumbent.use_depth_weighted_orographic_lift_wind
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_depth_weighted_orographic_lift_wind"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

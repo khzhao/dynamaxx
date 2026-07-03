@@ -265,6 +265,15 @@ def dino_ri2m_ekman_depth_orolift_theta_model() -> DycoreModel:
     return orographic_lift_theta_dinosaur_dycore_model()
 
 
+def dino_ri2m_ekman_depth_orolift_lwind_model() -> DycoreModel:
+    """Return orographic lift with lower-column weighted terrain wind."""
+    from dynamaxx.dycore.models.dinosaur import (
+        orographic_lift_lower_column_wind_dinosaur_dycore_model,
+    )
+
+    return orographic_lift_lower_column_wind_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -353,6 +362,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_ri2m_ekman_coupled": dino_ri2m_ekman_coupled_model,
     "dino_ri2m_ekman_depth": dino_ri2m_ekman_depth_model,
     "dino_ri2m_ekman_depth_orolift_theta": (dino_ri2m_ekman_depth_orolift_theta_model),
+    "dino_ri2m_ekman_depth_orolift_lwind": (dino_ri2m_ekman_depth_orolift_lwind_model),
 }
 
 
