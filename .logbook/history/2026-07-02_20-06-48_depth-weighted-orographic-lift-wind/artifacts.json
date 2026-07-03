@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "depth-weighted-orographic-lift-wind",
+  "history_path": ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind",
+  "source_artifacts": [
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/proposal.md",
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/resource_snapshot.md",
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/implementation.md",
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/scores.json",
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/scoring_notes.md",
+    ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind/decision.md"
+  ],
+  "notes": "Accepted candidate. Source/test changes were committed as db2387935aa0937eb8669de20843dc3caaccb115. Iteration delta was +0.0030536127646459132 and validation delta was +0.004299276376580147 over cached incumbent metrics."
+}

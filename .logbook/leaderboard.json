@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_theta",
-  "incumbent_commit": "7af558f97f2d1286203664f9d6bac17bb8cacbc0",
-  "updated_at": "2026-07-02T04:36:59Z",
-  "iteration_primary_score": -0.13156559713631472,
-  "validation_primary_score": -0.13341144990707632,
-  "history_path": ".logbook/history/2026-07-02_00-06-32_orographic-lift-adiabatic-tendency",
-  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.json",
-  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.csv",
-  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.json",
-  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.csv",
+  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind",
+  "incumbent_commit": "db2387935aa0937eb8669de20843dc3caaccb115",
+  "updated_at": "2026-07-03T00:39:43Z",
+  "iteration_primary_score": -0.1285119843716688,
+  "validation_primary_score": -0.12911217353049617,
+  "history_path": ".logbook/history/2026-07-02_20-06-48_depth-weighted-orographic-lift-wind",
+  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.json",
+  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.csv",
+  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.json",
+  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.csv",
   "evaluation_fingerprint": {
     "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
     "protocols": [
@@ -23,7 +23,7 @@
       "10m_u_component_of_wind"
     ],
     "lead_days": "1..15",
-    "eval_code_commit": "7af558f97f2d1286203664f9d6bac17bb8cacbc0"
+    "eval_code_commit": "db2387935aa0937eb8669de20843dc3caaccb115"
   },
-  "notes": "Accepted orographic-lift-adiabatic-tendency after it improved iteration by +0.004339603561472366 and validation by +0.004263298778598518 over cached dino_ri2m_ekman_depth incumbent metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as 7af558f97f2d1286203664f9d6bac17bb8cacbc0 with the full positive-commit protocol body."
+  "notes": "Accepted depth-weighted-orographic-lift-wind after it improved iteration by +0.0030536127646459132 and validation by +0.004299276376580147 over cached dino_ri2m_ekman_depth_orolift_theta incumbent metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as db2387935aa0937eb8669de20843dc3caaccb115 with the full positive-commit protocol body."
 }

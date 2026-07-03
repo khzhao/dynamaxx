@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "depth-weighted-orographic-lift-wind",
+  "candidate_model_name": "dino_ri2m_ekman_depth_orolift_lwind",
+  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_theta",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "7af558f97f2d1286203664f9d6bac17bb8cacbc0",
+    "candidate_tree_head": "2ced7296aeeb4433074436865395ca7b4f622500",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Inherited from parent for this exact candidate tree; not rerun by Scorer. Result: 294 passed, 2 skipped."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_depth_orolift_lwind",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Inherited from parent for this exact candidate tree; not rerun by Scorer. Primary -0.12943824136377413, failed=false, issues=0, records=120."
+    },
+    {
+      "command": "uv run python - <<'PY' ... create_dycore_model registration and cache/artifact checks ... PY",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Confirmed candidate and incumbent registry entries; confirmed cached incumbent artifacts were readable, finite, compatible, and contained 120 guardrail records."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_depth_orolift_lwind --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-07-02T23:52:30Z",
+      "notes": "Run by Scorer. Candidate-only iteration; no incumbent rerun."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_depth_orolift_lwind --workers 4",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": "2026-07-03T00:35:43Z",
+      "notes": "Run by Scorer after iteration promotion. Candidate-only validation; no incumbent rerun."
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.12943824136377413,
+    "candidate_iteration": -0.1285119843716688,
+    "candidate_validation": -0.12911217353049617,
+    "incumbent_iteration": -0.13156559713631472,
+    "incumbent_validation": -0.13341144990707632,
+    "iteration_delta": 0.0030536127646459132,
+    "validation_delta": 0.004299276376580147
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": false,
+    "candidate_validation_issue_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "gate_status": {
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true,
+    "validation_was_run": true,
+    "golden_was_run": false
+  },
+  "cache_reuse": {
+    "incumbent_iteration": {
+      "reused": true,
+      "artifact_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.json",
+      "artifact_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_theta.csv",
+      "checks": [
+        "requested incumbent matched leaderboard incumbent",
+        "leaderboard fingerprint included iteration",
+        "data path, target variables, lead range, and fixed metrics were compatible",
+        "no fixed evaluation source changes found between accepted eval commit and current scoring tree beyond candidate source edits",
+        "artifact existed, was readable, had finite primary_score, failed=false, issues=0, and 120 guardrail records"
+      ]
+    },
+    "incumbent_validation": {
+      "reused": true,
+      "artifact_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.json",
+      "artifact_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_theta.csv",
+      "checks": [
+        "requested incumbent matched leaderboard incumbent",
+        "leaderboard fingerprint included validation",
+        "data path, target variables, lead range, and fixed metrics were compatible",
+        "no fixed evaluation source changes found between accepted eval commit and current scoring tree beyond candidate source edits",
+        "artifact existed, was readable, had finite primary_score, failed=false, issues=0, and 120 guardrail records"
+      ]
+    }
+  },
+  "rerun_flags": {
+    "pytest_rerun_by_scorer": false,
+    "candidate_fast_rerun_by_scorer": false,
+    "incumbent_iteration_rerun_by_scorer": false,
+    "incumbent_validation_rerun_by_scorer": false,
+    "golden_run_by_scorer": false
+  },
+  "regressions": {
+    "iteration_mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "2 m temperature",
+        "candidate_mean_rmse": 2.7938222593182305,
+        "incumbent_mean_rmse": 2.793822259296786,
+        "relative_regression": 7.675729471726435e-12
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "candidate_mean_rmse": 878.0844086455772,
+        "incumbent_mean_rmse": 878.0844086455772,
+        "relative_regression": 0.0
+      },
+      {
+        "variable": "Mean sea level pressure",
+        "candidate_mean_rmse": 817.7806708845781,
+        "incumbent_mean_rmse": 817.7806708932824,
+        "relative_regression": -1.0643830739860681e-11
+      },
+      {
+        "variable": "10 m zonal wind",
+        "candidate_mean_rmse": 4.778312127023009,
+        "incumbent_mean_rmse": 4.778312127151785,
+        "relative_regression": -2.695012327933906e-11
+      }
+    ],
+    "validation_mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "variable": "Mean sea level pressure",
+        "candidate_mean_rmse": 809.1449331225533,
+        "incumbent_mean_rmse": 809.1449328803232,
+        "relative_regression": 2.9936559924757296e-10
+      },
+      {
+        "variable": "500 hPa geopotential",
+        "candidate_mean_rmse": 872.220255833017,
+        "incumbent_mean_rmse": 872.2202556849782,
+        "relative_regression": 1.697263881493257e-10
+      },
+      {
+        "variable": "2 m temperature",
+        "candidate_mean_rmse": 2.7573063480028317,
+        "incumbent_mean_rmse": 2.7573063476721478,
+        "relative_regression": 1.1993006325418682e-10
+      },
+      {
+        "variable": "10 m zonal wind",
+        "candidate_mean_rmse": 4.763087378726732,
+        "incumbent_mean_rmse": 4.763087378689197,
+        "relative_regression": 7.880457613036005e-12
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "protocol": "iteration",
+        "variable": "2 m temperature",
+        "lead_hours": 216,
+        "candidate_rmse": 3.4907332946376863,
+        "incumbent_rmse": 3.4907332943384515,
+        "relative_regression": 8.572263587105394e-11
+      },
+      {
+        "protocol": "validation",
+        "variable": "Mean sea level pressure",
+        "lead_hours": 48,
+        "candidate_rmse": 777.2255032335933,
+        "incumbent_rmse": 777.2255023523413,
+        "relative_regression": 1.1338433089983686e-09
+      }
+    ],
+    "iteration_early_lead_regression_violations_over_2pct": 0,
+    "iteration_variable_lead_regression_violations_over_10pct": 0,
+    "validation_early_lead_regression_violations_over_2pct": 0,
+    "validation_variable_lead_regression_violations_over_10pct": 0
+  }
+}
