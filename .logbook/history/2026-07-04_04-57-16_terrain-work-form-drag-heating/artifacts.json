@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "terrain-work-form-drag-heating",
+  "history_path": ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating",
+  "source_artifacts": [
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/candidate.diff"
+  ],
+  "evaluation_artifacts": [
+    "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
+    "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.csv",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind.csv",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.json",
+    "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind.csv"
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/proposal.md",
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/implementation.md",
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/scores.json",
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/scoring_notes.md",
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/decision.md",
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/artifacts.json",
+    ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating/resource_snapshot.md"
+  ],
+  "notes": "Accepted. Candidate improved iteration by +0.0023308635733666483 and validation by +0.002291377531767197 over cached dino_ri2m_ekman_depth_orolift_lwind incumbent artifacts, with clean diagnostics and no fixed guardrail violations. Accepted source/test changes were committed as 8f0b4f529d29d372341e136bd11cbe2f21542bc2. No incumbent or golden evaluation was run."
+}
