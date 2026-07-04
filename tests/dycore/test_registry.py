@@ -62,6 +62,7 @@ def test_registry_lists_default_dycore_models():
         "dino_ri2m_ekman_depth",
         "dino_ri2m_ekman_depth_orolift_theta",
         "dino_ri2m_ekman_depth_orolift_lwind",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
     )
 
 
@@ -797,6 +798,32 @@ def test_registry_creates_orographic_lift_lower_column_wind_candidate_model():
     assert not incumbent.use_depth_weighted_orographic_lift_wind
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_depth_weighted_orographic_lift_wind"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_terrain_work_form_drag_candidate_model():
+    """The terrain-work drag candidate preserves the lower-column lift incumbent."""
+    model = create_dycore_model("dino_ri2m_ekman_depth_orolift_lwind_twork_drag")
+    incumbent = create_dycore_model("dino_ri2m_ekman_depth_orolift_lwind")
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag"
+    assert model.use_horizontal_semilagrangian_theta_transport
+    assert model.use_midpoint_semilagrangian_theta_departure
+    assert model.use_dry_static_energy_hsl_transport
+    assert model.use_layer_mass_weighted_dse_hsl_transport
+    assert model.apply_tropical_wtg_mass_dse_relaxation
+    assert model.use_pressure_ramped_vertical_dse_increment
+    assert model.use_land_ocean_low_mode_t2m_memory
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_coupled_ekman_surface_closure
+    assert model.use_coriolis_scaled_ekman_depth
+    assert model.apply_orographic_lift_theta_tendency
+    assert model.use_depth_weighted_orographic_lift_wind
+    assert model.apply_terrain_work_form_drag_heating
+    assert not incumbent.apply_terrain_work_form_drag_heating
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_terrain_work_form_drag_heating"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

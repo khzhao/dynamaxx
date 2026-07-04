@@ -38,6 +38,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
     _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+    _TERRAIN_WORK_FORM_DRAG_MAX_HEAT_INCREMENT_KELVIN,
+    _TERRAIN_WORK_FORM_DRAG_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
     _TROPICAL_WTG_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     DEFAULT_INNER_STEP_SECONDS,
     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
@@ -81,6 +83,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _stability_aware_near_surface_residual_decay_hours,
     _surface_layer_richardson_10m_wind,
     _symmetric_exact_coriolis_rotation_step,
+    _terrain_work_form_drag_heating_step_filter,
     _theta_layer_mean_recenter_step_filter,
     _to_dinosaur_latitude_order,
     _TracerSafeHeldSuarezForcingSigma,
@@ -116,6 +119,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     split_pressure_level_channel,
     stability_aware_surface_residual_dinosaur_dycore_model,
     supported_output_variables,
+    terrain_work_form_drag_heating_dinosaur_dycore_model,
     theta_mean_recenter_dinosaur_dycore_model,
     theta_tendency_dinosaur_dycore_model,
     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
@@ -806,6 +810,22 @@ def test_orographic_lift_lower_column_wind_factory_preserves_incumbent():
     assert not incumbent.use_depth_weighted_orographic_lift_wind
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_depth_weighted_orographic_lift_wind"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_terrain_work_form_drag_factory_preserves_incumbent():
+    """The terrain-work drag candidate only enables the new drag selector."""
+    model = terrain_work_form_drag_heating_dinosaur_dycore_model()
+    incumbent = orographic_lift_lower_column_wind_dinosaur_dycore_model()
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag"
+    assert model.apply_orographic_lift_theta_tendency
+    assert model.use_depth_weighted_orographic_lift_wind
+    assert model.apply_terrain_work_form_drag_heating
+    assert not incumbent.apply_terrain_work_form_drag_heating
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "apply_terrain_work_form_drag_heating"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -5049,6 +5069,196 @@ def test_orographic_lift_ramp_envelope_and_cap_are_deterministic():
         zero_time_state.temperature_variation,
     )
     assert float(jnp.max(jnp.abs(capped_delta))) <= temperature_increment_cap * 1.001
+
+
+def test_terrain_work_form_drag_flat_or_zero_terrain_is_exact_noop():
+    """Missing, zero, or flat terrain cannot trigger terrain-work drag."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=40.0)
+    )
+    filter_kwargs = {
+        "coords": coords,
+        "physics_specs": physics_specs,
+        "step_seconds": _nondimensionalize_seconds(physics_specs, 900.0),
+    }
+
+    missing_corrected = _terrain_work_form_drag_heating_step_filter(
+        **filter_kwargs,
+        terrain_height_meters=None,
+    )(prev_state, next_state)
+    zero_corrected = _terrain_work_form_drag_heating_step_filter(
+        **filter_kwargs,
+        terrain_height_meters=jnp.zeros_like(terrain_height),
+    )(prev_state, next_state)
+    uniform_corrected = _terrain_work_form_drag_heating_step_filter(
+        **filter_kwargs,
+        terrain_height_meters=jnp.ones_like(terrain_height) * 1000.0,
+    )(prev_state, next_state)
+
+    _assert_pytree_allclose(missing_corrected, next_state)
+    _assert_pytree_allclose(zero_corrected, next_state)
+    _assert_pytree_allclose(uniform_corrected, next_state)
+
+
+def test_terrain_work_form_drag_zero_wind_is_exact_noop():
+    """No low-level wind gives no terrain work, drag, or heat return."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=0.0)
+    )
+    step_filter = _terrain_work_form_drag_heating_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        terrain_height_meters=terrain_height,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    _assert_pytree_allclose(corrected, next_state)
+
+
+def test_terrain_work_form_drag_cap_cannot_reverse_wind():
+    """The applied lower-column decrement is capped below local wind speed."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=500.0)
+    )
+    step_filter = _terrain_work_form_drag_heating_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        terrain_height_meters=80.0 * terrain_height,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+    next_u_wind, next_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        next_state.vorticity,
+        next_state.divergence,
+    )
+    corrected_u_wind, corrected_v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        coords.horizontal,
+        corrected.vorticity,
+        corrected.divergence,
+    )
+    u_increment = corrected_u_wind - next_u_wind
+    v_increment = corrected_v_wind - next_v_wind
+    wind_dot_product = next_u_wind * corrected_u_wind + next_v_wind * corrected_v_wind
+    wind_increment_cap = (
+        _TERRAIN_WORK_FORM_DRAG_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND
+        * _unit_factor(physics_specs, "meter / second")
+    )
+
+    assert float(jnp.max(jnp.abs(u_increment))) > 0.0
+    assert float(jnp.min(wind_dot_product[-3:])) >= -1.0e-6
+    assert float(jnp.max(jnp.abs(u_increment))) <= wind_increment_cap * 1.001
+    assert float(jnp.max(jnp.abs(v_increment))) <= wind_increment_cap * 1.001
+
+
+def test_terrain_work_form_drag_heat_return_is_capped_and_area_neutral():
+    """Dissipated lower-column kinetic energy returns as bounded neutral heat."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=300.0)
+    )
+    step_filter = _terrain_work_form_drag_heating_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        terrain_height_meters=40.0 * terrain_height,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    modal_temperature_delta = (
+        corrected.temperature_variation - next_state.temperature_variation
+    )
+    nodal_temperature_delta = coords.horizontal.to_nodal(modal_temperature_delta)
+    quadrature_weights = jnp.asarray(coords.horizontal.quadrature_weights)
+    layer_mean_delta = jnp.sum(
+        nodal_temperature_delta * quadrature_weights,
+        axis=(-2, -1),
+    ) / jnp.sum(quadrature_weights)
+    heat_increment_cap = (
+        _TERRAIN_WORK_FORM_DRAG_MAX_HEAT_INCREMENT_KELVIN
+        * _unit_factor(physics_specs, "kelvin")
+    )
+
+    assert float(jnp.max(jnp.abs(nodal_temperature_delta))) > 0.0
+    np.testing.assert_allclose(layer_mean_delta, 0.0, atol=2.0e-6)
+    assert float(jnp.max(jnp.abs(nodal_temperature_delta))) <= (
+        heat_increment_cap * 1.001
+    )
+
+
+def test_terrain_work_form_drag_changes_only_wind_modes_and_temperature():
+    """Terrain-work drag preserves pressure, tracers, and forecast time."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=150.0)
+    )
+    step_filter = _terrain_work_form_drag_heating_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        terrain_height_meters=30.0 * terrain_height,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, next_state)
+
+    assert float(jnp.max(jnp.abs(corrected.vorticity - next_state.vorticity))) > 0.0
+    assert float(jnp.max(jnp.abs(corrected.divergence - next_state.divergence))) > 0.0
+    assert (
+        float(
+            jnp.max(
+                jnp.abs(
+                    corrected.temperature_variation - next_state.temperature_variation
+                )
+            )
+        )
+        > 0.0
+    )
+    np.testing.assert_array_equal(
+        corrected.log_surface_pressure,
+        next_state.log_surface_pressure,
+    )
+    assert corrected.tracers.keys() == next_state.tracers.keys()
+    for tracer_name, tracer_value in corrected.tracers.items():
+        np.testing.assert_array_equal(tracer_value, next_state.tracers[tracer_name])
+    np.testing.assert_array_equal(corrected.sim_time, next_state.sim_time)
+
+
+def test_terrain_work_form_drag_nonfinite_wind_falls_back_to_next_state():
+    """Invalid wind diagnostics preserve the incumbent next state exactly."""
+    coords, physics_specs, prev_state, next_state, terrain_height = (
+        _synthetic_orographic_lift_state(wind_scale=40.0)
+    )
+    invalid_state = _primitive_equation_state(
+        vorticity=next_state.vorticity.at[-1, 1, 1].set(jnp.nan),
+        divergence=next_state.divergence,
+        temperature_variation=next_state.temperature_variation,
+        log_surface_pressure=next_state.log_surface_pressure,
+        tracers=next_state.tracers,
+        sim_time=next_state.sim_time,
+    )
+    step_filter = _terrain_work_form_drag_heating_step_filter(
+        coords=coords,
+        physics_specs=physics_specs,
+        terrain_height_meters=terrain_height,
+        step_seconds=_nondimensionalize_seconds(physics_specs, 900.0),
+    )
+
+    corrected = step_filter(prev_state, invalid_state)
+
+    for corrected_leaf, expected_leaf in zip(
+        jax.tree_util.tree_leaves(corrected),
+        jax.tree_util.tree_leaves(invalid_state),
+        strict=True,
+    ):
+        np.testing.assert_allclose(
+            corrected_leaf,
+            expected_leaf,
+            rtol=0.0,
+            atol=0.0,
+            equal_nan=True,
+        )
 
 
 def test_weak_held_suarez_composes_one_equation_with_fixed_forcing(monkeypatch):

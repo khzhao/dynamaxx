@@ -274,6 +274,15 @@ def dino_ri2m_ekman_depth_orolift_lwind_model() -> DycoreModel:
     return orographic_lift_lower_column_wind_dinosaur_dycore_model()
 
 
+def dino_ri2m_ekman_depth_orolift_lwind_twork_drag_model() -> DycoreModel:
+    """Return lower-column orographic lift with terrain-work drag heating."""
+    from dynamaxx.dycore.models.dinosaur import (
+        terrain_work_form_drag_heating_dinosaur_dycore_model,
+    )
+
+    return terrain_work_form_drag_heating_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -363,6 +372,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_ri2m_ekman_depth": dino_ri2m_ekman_depth_model,
     "dino_ri2m_ekman_depth_orolift_theta": (dino_ri2m_ekman_depth_orolift_theta_model),
     "dino_ri2m_ekman_depth_orolift_lwind": (dino_ri2m_ekman_depth_orolift_lwind_model),
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag": (
+        dino_ri2m_ekman_depth_orolift_lwind_twork_drag_model
+    ),
 }
 
 
