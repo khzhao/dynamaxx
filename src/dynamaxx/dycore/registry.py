@@ -283,6 +283,15 @@ def dino_ri2m_ekman_depth_orolift_lwind_twork_drag_model() -> DycoreModel:
     return terrain_work_form_drag_heating_dinosaur_dycore_model()
 
 
+def dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_model() -> DycoreModel:
+    """Return terrain-work drag with pressure-thickness weighted RI2m T2m."""
+    from dynamaxx.dycore.models.dinosaur import (
+        pressure_thickness_ri2m_temperature_dinosaur_dycore_model,
+    )
+
+    return pressure_thickness_ri2m_temperature_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -374,6 +383,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "dino_ri2m_ekman_depth_orolift_lwind": (dino_ri2m_ekman_depth_orolift_lwind_model),
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag": (
         dino_ri2m_ekman_depth_orolift_lwind_twork_drag_model
+    ),
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m": (
+        dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_model
     ),
 }
 

@@ -178,6 +178,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_ocean_bulk_sensible_heat_flux: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     use_bulk_richardson_2m_temperature_diagnostic: bool = False
+    use_pressure_thickness_weighted_ri2m_temperature: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
     temperature_tendency_formulation: str = (
@@ -341,6 +342,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
                 use_bulk_richardson_2m_temperature_diagnostic=(
                     self.use_bulk_richardson_2m_temperature_diagnostic
+                ),
+                use_pressure_thickness_weighted_ri2m_temperature=(
+                    self.use_pressure_thickness_weighted_ri2m_temperature
                 ),
             )
             if self.apply_near_surface_residual_correction:
@@ -2772,6 +2776,17 @@ def terrain_work_form_drag_heating_dinosaur_dycore_model() -> (
     )
 
 
+def pressure_thickness_ri2m_temperature_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return terrain-work drag with pressure-thickness weighted RI2m inputs."""
+    return replace(
+        terrain_work_form_drag_heating_dinosaur_dycore_model(),
+        name="dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
+        use_pressure_thickness_weighted_ri2m_temperature=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -2918,6 +2933,7 @@ def dinosaur_state_to_weather_state(
     output_variables: tuple[str, ...],
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
     use_bulk_richardson_2m_temperature_diagnostic: bool = False,
+    use_pressure_thickness_weighted_ri2m_temperature: bool = False,
 ) -> WeatherState:
     """Convert a Dinosaur trajectory into packed WeatherState channels."""
     temperature = (
@@ -3006,6 +3022,9 @@ def dinosaur_state_to_weather_state(
             v_wind=v_wind,
             surface_pressure_hpa=surface_pressure_hpa,
             sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
+            use_pressure_thickness_weighted_ri2m_temperature=(
+                use_pressure_thickness_weighted_ri2m_temperature
+            ),
         )
 
     level_to_index = {
@@ -3058,20 +3077,164 @@ def _bulk_richardson_2m_temperature(
     v_wind: jax.Array,
     surface_pressure_hpa: jax.Array,
     sigma_coords: sigma_coordinates.SigmaCoordinates,
+    use_pressure_thickness_weighted_ri2m_temperature: bool = False,
 ) -> jax.Array:
     """Diagnose 2 m temperature with bounded lower-column theta extrapolation."""
     lowest_temperature = temperature[:, -1]
     if sigma_coords.layers < 2:
         return lowest_temperature
 
-    lower_sigma = float(sigma_coords.centers[-1])
-    upper_sigma = float(sigma_coords.centers[-2])
+    incumbent_temperature = _bulk_richardson_2m_temperature_from_reference_states(
+        lower_temperature=lowest_temperature,
+        upper_temperature=temperature[:, -2],
+        lower_u_wind=u_wind[:, -1],
+        upper_u_wind=u_wind[:, -2],
+        lower_v_wind=v_wind[:, -1],
+        upper_v_wind=v_wind[:, -2],
+        surface_pressure_hpa=surface_pressure_hpa,
+        lower_sigma=float(sigma_coords.centers[-1]),
+        upper_sigma=float(sigma_coords.centers[-2]),
+        fallback_temperature=lowest_temperature,
+    )
+    if not use_pressure_thickness_weighted_ri2m_temperature or sigma_coords.layers < 4:
+        return incumbent_temperature
+
+    weighted_references = _pressure_thickness_weighted_ri2m_reference_states(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        sigma_coords=sigma_coords,
+    )
+    if weighted_references is None:
+        return incumbent_temperature
+
+    weighted_temperature = _bulk_richardson_2m_temperature_from_reference_states(
+        lower_temperature=weighted_references.lower_temperature,
+        upper_temperature=weighted_references.upper_temperature,
+        lower_u_wind=weighted_references.lower_u_wind,
+        upper_u_wind=weighted_references.upper_u_wind,
+        lower_v_wind=weighted_references.lower_v_wind,
+        upper_v_wind=weighted_references.upper_v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        lower_sigma=weighted_references.lower_sigma,
+        upper_sigma=weighted_references.upper_sigma,
+        fallback_temperature=incumbent_temperature,
+    )
+    return jnp.where(
+        weighted_references.finite_mask,
+        weighted_temperature,
+        incumbent_temperature,
+    )
+
+
+@dataclass(frozen=True)
+class _BulkRichardson2mReferenceStates:
+    """Reference states for the bounded RI2m 2 m temperature diagnostic."""
+
+    lower_temperature: jax.Array
+    upper_temperature: jax.Array
+    lower_u_wind: jax.Array
+    upper_u_wind: jax.Array
+    lower_v_wind: jax.Array
+    upper_v_wind: jax.Array
+    lower_sigma: float
+    upper_sigma: float
+    finite_mask: jax.Array
+
+
+def _pressure_thickness_weighted_ri2m_reference_states(
+    *,
+    temperature: jax.Array,
+    u_wind: jax.Array,
+    v_wind: jax.Array,
+    sigma_coords: sigma_coordinates.SigmaCoordinates,
+) -> _BulkRichardson2mReferenceStates | None:
+    """Return shallow pressure-thickness weighted lower/upper RI2m states."""
+    if sigma_coords.layers < 4:
+        return None
+
+    layer_thickness = np.asarray(sigma_coords.layer_thickness, dtype=np.float32)
+    sigma_centers = np.asarray(sigma_coords.centers, dtype=np.float32)
+    lower_weights = _normalized_positive_sigma_weights(layer_thickness[-2:])
+    upper_weights = _normalized_positive_sigma_weights(layer_thickness[-4:-2])
+    if lower_weights is None or upper_weights is None:
+        return None
+
+    lower_temperature = _weighted_layer_band_mean(temperature[:, -2:], lower_weights)
+    upper_temperature = _weighted_layer_band_mean(temperature[:, -4:-2], upper_weights)
+    lower_u_wind = _weighted_layer_band_mean(u_wind[:, -2:], lower_weights)
+    upper_u_wind = _weighted_layer_band_mean(u_wind[:, -4:-2], upper_weights)
+    lower_v_wind = _weighted_layer_band_mean(v_wind[:, -2:], lower_weights)
+    upper_v_wind = _weighted_layer_band_mean(v_wind[:, -4:-2], upper_weights)
+    finite_mask = jnp.all(
+        jnp.isfinite(
+            jnp.stack(
+                [
+                    lower_temperature,
+                    upper_temperature,
+                    lower_u_wind,
+                    upper_u_wind,
+                    lower_v_wind,
+                    upper_v_wind,
+                ]
+            )
+        ),
+        axis=0,
+    )
+    return _BulkRichardson2mReferenceStates(
+        lower_temperature=lower_temperature,
+        upper_temperature=upper_temperature,
+        lower_u_wind=lower_u_wind,
+        upper_u_wind=upper_u_wind,
+        lower_v_wind=lower_v_wind,
+        upper_v_wind=upper_v_wind,
+        lower_sigma=float(np.sum(sigma_centers[-2:] * lower_weights)),
+        upper_sigma=float(np.sum(sigma_centers[-4:-2] * upper_weights)),
+        finite_mask=finite_mask,
+    )
+
+
+def _normalized_positive_sigma_weights(
+    layer_thickness: np.ndarray,
+) -> np.ndarray | None:
+    """Normalize a fixed sigma layer-thickness band or reject invalid weights."""
+    valid_weight_mask = np.isfinite(layer_thickness) & (layer_thickness > 0.0)
+    if not bool(np.all(valid_weight_mask)):
+        return None
+    weight_sum = float(np.sum(layer_thickness))
+    if not np.isfinite(weight_sum) or weight_sum <= 0.0:
+        return None
+    return layer_thickness / weight_sum
+
+
+def _weighted_layer_band_mean(field: jax.Array, weights: np.ndarray) -> jax.Array:
+    """Return the weighted mean of a fixed layer band along the layer axis."""
+    weight_array = jnp.asarray(weights, dtype=field.dtype)
+    return jnp.sum(
+        field * weight_array[jnp.newaxis, :, jnp.newaxis, jnp.newaxis],
+        axis=1,
+    )
+
+
+def _bulk_richardson_2m_temperature_from_reference_states(
+    *,
+    lower_temperature: jax.Array,
+    upper_temperature: jax.Array,
+    lower_u_wind: jax.Array,
+    upper_u_wind: jax.Array,
+    lower_v_wind: jax.Array,
+    upper_v_wind: jax.Array,
+    surface_pressure_hpa: jax.Array,
+    lower_sigma: float,
+    upper_sigma: float,
+    fallback_temperature: jax.Array,
+) -> jax.Array:
+    """Apply the RI2m stability algebra to supplied lower/upper references."""
     lower_pressure_hpa = jnp.maximum(surface_pressure_hpa * lower_sigma, 1.0)
     upper_pressure_hpa = jnp.maximum(surface_pressure_hpa * upper_sigma, 1.0)
     screen_pressure_hpa = jnp.maximum(surface_pressure_hpa, 1.0)
-    upper_temperature = temperature[:, -2]
     lower_theta = (
-        lowest_temperature
+        lower_temperature
         * (1000.0 / lower_pressure_hpa)
         ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
     )
@@ -3080,7 +3243,7 @@ def _bulk_richardson_2m_temperature(
         * (1000.0 / upper_pressure_hpa)
         ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
     )
-    mean_temperature = jnp.maximum(0.5 * (lowest_temperature + upper_temperature), 1.0)
+    mean_temperature = jnp.maximum(0.5 * (lower_temperature + upper_temperature), 1.0)
     mean_theta = jnp.maximum(0.5 * (lower_theta + upper_theta), 1.0)
 
     pressure_ratio = jnp.maximum(lower_pressure_hpa / upper_pressure_hpa, 1.0)
@@ -3088,7 +3251,7 @@ def _bulk_richardson_2m_temperature(
         _DRY_AIR_GAS_CONSTANT_SI * mean_temperature / _GRAVITY_ACCELERATION_SI
     ) * jnp.log(pressure_ratio)
     lowest_layer_height_meters = (
-        _DRY_AIR_GAS_CONSTANT_SI * lowest_temperature / _GRAVITY_ACCELERATION_SI
+        _DRY_AIR_GAS_CONSTANT_SI * lower_temperature / _GRAVITY_ACCELERATION_SI
     ) * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
     layer_separation_meters = jnp.maximum(layer_separation_meters, 1.0)
     lowest_layer_height_meters = jnp.maximum(
@@ -3096,10 +3259,8 @@ def _bulk_richardson_2m_temperature(
         _SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS,
     )
 
-    lowest_u_wind = u_wind[:, -1]
-    lowest_v_wind = v_wind[:, -1]
-    squared_shear = (u_wind[:, -2] - lowest_u_wind) ** 2 + (
-        v_wind[:, -2] - lowest_v_wind
+    squared_shear = (upper_u_wind - lower_u_wind) ** 2 + (
+        upper_v_wind - lower_v_wind
     ) ** 2
     squared_shear = jnp.maximum(
         squared_shear,
@@ -3126,20 +3287,20 @@ def _bulk_richardson_2m_temperature(
         ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
     )
     temperature_departure = jnp.clip(
-        screen_temperature - lowest_temperature,
+        screen_temperature - lower_temperature,
         -_SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
         _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
     )
-    diagnosed_temperature = lowest_temperature + temperature_departure
+    diagnosed_temperature = lower_temperature + temperature_departure
 
     required_values = jnp.stack(
         [
-            lowest_temperature,
+            lower_temperature,
             upper_temperature,
-            lowest_u_wind,
-            u_wind[:, -2],
-            lowest_v_wind,
-            v_wind[:, -2],
+            lower_u_wind,
+            upper_u_wind,
+            lower_v_wind,
+            upper_v_wind,
             surface_pressure_hpa,
             layer_separation_meters,
             lowest_layer_height_meters,
@@ -3149,7 +3310,7 @@ def _bulk_richardson_2m_temperature(
     finite_mask = jnp.all(jnp.isfinite(required_values), axis=0) & (
         surface_pressure_hpa > 0.0
     )
-    return jnp.where(finite_mask, diagnosed_temperature, lowest_temperature)
+    return jnp.where(finite_mask, diagnosed_temperature, fallback_temperature)
 
 
 def _surface_layer_richardson_10m_wind(

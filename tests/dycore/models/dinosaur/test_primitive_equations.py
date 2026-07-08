@@ -75,6 +75,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _orographic_lift_sigma_envelope,
     _orographic_lift_theta_tendency_step_filter,
     _pressure_coordinates,
+    _pressure_thickness_weighted_ri2m_reference_states,
     _primitive_equation,
     _primitive_equation_state,
     _reference_temperature,
@@ -113,6 +114,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     orographic_lift_lower_column_wind_dinosaur_dycore_model,
     orographic_lift_theta_dinosaur_dycore_model,
     pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
+    pressure_thickness_ri2m_temperature_dinosaur_dycore_model,
     richardson_10m_wind_diagnostic_dinosaur_dycore_model,
     scale_separated_surface_residual_dinosaur_dycore_model,
     semi_implicit_offcenter_dinosaur_dycore_model,
@@ -206,6 +208,7 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     assert not model.use_land_ocean_low_mode_t2m_memory
     assert not model.use_surface_layer_richardson_10m_wind_diagnostic
     assert not model.use_bulk_richardson_2m_temperature_diagnostic
+    assert not model.use_pressure_thickness_weighted_ri2m_temperature
     assert not model.apply_coupled_ekman_surface_closure
     assert not model.use_coriolis_scaled_ekman_depth
     assert not model.use_depth_weighted_orographic_lift_wind
@@ -826,6 +829,25 @@ def test_terrain_work_form_drag_factory_preserves_incumbent():
     assert not incumbent.apply_terrain_work_form_drag_heating
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "apply_terrain_work_form_drag_heating"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_pressure_thickness_ri2m_factory_preserves_incumbent_except_selector():
+    """The pressure-thickness RI2m candidate only changes the raw T2m input."""
+    model = pressure_thickness_ri2m_temperature_dinosaur_dycore_model()
+    incumbent = terrain_work_form_drag_heating_dinosaur_dycore_model()
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_terrain_work_form_drag_heating
+    assert model.use_pressure_thickness_weighted_ri2m_temperature
+    assert not incumbent.use_pressure_thickness_weighted_ri2m_temperature
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "use_pressure_thickness_weighted_ri2m_temperature",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -2778,6 +2800,179 @@ def test_bulk_richardson_2m_temperature_falls_back_for_invalid_columns():
     )
 
 
+def test_pressure_thickness_ri2m_temperature_fewer_than_four_layers_is_incumbent():
+    """The weighted RI2m path falls back exactly below the fixed four-layer depth."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.25, 0.65, 1.0], dtype=np.float32)
+    )
+    temperature = jnp.asarray(
+        [[[[250.0, 252.0]], [[275.0, 277.0]], [[292.0, 294.0]]]],
+        dtype=jnp.float32,
+    )
+    u_wind = jnp.asarray(
+        [[[[4.0, 4.5]], [[7.0, 7.5]], [[6.0, 6.5]]]],
+        dtype=jnp.float32,
+    )
+    v_wind = jnp.asarray(
+        [[[[-2.0, -2.5]], [[1.0, 1.5]], [[0.5, 1.0]]]],
+        dtype=jnp.float32,
+    )
+    surface_pressure_hpa = jnp.full((1, 1, 2), 1000.0, dtype=jnp.float32)
+
+    incumbent = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+    candidate = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+        use_pressure_thickness_weighted_ri2m_temperature=True,
+    )
+
+    np.testing.assert_array_equal(candidate, incumbent)
+
+
+def test_pressure_thickness_ri2m_references_use_fixed_weighted_bands():
+    """Four-layer RI2m references use bottom-two and next-two sigma-thickness means."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.10, 0.35, 0.70, 1.0], dtype=np.float32)
+    )
+    temperature = jnp.asarray(
+        [[[[240.0]], [[262.0]], [[286.0]], [[296.0]]]],
+        dtype=jnp.float32,
+    )
+    u_wind = jnp.asarray(
+        [[[[12.0]], [[8.0]], [[5.0]], [[7.0]]]],
+        dtype=jnp.float32,
+    )
+    v_wind = jnp.asarray(
+        [[[[-4.0]], [[2.0]], [[1.0]], [[3.0]]]],
+        dtype=jnp.float32,
+    )
+    lower_weights = np.asarray([0.35, 0.30], dtype=np.float32) / 0.65
+    upper_weights = np.asarray([0.10, 0.25], dtype=np.float32) / 0.35
+
+    references = _pressure_thickness_weighted_ri2m_reference_states(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        sigma_coords=sigma_coords,
+    )
+    assert references is not None
+
+    np.testing.assert_allclose(
+        references.lower_temperature,
+        286.0 * lower_weights[0] + 296.0 * lower_weights[1],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        references.upper_temperature,
+        240.0 * upper_weights[0] + 262.0 * upper_weights[1],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        references.lower_u_wind,
+        5.0 * lower_weights[0] + 7.0 * lower_weights[1],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(
+        references.upper_v_wind,
+        -4.0 * upper_weights[0] + 2.0 * upper_weights[1],
+        rtol=1e-6,
+        atol=1e-6,
+    )
+    assert bool(references.finite_mask.all())
+
+    surface_pressure_hpa = jnp.full((1, 1, 1), 1000.0, dtype=jnp.float32)
+    incumbent = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+    candidate = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+        use_pressure_thickness_weighted_ri2m_temperature=True,
+    )
+
+    assert bool(jnp.isfinite(candidate).all())
+    assert not bool(jnp.allclose(candidate, incumbent))
+
+
+def test_pressure_thickness_ri2m_invalid_weighted_columns_fall_back_to_incumbent():
+    """Nonfinite weighted bands use the incumbent two-level RI2m diagnostic."""
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.10, 0.35, 0.70, 1.0], dtype=np.float32)
+    )
+    temperature = jnp.asarray(
+        [
+            [
+                [[240.0, 240.0, 240.0]],
+                [[262.0, jnp.nan, 262.0]],
+                [[286.0, 286.0, 286.0]],
+                [[296.0, 296.0, 296.0]],
+            ]
+        ],
+        dtype=jnp.float32,
+    )
+    u_wind = jnp.asarray(
+        [
+            [
+                [[12.0, 12.0, jnp.nan]],
+                [[8.0, 8.0, 8.0]],
+                [[5.0, 5.0, 5.0]],
+                [[7.0, 7.0, 7.0]],
+            ]
+        ],
+        dtype=jnp.float32,
+    )
+    v_wind = jnp.asarray(
+        [
+            [
+                [[-4.0, -4.0, -4.0]],
+                [[2.0, 2.0, 2.0]],
+                [[1.0, 1.0, 1.0]],
+                [[3.0, 3.0, 3.0]],
+            ]
+        ],
+        dtype=jnp.float32,
+    )
+    surface_pressure_hpa = jnp.full((1, 1, 3), 1000.0, dtype=jnp.float32)
+
+    incumbent = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+    )
+    candidate = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+        use_pressure_thickness_weighted_ri2m_temperature=True,
+    )
+
+    assert float(candidate[0, 0, 0]) != float(incumbent[0, 0, 0])
+    np.testing.assert_array_equal(candidate[0, 0, 1:], incumbent[0, 0, 1:])
+
+
 def test_dinosaur_forecast_handles_multiple_initial_times():
     """Dinosaur forecasts preserve the initialization-time axis."""
     model = DinosaurPrimitiveEquationsDycoreModel(
@@ -3669,6 +3864,118 @@ def test_bulk_richardson_2m_temperature_only_changes_raw_t2m():
     candidate = dinosaur_state_to_weather_state(
         **common_kwargs,
         use_bulk_richardson_2m_temperature_diagnostic=True,
+    )
+
+    unchanged_variables = tuple(
+        variable for variable in output_variables if variable != "2m_temperature"
+    )
+    np.testing.assert_array_equal(
+        candidate.select(unchanged_variables).values,
+        incumbent.select(unchanged_variables).values,
+    )
+    assert bool(jnp.isfinite(candidate.values).all())
+    assert bool(
+        jnp.any(
+            candidate.select(("2m_temperature",)).values
+            != incumbent.select(("2m_temperature",)).values
+        )
+    )
+
+
+def test_pressure_thickness_ri2m_temperature_only_changes_raw_t2m():
+    """The weighted RI2m diagnostic preserves mass, wind, and geopotential outputs."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (500,)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=4,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=4,
+        temperature_kelvin=250.0,
+    )
+    lon_pattern = jnp.arange(4, dtype=jnp.float32)[:, jnp.newaxis]
+    lat_pattern = jnp.arange(3, dtype=jnp.float32)[jnp.newaxis, :]
+    spatial_pattern = lon_pattern + 0.2 * lat_pattern
+    temperature = jnp.stack(
+        [
+            240.0 + spatial_pattern,
+            262.0 + spatial_pattern,
+            286.0 + spatial_pattern,
+            296.0 + spatial_pattern,
+        ],
+        axis=0,
+    )
+    u_wind = jnp.stack(
+        [
+            12.0 + 0.1 * spatial_pattern,
+            8.0 + 0.1 * spatial_pattern,
+            5.0 + 0.1 * spatial_pattern,
+            7.0 + 0.1 * spatial_pattern,
+        ],
+        axis=0,
+    )
+    v_wind = jnp.stack(
+        [
+            -4.0 + 0.05 * spatial_pattern,
+            2.0 + 0.05 * spatial_pattern,
+            1.0 + 0.05 * spatial_pattern,
+            3.0 + 0.05 * spatial_pattern,
+        ],
+        axis=0,
+    )
+    vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
+        grid.coords.horizontal,
+        u_wind,
+        v_wind,
+    )
+    pressure_factor = _unit_factor(physics_specs, "pascal")
+    surface_pressure = (100_000.0 + 25.0 * spatial_pattern) * pressure_factor
+    state = _primitive_equation_state(
+        vorticity=vorticity,
+        divergence=divergence,
+        temperature_variation=grid.coords.horizontal.to_modal(
+            temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=grid.coords.horizontal.to_modal(jnp.log(surface_pressure))[
+            jnp.newaxis
+        ],
+        tracers={},
+    )
+    trajectory = jax.tree_util.tree_map(lambda value: jnp.stack([value, value]), state)
+    output_variables = (
+        "temperature_500",
+        "u_component_of_wind_500",
+        "v_component_of_wind_500",
+        "geopotential_500",
+        "surface_pressure",
+        "mean_sea_level_pressure",
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+    )
+    common_kwargs = {
+        "trajectory": trajectory,
+        "coords": grid.coords,
+        "pressure_levels_hpa": pressure_levels_hpa,
+        "latitude_reversed": grid.latitude_reversed,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "output_variables": output_variables,
+        "use_surface_layer_richardson_10m_wind_diagnostic": True,
+        "use_bulk_richardson_2m_temperature_diagnostic": True,
+    }
+
+    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
+    candidate = dinosaur_state_to_weather_state(
+        **common_kwargs,
+        use_pressure_thickness_weighted_ri2m_temperature=True,
     )
 
     unchanged_variables = tuple(

@@ -63,6 +63,7 @@ def test_registry_lists_default_dycore_models():
         "dino_ri2m_ekman_depth_orolift_theta",
         "dino_ri2m_ekman_depth_orolift_lwind",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
     )
 
 
@@ -824,6 +825,27 @@ def test_registry_creates_terrain_work_form_drag_candidate_model():
     assert not incumbent.apply_terrain_work_form_drag_heating
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_terrain_work_form_drag_heating"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_pressure_thickness_ri2m_candidate_model():
+    """The pressure-thickness RI2m candidate preserves terrain-work settings."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    )
+    incumbent = create_dycore_model("dino_ri2m_ekman_depth_orolift_lwind_twork_drag")
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_terrain_work_form_drag_heating
+    assert model.use_pressure_thickness_weighted_ri2m_temperature
+    assert not incumbent.use_pressure_thickness_weighted_ri2m_temperature
+    for field_name in model.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "use_pressure_thickness_weighted_ri2m_temperature",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

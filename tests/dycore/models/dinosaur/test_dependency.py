@@ -156,6 +156,9 @@ assert dinosaur.orographic_lift_lower_column_wind_dinosaur_dycore_model().name =
 assert dinosaur.terrain_work_form_drag_heating_dinosaur_dycore_model().name == (
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag"
 )
+assert dinosaur.pressure_thickness_ri2m_temperature_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -264,6 +267,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_ri2m_ekman_depth_orolift_theta",
         "dino_ri2m_ekman_depth_orolift_lwind",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
     )
 
     model = create_dycore_model("dinosaur")
@@ -908,6 +912,27 @@ def test_dinosaur_terrain_work_form_drag_model_is_registered():
     assert not incumbent.apply_terrain_work_form_drag_heating
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_terrain_work_form_drag_heating"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_pressure_thickness_ri2m_model_is_registered():
+    """The weighted RI2m T2m candidate preserves the terrain-work incumbent."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    )
+    incumbent = create_dycore_model("dino_ri2m_ekman_depth_orolift_lwind_twork_drag")
+
+    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    assert model.use_bulk_richardson_2m_temperature_diagnostic
+    assert model.apply_terrain_work_form_drag_heating
+    assert model.use_pressure_thickness_weighted_ri2m_temperature
+    assert not incumbent.use_pressure_thickness_weighted_ri2m_temperature
+    for field_name in model.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "use_pressure_thickness_weighted_ri2m_temperature",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
