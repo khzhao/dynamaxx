@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
-  "incumbent_commit": "8f0b4f529d29d372341e136bd11cbe2f21542bc2",
-  "updated_at": "2026-07-04T09:44:06Z",
-  "iteration_primary_score": -0.12618112079830215,
-  "validation_primary_score": -0.12682079599872897,
-  "history_path": ".logbook/history/2026-07-04_04-57-16_terrain-work-form-drag-heating",
-  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
-  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.csv",
-  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
-  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.csv",
+  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
+  "incumbent_commit": "d0c364cf1973e5f926c7795d266afc6789638fc7",
+  "updated_at": "2026-07-08T07:17:00Z",
+  "iteration_primary_score": -0.1177416449326221,
+  "validation_primary_score": -0.11891349527750807,
+  "history_path": ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature",
+  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv",
+  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv",
   "evaluation_fingerprint": {
     "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
     "protocols": [
@@ -23,7 +23,7 @@
       "10m_u_component_of_wind"
     ],
     "lead_days": "1..15",
-    "eval_code_commit": "8f0b4f529d29d372341e136bd11cbe2f21542bc2"
+    "eval_code_commit": "d0c364cf1973e5f926c7795d266afc6789638fc7"
   },
-  "notes": "Accepted terrain-work-form-drag-heating after it improved iteration by +0.0023308635733666483 and validation by +0.002291377531767197 over cached dino_ri2m_ekman_depth_orolift_lwind incumbent metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as 8f0b4f529d29d372341e136bd11cbe2f21542bc2 with the full positive-commit protocol body."
+  "notes": "Accepted pressure-thickness-ri2m-temperature after it improved iteration by +0.008439475865680057 and validation by +0.007907300721220908 over cached dino_ri2m_ekman_depth_orolift_lwind_twork_drag incumbent metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as d0c364cf1973e5f926c7795d266afc6789638fc7 with the full positive-commit protocol body."
 }

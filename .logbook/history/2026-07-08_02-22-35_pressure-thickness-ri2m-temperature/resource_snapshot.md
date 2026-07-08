@@ -1,0 +1,21 @@
+# Resource Snapshot: pressure-thickness-ri2m-temperature
+
+- Timestamp: `2026-07-08T02:22:35Z`
+- Baseline HEAD: `1fd66d570dea478e34cad87374dc445997b75b4a`
+- Incumbent source commit: `8f0b4f529d29d372341e136bd11cbe2f21542bc2`
+- Baseline git status: pre-existing untracked `gifs/`
+- Incumbent model: `dino_ri2m_ekman_depth_orolift_lwind_twork_drag`
+- Candidate model: `dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m`
+- Incumbent iteration primary score: `-0.12618112079830215`
+- Incumbent validation primary score: `-0.12682079599872897`
+- Incumbent metrics source: `.logbook/leaderboard.json` cached artifacts, to be reused unless concrete cache invalidation is found.
+- Fixed WeatherBench2 data path: `/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative`
+- Fixed target variables: `2m_temperature`, `mean_sea_level_pressure`, `geopotential_500`, `10m_u_component_of_wind`
+- Fixed lead days: `1..15`
+- CPU count: `48`
+- Available RAM: `167 GiB`
+- GPUs: `4 x NVIDIA L4`, each with about `22566 MiB` free of `23034 MiB`
+- Free disk: `4.1 TiB`
+- Selected worker count: `4`
+- Worker rationale: 167 GiB available RAM permits `--workers 4` under the protocol policy, and 48 CPU cores keep four workers well below half of CPU capacity.
+- Protected pre-existing worktree state: untracked `gifs/` directory must not be removed or modified by rollback.

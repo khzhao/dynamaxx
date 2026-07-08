@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "pressure-thickness-ri2m-temperature",
+  "history_path": ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature",
+  "source_artifacts": [
+    {
+      "type": "git_commit",
+      "path": "d0c364cf1973e5f926c7795d266afc6789638fc7",
+      "description": "Accepted source/test commit for the pressure-thickness weighted RI2m temperature dycore."
+    },
+    {
+      "type": "diff",
+      "path": ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/candidate.diff",
+      "description": "Implementation diff captured before acceptance."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+      "description": "Candidate fast metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv",
+      "description": "Candidate fast metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+      "description": "Candidate iteration metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv",
+      "description": "Candidate iteration metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+      "description": "Candidate validation metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv",
+      "description": "Candidate validation metrics table."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
+      "description": "Cached incumbent iteration metrics reused for comparison."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag.json",
+      "description": "Cached incumbent validation metrics reused for comparison."
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/proposal.md",
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/resource_snapshot.md",
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/implementation.md",
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/scores.json",
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/scoring_notes.md",
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/decision.md",
+    ".logbook/history/2026-07-08_02-22-35_pressure-thickness-ri2m-temperature/artifacts.json"
+  ],
+  "notes": "Accepted candidate. Incumbent metrics were reused from the valid leaderboard cache; no incumbent rerun and no golden evaluation were performed."
+}
