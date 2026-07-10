@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "late-ramped-skin-reservoir-coupling",
+  "candidate_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin",
+  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "b92c07d2f054bd34cb90d36592501c5ff74c5991",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_primitive_equations.py -k 'late_skin or land_skin_reservoir'",
+      "exit_status": 0,
+      "notes": "6 passed, 179 deselected"
+    },
+    {
+      "command": "uv run pytest tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py -k 'late_skin or land_skin_reservoir or late_ramped or canonical or lists'",
+      "exit_status": 0,
+      "notes": "4 passed, 63 deselected"
+    },
+    {
+      "command": "uv run ruff check src/dynamaxx/dycore/models/dinosaur/adapter.py src/dynamaxx/dycore/models/dinosaur/__init__.py src/dynamaxx/dycore/registry.py tests/dycore/models/dinosaur/test_primitive_equations.py tests/dycore/models/dinosaur/test_dependency.py tests/dycore/test_registry.py",
+      "exit_status": 0,
+      "notes": "All checks passed"
+    },
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "notes": "318 passed, 2 skipped in 311.71 seconds"
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin --workers 4",
+      "exit_status": 0,
+      "finished_at": "2026-07-10T04:26:55Z",
+      "notes": "Clean diagnostics; 120 records"
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin --workers 4",
+      "exit_status": 0,
+      "finished_at": "2026-07-10T07:58:08Z",
+      "notes": "Clean diagnostics; 229 chunks merged; 120 records"
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin --workers 4",
+      "exit_status": 0,
+      "finished_at": "2026-07-10T08:44:21Z",
+      "notes": "Clean diagnostics; 46 chunks merged; 120 records"
+    }
+  ],
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m.csv"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.11041836504747159,
+    "candidate_iteration": -0.1102658536572533,
+    "candidate_validation": -0.11137528326510353,
+    "incumbent_iteration": -0.1177416449326221,
+    "incumbent_validation": -0.11891349527750807,
+    "iteration_delta": 0.007475791275368793,
+    "validation_delta": 0.007538212012404538
+  },
+  "diagnostics": {
+    "candidate_fast_failed": false,
+    "candidate_fast_issue_count": 0,
+    "candidate_iteration_failed": false,
+    "candidate_iteration_issue_count": 0,
+    "candidate_validation_failed": false,
+    "candidate_validation_issue_count": 0,
+    "candidate_nonfinite_record_count": 0,
+    "incumbent_iteration_failed": false,
+    "incumbent_iteration_issue_count": 0,
+    "incumbent_validation_failed": false,
+    "incumbent_validation_issue_count": 0
+  },
+  "cache_reuse": {
+    "incumbent_rerun": false,
+    "leaderboard_identity_matched": true,
+    "data_path_matched": true,
+    "protocols_matched": true,
+    "target_variables_matched": true,
+    "lead_days_matched": true,
+    "cached_artifacts_readable_and_finite": true,
+    "candidate_paths_collided_with_incumbent_paths": false
+  },
+  "gate_status": {
+    "unit_tests_passed": true,
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true,
+    "golden_run": false
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "protocol": "iteration",
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 3.861850497038673,
+        "incumbent_mean_rmse": 3.8618505812162396,
+        "regression_fraction": -2.1797209634238535e-08,
+        "passed": true
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "2m_temperature",
+        "candidate_mean_rmse": 4.4621042907496085,
+        "incumbent_mean_rmse": 4.462104165549023,
+        "regression_fraction": 2.8058642571672368e-08,
+        "passed": true
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 560.6283502011624,
+        "incumbent_mean_rmse": 560.627756458818,
+        "regression_fraction": 1.059066979130073e-06,
+        "passed": true
+      },
+      {
+        "protocol": "iteration",
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 651.8563395366289,
+        "incumbent_mean_rmse": 651.8563267592484,
+        "regression_fraction": 1.9601528624318876e-08,
+        "passed": true
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 3.826419692168264,
+        "incumbent_mean_rmse": 3.826420099653432,
+        "regression_fraction": -1.0649253276379883e-07,
+        "passed": true
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "2m_temperature",
+        "candidate_mean_rmse": 4.458784505836845,
+        "incumbent_mean_rmse": 4.458783745477779,
+        "regression_fraction": 1.705305997734155e-07,
+        "passed": true
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "geopotential_500",
+        "candidate_mean_rmse": 553.3175897422246,
+        "incumbent_mean_rmse": 553.3178063327065,
+        "regression_fraction": -3.9143956576550166e-07,
+        "passed": true
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 639.7770384360099,
+        "incumbent_mean_rmse": 639.7770535783745,
+        "regression_fraction": -2.366818966237129e-08,
+        "passed": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "protocol": "iteration",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 264,
+        "candidate_rmse": 4.873811421403433,
+        "incumbent_rmse": 4.872228337572191,
+        "regression_fraction": 0.0003249198768115329,
+        "passed": true
+      },
+      {
+        "protocol": "validation",
+        "channel_name": "10m_u_component_of_wind",
+        "lead_hours": 312,
+        "candidate_rmse": 4.827748482528639,
+        "incumbent_rmse": 4.8264786333066825,
+        "regression_fraction": 0.00026310055807426383,
+        "passed": true
+      }
+    ],
+    "iteration_variable_lead_violations_over_10_percent": 0,
+    "validation_variable_lead_violations_over_10_percent": 0,
+    "iteration_early_mean_violations_over_2_percent": 0,
+    "validation_early_mean_violations_over_2_percent": 0
+  }
+}
