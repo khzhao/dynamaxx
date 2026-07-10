@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "prognostic-skin-ri2m-lower-boundary",
+  "history_path": ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary",
+  "source_artifacts": [
+    {
+      "type": "git_commit",
+      "path": "3fb32ff048b00b779d7e16a2c72e728866a4f4ba",
+      "description": "Accepted source/test commit for the prognostic-skin RI2m lower-boundary observer."
+    },
+    {
+      "type": "diff",
+      "path": ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/candidate.diff",
+      "sha256": "fc98be9af6ddbda66636fb89717b7339d29f7fa23f4adfe8ba139178af233758",
+      "description": "Exact six-file implementation diff captured before acceptance."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
+      "description": "Candidate fast metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.csv",
+      "description": "Candidate fast metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
+      "description": "Candidate iteration metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.csv",
+      "description": "Candidate iteration metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
+      "description": "Candidate validation metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.csv",
+      "description": "Candidate validation metrics table."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.json",
+      "description": "Cached incumbent iteration metrics reused without rerun."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin.json",
+      "description": "Cached incumbent validation metrics reused without rerun."
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/proposal.md",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/resource_snapshot.md",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/implementation.md",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/candidate.diff",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/scores.json",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/scoring_notes.md",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/decision.md",
+    ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary/artifacts.json"
+  ],
+  "notes": "Accepted candidate. Incumbent metrics were reused from the valid leaderboard cache; no incumbent rerun, rejected-artifact commit, or golden evaluation was performed."
+}
