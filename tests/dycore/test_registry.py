@@ -64,6 +64,7 @@ def test_registry_lists_default_dycore_models():
         "dino_ri2m_ekman_depth_orolift_lwind",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin",
     )
 
 
@@ -846,6 +847,27 @@ def test_registry_creates_pressure_thickness_ri2m_candidate_model():
             "name",
             "use_pressure_thickness_weighted_ri2m_temperature",
         }:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_late_ramped_land_skin_model():
+    """The late skin model preserves all pressure-thickness incumbent settings."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
+    )
+    incumbent = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    )
+
+    assert (
+        model.name
+        == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
+    )
+    assert model.apply_land_skin_reservoir
+    assert not incumbent.apply_land_skin_reservoir
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_land_skin_reservoir"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

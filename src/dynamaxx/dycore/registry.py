@@ -292,6 +292,17 @@ def dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_model() -> Dycore
     return pressure_thickness_ri2m_temperature_dinosaur_dycore_model()
 
 
+def dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_model() -> (
+    DycoreModel
+):
+    """Return the current incumbent with late-ramped land skin memory."""
+    from dynamaxx.dycore.models.dinosaur import (
+        late_ramped_land_skin_reservoir_dinosaur_dycore_model,
+    )
+
+    return late_ramped_land_skin_reservoir_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -386,6 +397,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     ),
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m": (
         dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_model
+    ),
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin": (
+        dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_model
     ),
 }
 

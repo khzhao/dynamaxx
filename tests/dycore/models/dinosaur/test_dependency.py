@@ -159,6 +159,9 @@ assert dinosaur.terrain_work_form_drag_heating_dinosaur_dycore_model().name == (
 assert dinosaur.pressure_thickness_ri2m_temperature_dinosaur_dycore_model().name == (
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
 )
+assert dinosaur.late_ramped_land_skin_reservoir_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -268,6 +271,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_ri2m_ekman_depth_orolift_lwind",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin",
     )
 
     model = create_dycore_model("dinosaur")
@@ -933,6 +937,23 @@ def test_dinosaur_pressure_thickness_ri2m_model_is_registered():
             "name",
             "use_pressure_thickness_weighted_ri2m_temperature",
         }:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_late_skin_model_is_registered():
+    """The late-ramped reservoir preserves the pressure-thickness incumbent."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
+    )
+    incumbent = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
+    )
+
+    assert model.apply_land_skin_reservoir
+    assert not incumbent.apply_land_skin_reservoir
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_land_skin_reservoir"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

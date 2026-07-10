@@ -78,6 +78,15 @@ _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT = 1.0e-3
 _OCEAN_BULK_SHF_EXCHANGE_DEPTH_METERS = 10_000.0
 _OCEAN_BULK_SHF_MIN_EFOLDING_DAYS = 6.0
 _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+_LAND_SKIN_RESERVOIR_TRANSFER_COEFFICIENT = 1.5e-3
+_LAND_SKIN_RESERVOIR_EXCHANGE_DEPTH_METERS = 50.0
+_LAND_SKIN_RESERVOIR_MIN_EFOLDING_HOURS = 6.0
+_LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO = 4.0
+_LAND_SKIN_RESERVOIR_DEEP_RESTORE_DAYS = 10.0
+_LAND_SKIN_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
+_LAND_SKIN_RESERVOIR_MIN_LAND_FRACTION = 0.01
+_LAND_SKIN_RESERVOIR_RAMP_START_HOURS = 120.0
+_LAND_SKIN_RESERVOIR_RAMP_FULL_HOURS = 240.0
 _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
@@ -176,6 +185,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_land_sea_surface_temperature_residual: bool = False
     use_land_ocean_low_mode_t2m_memory: bool = False
     apply_ocean_bulk_sensible_heat_flux: bool = False
+    apply_land_skin_reservoir: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     use_bulk_richardson_2m_temperature_diagnostic: bool = False
     use_pressure_thickness_weighted_ri2m_temperature: bool = False
@@ -239,6 +249,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             self.use_land_sea_surface_temperature_residual
             or self.use_land_ocean_low_mode_t2m_memory
             or self.apply_ocean_bulk_sensible_heat_flux
+            or self.apply_land_skin_reservoir
         ):
             land_sea_fraction = _load_land_sea_fraction_for_grid(
                 longitude=forecast_input.longitude,
@@ -253,6 +264,17 @@ class DinosaurPrimitiveEquationsDycoreModel:
             )
             if valid_land_sea_fraction is not None:
                 ocean_bulk_shf_ocean_weight = 1.0 - _to_dinosaur_latitude_order(
+                    valid_land_sea_fraction,
+                    grid.latitude_reversed,
+                )
+        land_skin_reservoir_land_weight = None
+        if self.apply_land_skin_reservoir:
+            valid_land_sea_fraction = _valid_land_sea_fraction_or_none(
+                land_sea_fraction,
+                (forecast_input.longitude.size, forecast_input.latitude.size),
+            )
+            if valid_land_sea_fraction is not None:
+                land_skin_reservoir_land_weight = _to_dinosaur_latitude_order(
                     valid_land_sea_fraction,
                     grid.latitude_reversed,
                 )
@@ -280,6 +302,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             output_count=max(forecast_input.lead_steps) + 1,
             use_humidity_in_dynamics=has_humidity and self.use_humidity_in_dynamics,
             ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
+            land_skin_reservoir_land_weight=land_skin_reservoir_land_weight,
             terrain_height_meters=terrain_height_meters,
         )
 
@@ -307,6 +330,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 initialize_sim_time=(
                     self.use_pressure_ramped_vertical_dse_increment
                     or self.apply_orographic_lift_theta_tendency
+                    or self.apply_land_skin_reservoir
                 ),
             )
             if (
@@ -397,6 +421,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         output_count: int,
         use_humidity_in_dynamics: bool,
         ocean_bulk_shf_ocean_weight: jax.Array | None = None,
+        land_skin_reservoir_land_weight: jax.Array | None = None,
         terrain_height_meters: jax.Array | None = None,
     ):
         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
@@ -417,6 +442,10 @@ class DinosaurPrimitiveEquationsDycoreModel:
         use_ocean_bulk_sensible_heat_flux = (
             self.apply_ocean_bulk_sensible_heat_flux
             and ocean_bulk_shf_ocean_weight is not None
+        )
+        use_land_skin_reservoir = (
+            self.apply_land_skin_reservoir
+            and land_skin_reservoir_land_weight is not None
         )
 
         def build_equation(
@@ -590,12 +619,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     physics_specs=physics_specs,
                     step_seconds=step_seconds,
                 )
-            trajectory_fn = time_integration.trajectory_from_step(
-                step_fn,
-                outer_steps=output_count,
-                inner_steps=inner_steps,
-                start_with_input=True,
-            )
+            initialize_state = None
             if self.apply_digital_filter_initialization:
                 digital_filter_time_span = _nondimensionalize_seconds(
                     physics_specs,
@@ -613,6 +637,43 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     cutoff_period=digital_filter_cutoff_period,
                     dt=step_seconds,
                 )
+            if use_land_skin_reservoir:
+                land_skin_step_fn = _land_skin_reservoir_step(
+                    step_fn,
+                    coords=coords,
+                    physics_specs=physics_specs,
+                    reference_temperature=reference_temperature,
+                    land_weight=cast(jax.Array, land_skin_reservoir_land_weight),
+                    step_seconds_si=self.inner_step_seconds,
+                )
+                land_skin_trajectory_fn = time_integration.trajectory_from_step(
+                    land_skin_step_fn,
+                    outer_steps=output_count,
+                    inner_steps=inner_steps,
+                    start_with_input=True,
+                    post_process_fn=lambda carry: carry[0],
+                )
+
+                def land_skin_trajectory(dinosaur_state):
+                    rollout_state = dinosaur_state
+                    if initialize_state is not None:
+                        rollout_state = initialize_state(rollout_state)
+                    skin = _land_skin_reservoir_initial_skin(
+                        rollout_state,
+                        coords=coords,
+                        reference_temperature=reference_temperature,
+                    )
+                    return land_skin_trajectory_fn((rollout_state, skin))
+
+                return land_skin_trajectory
+
+            trajectory_fn = time_integration.trajectory_from_step(
+                step_fn,
+                outer_steps=output_count,
+                inner_steps=inner_steps,
+                start_with_input=True,
+            )
+            if initialize_state is not None:
                 base_trajectory_fn = trajectory_fn
 
                 def initialized_trajectory_fn(dinosaur_state):
@@ -1509,6 +1570,374 @@ def _ekman_coupled_equatorial_taper(
         1.0,
     )
     return taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
+
+
+def _land_skin_reservoir_initial_skin(
+    state: Any,
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    reference_temperature: np.ndarray,
+) -> tuple[jax.Array, jax.Array]:
+    """Initialize the external skin and deep memory from post-DFI air."""
+    lowest_temperature = _lowest_layer_temperature(
+        state,
+        coords=coords,
+        reference_temperature=reference_temperature,
+    )
+    temperature_is_valid = jnp.all(jnp.isfinite(lowest_temperature)) & jnp.all(
+        lowest_temperature > 0.0
+    )
+    invalid_temperature = jnp.full_like(lowest_temperature, jnp.nan)
+    skin_temperature = jnp.where(
+        temperature_is_valid,
+        lowest_temperature,
+        invalid_temperature,
+    )
+    return skin_temperature, skin_temperature
+
+
+def _land_skin_reservoir_step(
+    step_fn: Any,
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    land_weight: jax.Array,
+    step_seconds_si: float,
+) -> Any:
+    """Wrap a rollout step with a late-ramped external land reservoir."""
+
+    def land_skin_step(carry: tuple[Any, tuple[jax.Array, jax.Array]]):
+        state, skin = carry
+        next_state = step_fn(state)
+        return _apply_land_skin_reservoir_step(
+            next_state,
+            skin,
+            coords=coords,
+            physics_specs=physics_specs,
+            reference_temperature=reference_temperature,
+            land_weight=land_weight,
+            step_seconds_si=step_seconds_si,
+        )
+
+    return land_skin_step
+
+
+def _apply_land_skin_reservoir_step(
+    state: Any,
+    skin: tuple[jax.Array, jax.Array],
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    reference_temperature: np.ndarray,
+    land_weight: jax.Array,
+    step_seconds_si: float,
+    deep_restore_days: float = _LAND_SKIN_RESERVOIR_DEEP_RESTORE_DAYS,
+) -> tuple[Any, tuple[jax.Array, jax.Array]]:
+    """Apply one bounded skin/air exchange after a resolved rollout step."""
+    if state.sim_time is None:
+        return state, skin
+
+    horizontal_grid = coords.horizontal
+    skin_temperature, deep_temperature = skin
+    expected_shape = horizontal_grid.nodal_shape
+    if (
+        skin_temperature.shape != expected_shape
+        or deep_temperature.shape != expected_shape
+        or land_weight.shape != expected_shape
+    ):
+        return state, skin
+
+    lowest_temperature = _lowest_layer_temperature(
+        state,
+        coords=coords,
+        reference_temperature=reference_temperature,
+    )
+    u_wind, v_wind = spherical_harmonic.vor_div_to_uv_nodal(
+        horizontal_grid,
+        state.vorticity,
+        state.divergence,
+    )
+    coupling_weight = _land_skin_reservoir_forecast_time_ramp(
+        state.sim_time,
+        physics_specs,
+    )
+    (
+        air_increment,
+        skin_exchange_increment,
+        skin_restore_increment,
+    ) = _land_skin_reservoir_local_increments(
+        air_temperature=lowest_temperature,
+        skin_temperature=skin_temperature,
+        deep_temperature=deep_temperature,
+        land_weight=land_weight,
+        lowest_u_wind=u_wind[-1],
+        lowest_v_wind=v_wind[-1],
+        coupling_weight=coupling_weight,
+        physics_specs=physics_specs,
+        step_seconds_si=step_seconds_si,
+        deep_restore_days=deep_restore_days,
+    )
+
+    nodal_temperature_increment = jnp.zeros(
+        (coords.vertical.layers, *horizontal_grid.nodal_shape),
+        dtype=state.temperature_variation.dtype,
+    ).at[-1].set(air_increment)
+    modal_temperature_increment = horizontal_grid.to_modal(
+        nodal_temperature_increment
+    )
+    projected_lowest_increment = horizontal_grid.to_nodal(
+        modal_temperature_increment
+    )[-1]
+    increment_cap = _land_skin_temperature_increment_cap(physics_specs)
+    projection_scale = jnp.minimum(
+        1.0,
+        increment_cap
+        / jnp.maximum(jnp.max(jnp.abs(projected_lowest_increment)), 1.0e-30),
+    )
+    modal_temperature_increment = modal_temperature_increment * projection_scale
+    projected_lowest_increment = horizontal_grid.to_nodal(
+        modal_temperature_increment
+    )[-1]
+    corrected_temperature_variation = (
+        state.temperature_variation + modal_temperature_increment
+    )
+    updated_skin_temperature = (
+        skin_temperature
+        + skin_exchange_increment * projection_scale
+        + skin_restore_increment
+    )
+
+    finite_diagnostics = jnp.all(
+        jnp.asarray(
+            [
+                jnp.all(jnp.isfinite(lowest_temperature)),
+                jnp.all(jnp.isfinite(skin_temperature)),
+                jnp.all(jnp.isfinite(deep_temperature)),
+                jnp.all(jnp.isfinite(land_weight)),
+                jnp.all(jnp.isfinite(u_wind[-1])),
+                jnp.all(jnp.isfinite(v_wind[-1])),
+                jnp.all(jnp.isfinite(coupling_weight)),
+                jnp.all(jnp.isfinite(air_increment)),
+                jnp.all(jnp.isfinite(updated_skin_temperature)),
+                jnp.all(jnp.isfinite(modal_temperature_increment)),
+                jnp.all(jnp.isfinite(projected_lowest_increment)),
+                jnp.all(jnp.isfinite(corrected_temperature_variation)),
+                jnp.all(land_weight >= 0.0),
+                jnp.all(land_weight <= 1.0),
+                jnp.all(lowest_temperature > 0.0),
+                jnp.all(skin_temperature > 0.0),
+                jnp.all(deep_temperature > 0.0),
+            ]
+        )
+    )
+    candidate_has_effect = (
+        jnp.max(jnp.abs(projected_lowest_increment))
+        + jnp.max(jnp.abs(updated_skin_temperature - skin_temperature))
+    ) > 0.0
+    use_candidate = finite_diagnostics & candidate_has_effect
+    corrected_state = _primitive_equation_state(
+        vorticity=state.vorticity,
+        divergence=state.divergence,
+        temperature_variation=jnp.where(
+            use_candidate,
+            corrected_temperature_variation,
+            state.temperature_variation,
+        ),
+        log_surface_pressure=state.log_surface_pressure,
+        tracers=state.tracers,
+        sim_time=state.sim_time,
+    )
+    updated_skin = (
+        jnp.where(use_candidate, updated_skin_temperature, skin_temperature),
+        deep_temperature,
+    )
+    return corrected_state, updated_skin
+
+
+def _land_skin_reservoir_local_increments(
+    *,
+    air_temperature: jax.Array,
+    skin_temperature: jax.Array,
+    deep_temperature: jax.Array,
+    land_weight: jax.Array,
+    lowest_u_wind: jax.Array,
+    lowest_v_wind: jax.Array,
+    coupling_weight: jax.Array | float,
+    physics_specs: Any,
+    step_seconds_si: float,
+    deep_restore_days: float = _LAND_SKIN_RESERVOIR_DEEP_RESTORE_DAYS,
+) -> tuple[jax.Array, jax.Array, jax.Array]:
+    """Return conservative air/skin exchange and deep-restore increments."""
+    coupling_weight = jnp.asarray(coupling_weight, dtype=air_temperature.dtype)
+    active_land_weight = (
+        _active_land_skin_weight(land_weight)
+        * jnp.clip(coupling_weight, 0.0, 1.0)
+    )
+    exchange_fraction = _land_skin_reservoir_exchange_fraction(
+        lowest_u_wind=lowest_u_wind,
+        lowest_v_wind=lowest_v_wind,
+        physics_specs=physics_specs,
+        step_seconds_si=step_seconds_si,
+    )
+    restore_fraction = _land_skin_reservoir_restore_fraction(
+        step_seconds_si=step_seconds_si,
+        deep_restore_days=deep_restore_days,
+    )
+    temperature_difference = skin_temperature - air_temperature
+    increment_cap = _land_skin_temperature_increment_cap(physics_specs)
+    air_increment = jnp.clip(
+        active_land_weight * exchange_fraction * temperature_difference,
+        -increment_cap,
+        increment_cap,
+    )
+    skin_exchange_increment = (
+        -_LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO * air_increment
+    )
+    skin_restore_increment = (
+        jnp.clip(coupling_weight, 0.0, 1.0)
+        * restore_fraction
+        * (deep_temperature - skin_temperature)
+    )
+    finite_diagnostics = jnp.all(
+        jnp.asarray(
+            [
+                jnp.all(jnp.isfinite(air_temperature)),
+                jnp.all(jnp.isfinite(skin_temperature)),
+                jnp.all(jnp.isfinite(deep_temperature)),
+                jnp.all(jnp.isfinite(active_land_weight)),
+                jnp.all(jnp.isfinite(lowest_u_wind)),
+                jnp.all(jnp.isfinite(lowest_v_wind)),
+                jnp.all(jnp.isfinite(coupling_weight)),
+                jnp.all(jnp.isfinite(exchange_fraction)),
+                jnp.all(jnp.isfinite(restore_fraction)),
+                jnp.all(jnp.isfinite(air_increment)),
+                jnp.all(jnp.isfinite(skin_exchange_increment)),
+                jnp.all(jnp.isfinite(skin_restore_increment)),
+                jnp.all(active_land_weight >= 0.0),
+                jnp.all(active_land_weight <= 1.0),
+                jnp.all(air_temperature > 0.0),
+                jnp.all(skin_temperature > 0.0),
+                jnp.all(deep_temperature > 0.0),
+            ]
+        )
+    )
+    zero_air_increment = jnp.zeros_like(air_increment)
+    zero_skin_increment = jnp.zeros_like(skin_exchange_increment)
+    return (
+        jnp.where(finite_diagnostics, air_increment, zero_air_increment),
+        jnp.where(finite_diagnostics, skin_exchange_increment, zero_skin_increment),
+        jnp.where(finite_diagnostics, skin_restore_increment, zero_skin_increment),
+    )
+
+
+def _lowest_layer_temperature(
+    state: Any,
+    *,
+    coords: coordinate_systems.CoordinateSystem,
+    reference_temperature: np.ndarray,
+) -> jax.Array:
+    """Return absolute lowest-layer temperature on the nodal grid."""
+    return (
+        coords.horizontal.to_nodal(state.temperature_variation)[-1]
+        + jnp.asarray(reference_temperature)[-1]
+    )
+
+
+def _active_land_skin_weight(land_weight: jax.Array) -> jax.Array:
+    """Mask numerical ocean points while retaining fractional land cells."""
+    land_weight = jnp.asarray(land_weight, dtype=jnp.float32)
+    return jnp.where(
+        land_weight >= _LAND_SKIN_RESERVOIR_MIN_LAND_FRACTION,
+        jnp.clip(land_weight, 0.0, 1.0),
+        0.0,
+    )
+
+
+def _land_skin_reservoir_exchange_fraction(
+    *,
+    lowest_u_wind: jax.Array,
+    lowest_v_wind: jax.Array,
+    physics_specs: Any,
+    step_seconds_si: float,
+) -> jax.Array:
+    """Return the wind-scaled, capped air-skin exchange fraction."""
+    wind_unit_factor = _unit_factor(physics_specs, "meter / second")
+    lowest_u_wind_si = lowest_u_wind / wind_unit_factor
+    lowest_v_wind_si = lowest_v_wind / wind_unit_factor
+    wind_speed_si = jnp.sqrt(
+        jnp.maximum(lowest_u_wind_si**2 + lowest_v_wind_si**2, 0.0)
+    )
+    wind_exchange_fraction = (
+        _LAND_SKIN_RESERVOIR_TRANSFER_COEFFICIENT
+        * wind_speed_si
+        * step_seconds_si
+        / _LAND_SKIN_RESERVOIR_EXCHANGE_DEPTH_METERS
+    )
+    max_exchange_fraction = step_seconds_si / (
+        _LAND_SKIN_RESERVOIR_MIN_EFOLDING_HOURS * 3600.0
+    )
+    return jnp.clip(
+        jnp.minimum(wind_exchange_fraction, max_exchange_fraction),
+        0.0,
+        1.0,
+    )
+
+
+def _land_skin_reservoir_restore_fraction(
+    *,
+    step_seconds_si: float,
+    deep_restore_days: float,
+) -> jax.Array:
+    """Return the explicit deep-reservoir restore fraction."""
+    if np.isinf(deep_restore_days):
+        return jnp.asarray(0.0, dtype=jnp.float32)
+    assert deep_restore_days > 0.0
+    return jnp.asarray(
+        np.clip(
+            step_seconds_si / (float(deep_restore_days) * 24.0 * 3600.0),
+            0.0,
+            1.0,
+        ),
+        dtype=jnp.float32,
+    )
+
+
+def _land_skin_temperature_increment_cap(physics_specs: Any) -> jax.Array:
+    """Return the per-step lowest-layer temperature increment cap."""
+    return jnp.asarray(
+        _LAND_SKIN_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN
+        * _unit_factor(physics_specs, "kelvin"),
+        dtype=jnp.float32,
+    )
+
+
+def _land_skin_reservoir_forecast_time_ramp(
+    sim_time: jax.Array,
+    physics_specs: Any,
+) -> jax.Array:
+    """Return a smooth ramp that is zero through 120 h and full at 240 h."""
+    sim_time = jnp.asarray(sim_time)
+    ramp_start_time = _nondimensionalize_seconds(
+        physics_specs,
+        _LAND_SKIN_RESERVOIR_RAMP_START_HOURS * 3600.0,
+    )
+    ramp_full_time = _nondimensionalize_seconds(
+        physics_specs,
+        _LAND_SKIN_RESERVOIR_RAMP_FULL_HOURS * 3600.0,
+    )
+    ramp_fraction = jnp.clip(
+        (sim_time - jnp.asarray(ramp_start_time, dtype=sim_time.dtype))
+        / jnp.asarray(ramp_full_time - ramp_start_time, dtype=sim_time.dtype),
+        0.0,
+        1.0,
+    )
+    smooth_weight = ramp_fraction * ramp_fraction * (3.0 - 2.0 * ramp_fraction)
+    return jnp.where(
+        sim_time <= ramp_start_time,
+        0.0,
+        jnp.where(sim_time >= ramp_full_time, 1.0, smooth_weight),
+    )
 
 
 def _orographic_lift_theta_tendency_step_filter(
@@ -2784,6 +3213,20 @@ def pressure_thickness_ri2m_temperature_dinosaur_dycore_model() -> (
         terrain_work_form_drag_heating_dinosaur_dycore_model(),
         name="dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
         use_pressure_thickness_weighted_ri2m_temperature=True,
+    )
+
+
+def late_ramped_land_skin_reservoir_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with late-ramped prognostic land skin memory."""
+    return replace(
+        pressure_thickness_ri2m_temperature_dinosaur_dycore_model(),
+        name=(
+            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+            "pthick_ri2m_lateskin"
+        ),
+        apply_land_skin_reservoir=True,
     )
 
 
