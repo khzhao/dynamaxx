@@ -189,6 +189,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     use_bulk_richardson_2m_temperature_diagnostic: bool = False
     use_pressure_thickness_weighted_ri2m_temperature: bool = False
+    use_prognostic_skin_ri2m_lower_boundary: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
     temperature_tendency_formulation: str = (
@@ -250,6 +251,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             or self.use_land_ocean_low_mode_t2m_memory
             or self.apply_ocean_bulk_sensible_heat_flux
             or self.apply_land_skin_reservoir
+            or self.use_prognostic_skin_ri2m_lower_boundary
         ):
             land_sea_fraction = _load_land_sea_fraction_for_grid(
                 longitude=forecast_input.longitude,
@@ -347,12 +349,22 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         reference_temperature=reference_temperature,
                     )
                 )
-                _, trajectory = trajectory_fn(
+                _, trajectory_output = trajectory_fn(
                     dinosaur_state,
                     ocean_bulk_shf_temperature_anchor,
                 )
             else:
-                _, trajectory = trajectory_fn(dinosaur_state)
+                _, trajectory_output = trajectory_fn(dinosaur_state)
+            retain_skin_trajectory = (
+                self.use_prognostic_skin_ri2m_lower_boundary
+                and land_skin_reservoir_land_weight is not None
+            )
+            prognostic_skin_temperature = None
+            if retain_skin_trajectory:
+                trajectory, skin_trajectory = trajectory_output
+                prognostic_skin_temperature = skin_trajectory[0]
+            else:
+                trajectory = trajectory_output
             trajectory_state = dinosaur_state_to_weather_state(
                 trajectory,
                 coords=grid.coords,
@@ -370,6 +382,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 use_pressure_thickness_weighted_ri2m_temperature=(
                     self.use_pressure_thickness_weighted_ri2m_temperature
                 ),
+                use_prognostic_skin_ri2m_lower_boundary=(
+                    self.use_prognostic_skin_ri2m_lower_boundary
+                ),
+                prognostic_skin_temperature=prognostic_skin_temperature,
+                land_weight=land_skin_reservoir_land_weight,
             )
             if self.apply_near_surface_residual_correction:
                 residual_correction = (
@@ -651,7 +668,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     outer_steps=output_count,
                     inner_steps=inner_steps,
                     start_with_input=True,
-                    post_process_fn=lambda carry: carry[0],
+                    post_process_fn=(
+                        (lambda carry: carry)
+                        if self.use_prognostic_skin_ri2m_lower_boundary
+                        else (lambda carry: carry[0])
+                    ),
                 )
 
                 def land_skin_trajectory(dinosaur_state):
@@ -3230,6 +3251,20 @@ def late_ramped_land_skin_reservoir_dinosaur_dycore_model() -> (
     )
 
 
+def prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the late-skin incumbent with skin-aware RI2m output packing."""
+    return replace(
+        late_ramped_land_skin_reservoir_dinosaur_dycore_model(),
+        name=(
+            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+            "pthick_ri2m_lateskin_skri"
+        ),
+        use_prognostic_skin_ri2m_lower_boundary=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -3377,6 +3412,9 @@ def dinosaur_state_to_weather_state(
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False,
     use_bulk_richardson_2m_temperature_diagnostic: bool = False,
     use_pressure_thickness_weighted_ri2m_temperature: bool = False,
+    use_prognostic_skin_ri2m_lower_boundary: bool = False,
+    prognostic_skin_temperature: jax.Array | None = None,
+    land_weight: jax.Array | None = None,
 ) -> WeatherState:
     """Convert a Dinosaur trajectory into packed WeatherState channels."""
     temperature = (
@@ -3468,6 +3506,24 @@ def dinosaur_state_to_weather_state(
             use_pressure_thickness_weighted_ri2m_temperature=(
                 use_pressure_thickness_weighted_ri2m_temperature
             ),
+        )
+    if use_prognostic_skin_ri2m_lower_boundary:
+        skin_temperature_kelvin = (
+            None
+            if prognostic_skin_temperature is None
+            else prognostic_skin_temperature / _unit_factor(physics_specs, "kelvin")
+        )
+        two_meter_temperature = _prognostic_skin_ri2m_temperature(
+            incumbent_temperature=two_meter_temperature,
+            skin_temperature=skin_temperature_kelvin,
+            land_weight=land_weight,
+            forecast_time=trajectory.sim_time,
+            temperature=temperature,
+            u_wind=u_wind,
+            v_wind=v_wind,
+            surface_pressure_hpa=surface_pressure_hpa,
+            sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
+            physics_specs=physics_specs,
         )
 
     level_to_index = {
@@ -3568,6 +3624,176 @@ def _bulk_richardson_2m_temperature(
         weighted_temperature,
         incumbent_temperature,
     )
+
+
+def _prognostic_skin_ri2m_temperature(
+    *,
+    incumbent_temperature: jax.Array,
+    skin_temperature: jax.Array | None,
+    land_weight: jax.Array | None,
+    forecast_time: jax.Array | None,
+    temperature: jax.Array,
+    u_wind: jax.Array,
+    v_wind: jax.Array,
+    surface_pressure_hpa: jax.Array,
+    sigma_coords: sigma_coordinates.SigmaCoordinates,
+    physics_specs: Any,
+) -> jax.Array:
+    """Blend a bounded skin-to-lower-layer RI2m estimate over valid land."""
+    if (
+        skin_temperature is None
+        or land_weight is None
+        or forecast_time is None
+        or sigma_coords.layers < 4
+        or skin_temperature.shape != incumbent_temperature.shape
+        or land_weight.shape != incumbent_temperature.shape[-2:]
+        or forecast_time.shape != incumbent_temperature.shape[:1]
+    ):
+        return incumbent_temperature
+
+    references = _pressure_thickness_weighted_ri2m_reference_states(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        sigma_coords=sigma_coords,
+    )
+    if references is None:
+        return incumbent_temperature
+
+    lower_sigma = references.lower_sigma
+    if not np.isfinite(lower_sigma) or lower_sigma <= 0.0 or lower_sigma > 1.0:
+        return incumbent_temperature
+
+    valid_skin = jnp.isfinite(skin_temperature) & (skin_temperature > 0.0)
+    valid_land = (
+        jnp.isfinite(land_weight) & (land_weight >= 0.0) & (land_weight <= 1.0)
+    )
+    valid_pressure = jnp.isfinite(surface_pressure_hpa) & (
+        surface_pressure_hpa > 0.0
+    )
+    valid_lower_temperature = jnp.isfinite(references.lower_temperature) & (
+        references.lower_temperature > 0.0
+    )
+    safe_lower_temperature = jnp.where(
+        valid_lower_temperature,
+        references.lower_temperature,
+        jnp.ones_like(references.lower_temperature),
+    )
+    safe_skin_temperature = jnp.where(
+        valid_skin,
+        skin_temperature,
+        safe_lower_temperature,
+    )
+    safe_surface_pressure_hpa = jnp.where(
+        valid_pressure,
+        surface_pressure_hpa,
+        jnp.ones_like(surface_pressure_hpa),
+    )
+
+    lower_pressure_hpa = jnp.maximum(
+        safe_surface_pressure_hpa * lower_sigma,
+        1.0,
+    )
+    screen_pressure_hpa = jnp.maximum(safe_surface_pressure_hpa, 1.0)
+    lower_theta = (
+        safe_lower_temperature
+        * (1000.0 / lower_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    skin_theta = (
+        safe_skin_temperature
+        * (1000.0 / screen_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    mean_theta = jnp.maximum(0.5 * (skin_theta + lower_theta), 1.0)
+    lower_height_meters = (
+        _DRY_AIR_GAS_CONSTANT_SI
+        * safe_lower_temperature
+        / _GRAVITY_ACCELERATION_SI
+    ) * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
+    lower_height_meters = jnp.maximum(
+        lower_height_meters,
+        _SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS,
+    )
+
+    squared_shear = references.lower_u_wind**2 + references.lower_v_wind**2
+    squared_shear = jnp.maximum(
+        squared_shear,
+        _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND**2,
+    )
+    richardson_number = (
+        (_GRAVITY_ACCELERATION_SI / mean_theta)
+        * (lower_theta - skin_theta)
+        * lower_height_meters
+        / squared_shear
+    )
+    richardson_number = jnp.clip(richardson_number, -1.0, 1.0)
+    screen_fraction = jnp.clip(
+        _SURFACE_LAYER_TEMPERATURE_REFERENCE_HEIGHT_METERS / lower_height_meters,
+        0.0,
+        1.0,
+    )
+    stability_limiter = 1.0 / (1.0 + 2.0 * jnp.abs(richardson_number))
+    screen_theta = skin_theta + (
+        (lower_theta - skin_theta) * screen_fraction * stability_limiter
+    )
+    screen_temperature = screen_theta / (
+        (1000.0 / screen_pressure_hpa)
+        ** _STABILITY_AWARE_POTENTIAL_TEMPERATURE_EXPONENT
+    )
+    temperature_departure = jnp.clip(
+        screen_temperature - safe_lower_temperature,
+        -_SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+        _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
+    )
+    skin_aware_temperature = safe_lower_temperature + temperature_departure
+
+    active_land_weight = jnp.where(
+        valid_land,
+        _active_land_skin_weight(land_weight),
+        jnp.zeros_like(land_weight),
+    )
+    ramp_weight = _land_skin_reservoir_forecast_time_ramp(
+        forecast_time,
+        physics_specs,
+    )
+    valid_ramp = jnp.isfinite(ramp_weight)
+    blend_weight = (
+        active_land_weight[jnp.newaxis]
+        * jnp.clip(ramp_weight, 0.0, 1.0)[:, jnp.newaxis, jnp.newaxis]
+    )
+    blended_temperature = incumbent_temperature + blend_weight * (
+        skin_aware_temperature - incumbent_temperature
+    )
+    finite_diagnostic = jnp.all(
+        jnp.isfinite(
+            jnp.stack(
+                [
+                    lower_theta,
+                    skin_theta,
+                    lower_height_meters,
+                    squared_shear,
+                    richardson_number,
+                    screen_temperature,
+                    skin_aware_temperature,
+                    blended_temperature,
+                ]
+            )
+        ),
+        axis=0,
+    )
+    use_candidate = (
+        references.finite_mask
+        & valid_skin
+        & valid_pressure
+        & valid_lower_temperature
+        & valid_land[jnp.newaxis]
+        & valid_ramp[:, jnp.newaxis, jnp.newaxis]
+        & jnp.isfinite(incumbent_temperature)
+        & finite_diagnostic
+        & (blend_weight > 0.0)
+    )
+    return jnp.where(use_candidate, blended_temperature, incumbent_temperature)
 
 
 @dataclass(frozen=True)

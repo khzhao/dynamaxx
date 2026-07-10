@@ -162,6 +162,9 @@ assert dinosaur.pressure_thickness_ri2m_temperature_dinosaur_dycore_model().name
 assert dinosaur.late_ramped_land_skin_reservoir_dinosaur_dycore_model().name == (
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
 )
+assert dinosaur.prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -272,6 +275,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri",
     )
 
     model = create_dycore_model("dinosaur")
@@ -954,6 +958,24 @@ def test_dinosaur_late_skin_model_is_registered():
     assert not incumbent.apply_land_skin_reservoir
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "apply_land_skin_reservoir"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_prognostic_skin_ri2m_model_is_registered():
+    """The skin-aware observer preserves the complete late-skin incumbent."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri"
+    )
+    incumbent = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
+    )
+
+    assert model.apply_land_skin_reservoir
+    assert model.use_prognostic_skin_ri2m_lower_boundary
+    assert not incumbent.use_prognostic_skin_ri2m_lower_boundary
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_prognostic_skin_ri2m_lower_boundary"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

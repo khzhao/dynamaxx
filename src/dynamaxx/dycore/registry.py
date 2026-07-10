@@ -303,6 +303,15 @@ def dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_model() 
     return late_ramped_land_skin_reservoir_dinosaur_dycore_model()
 
 
+def dino_lateskin_skri_model() -> DycoreModel:
+    """Return the late-skin incumbent with skin-aware RI2m output packing."""
+    from dynamaxx.dycore.models.dinosaur import (
+        prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model,
+    )
+
+    return prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -400,6 +409,9 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     ),
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin": (
         dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_model
+    ),
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri": (
+        dino_lateskin_skri_model
     ),
 }
 
