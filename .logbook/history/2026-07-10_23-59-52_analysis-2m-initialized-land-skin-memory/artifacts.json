@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "analysis-2m-initialized-land-skin-memory",
+  "history_path": ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory",
+  "source_artifacts": [
+    {
+      "type": "git_commit",
+      "path": "603f44a9b052557bd3bf3a16a9dcd9c05f343449",
+      "description": "Accepted source/test commit for analysis-initialized land-skin memory."
+    },
+    {
+      "type": "diff",
+      "path": ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/candidate.diff",
+      "sha256": "efba29f26b4ed4145ca6b5b137d52aaff0f9f885c1f528a65500eb6d76bbdef1",
+      "description": "Exact six-file implementation diff captured before acceptance."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "sha256": "cbe48f73d634328da0b63db11595175e504e15276066b8dfb737cc4d40253ee7",
+      "description": "Candidate fast metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+      "sha256": "0227ba52001d3c0ebb58e9f76051fa31238e21b126ef4d5216b1dd66791ad18e",
+      "description": "Candidate fast metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "sha256": "11f3ba30500d46991a97dcff649d28476d33d1bb76b35739cba35bcd177a11a9",
+      "description": "Candidate iteration metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+      "sha256": "b10cb3ba768ff9584bac7eb093069058dedf3c74dc780c32f188d9fa30d99e47",
+      "description": "Candidate iteration metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "sha256": "f79511b3011a42fac75815b6e437eb54e976d9e0877c84e2dc43e581631858c7",
+      "description": "Candidate validation metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+      "sha256": "66ba46c75cc706e008b2dcb6ccc258b24094872635382d0238fe2e9ae59991a7",
+      "description": "Candidate validation metrics table."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
+      "description": "Cached incumbent iteration metrics reused without rerun."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
+      "description": "Cached incumbent validation metrics reused without rerun."
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/proposal.md",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/resource_snapshot.md",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/implementation.md",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/candidate.diff",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/scores.json",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/scoring_notes.md",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/decision.md",
+    ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory/artifacts.json"
+  ],
+  "notes": "Accepted candidate. Incumbent metrics were reused from the valid leaderboard cache; no incumbent rerun, rejected-artifact commit, or golden evaluation was performed."
+}

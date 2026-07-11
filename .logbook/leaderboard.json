@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri",
-  "incumbent_commit": "3fb32ff048b00b779d7e16a2c72e728866a4f4ba",
-  "updated_at": "2026-07-10T13:59:30Z",
-  "iteration_primary_score": -0.10655439732760863,
-  "validation_primary_score": -0.10736873851248371,
-  "history_path": ".logbook/history/2026-07-10_09-06-37_prognostic-skin-ri2m-lower-boundary",
-  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
-  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.csv",
-  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.json",
-  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri.csv",
+  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si",
+  "incumbent_commit": "603f44a9b052557bd3bf3a16a9dcd9c05f343449",
+  "updated_at": "2026-07-11T05:18:51Z",
+  "iteration_primary_score": -0.08966691030501653,
+  "validation_primary_score": -0.09015390068642175,
+  "history_path": ".logbook/history/2026-07-10_23-59-52_analysis-2m-initialized-land-skin-memory",
+  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
   "evaluation_fingerprint": {
     "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
     "protocols": [
@@ -23,7 +23,7 @@
       "10m_u_component_of_wind"
     ],
     "lead_days": "1..15",
-    "eval_code_commit": "3fb32ff048b00b779d7e16a2c72e728866a4f4ba"
+    "eval_code_commit": "603f44a9b052557bd3bf3a16a9dcd9c05f343449"
   },
-  "notes": "Accepted prognostic-skin-ri2m-lower-boundary after it improved iteration by +0.0037114563296446745 and validation by +0.0040065447526198145 over cached dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as 3fb32ff048b00b779d7e16a2c72e728866a4f4ba with the full positive-commit protocol body."
+  "notes": "Accepted analysis-2m-initialized-land-skin-memory after it improved iteration by +0.0168874870225921 and validation by +0.017214837826061966 over cached dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as 603f44a9b052557bd3bf3a16a9dcd9c05f343449 with the full positive-commit protocol body."
 }
