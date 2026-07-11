@@ -44,6 +44,7 @@ from dynamaxx.dycore.models.dinosaur import (
 from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     DinosaurPrimitiveEquationsDycoreModel,
+    analysis_2m_initialized_land_skin_dinosaur_dycore_model,
     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
     bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model,
     coriolis_split_dinosaur_dycore_model,
@@ -90,6 +91,7 @@ __all__ = [
     "__version__",
     "DEFAULT_SEMI_IMPLICIT_OFFCENTERING",
     "DinosaurPrimitiveEquationsDycoreModel",
+    "analysis_2m_initialized_land_skin_dinosaur_dycore_model",
     "analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model",
     "associated_legendre",
     "bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model",

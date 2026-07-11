@@ -186,6 +186,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_land_ocean_low_mode_t2m_memory: bool = False
     apply_ocean_bulk_sensible_heat_flux: bool = False
     apply_land_skin_reservoir: bool = False
+    use_analysis_2m_initialized_land_skin: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     use_bulk_richardson_2m_temperature_diagnostic: bool = False
     use_pressure_thickness_weighted_ri2m_temperature: bool = False
@@ -335,6 +336,14 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     or self.apply_land_skin_reservoir
                 ),
             )
+            analysis_2m_land_skin_temperature = None
+            if self.use_analysis_2m_initialized_land_skin:
+                analysis_2m_land_skin_temperature = _analysis_2m_land_skin_temperature(
+                    single_state,
+                    spatial_shape=grid.coords.horizontal.nodal_shape,
+                    latitude_reversed=grid.latitude_reversed,
+                    physics_specs=physics_specs,
+                )
             if (
                 self.apply_ocean_bulk_sensible_heat_flux
                 and ocean_bulk_shf_ocean_weight is not None
@@ -349,12 +358,25 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         reference_temperature=reference_temperature,
                     )
                 )
-                _, trajectory_output = trajectory_fn(
-                    dinosaur_state,
-                    ocean_bulk_shf_temperature_anchor,
-                )
+                if self.use_analysis_2m_initialized_land_skin:
+                    _, trajectory_output = trajectory_fn(
+                        dinosaur_state,
+                        ocean_bulk_shf_temperature_anchor,
+                        analysis_2m_land_skin_temperature,
+                    )
+                else:
+                    _, trajectory_output = trajectory_fn(
+                        dinosaur_state,
+                        ocean_bulk_shf_temperature_anchor,
+                    )
             else:
-                _, trajectory_output = trajectory_fn(dinosaur_state)
+                if self.use_analysis_2m_initialized_land_skin:
+                    _, trajectory_output = trajectory_fn(
+                        dinosaur_state,
+                        analysis_2m_land_skin_temperature,
+                    )
+                else:
+                    _, trajectory_output = trajectory_fn(dinosaur_state)
             retain_skin_trajectory = (
                 self.use_prognostic_skin_ri2m_lower_boundary
                 and land_skin_reservoir_land_weight is not None
@@ -544,6 +566,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         def build_trajectory(
             equilibrium_temperature_offset: jax.Array | None = None,
             ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
+            analysis_2m_land_skin_temperature: jax.Array | None = None,
         ) -> Any:
             equation = build_equation(
                 rollout_physics_specs,
@@ -684,6 +707,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         coords=coords,
                         reference_temperature=reference_temperature,
                     )
+                    if self.use_analysis_2m_initialized_land_skin:
+                        skin = _analysis_2m_initialized_land_skin(
+                            skin,
+                            analyzed_temperature=analysis_2m_land_skin_temperature,
+                            land_weight=land_skin_reservoir_land_weight,
+                        )
                     return land_skin_trajectory_fn((rollout_state, skin))
 
                 return land_skin_trajectory
@@ -703,7 +732,59 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 trajectory_fn = initialized_trajectory_fn
             return trajectory_fn
 
-        if use_analysis_offset_equilibrium:
+        if self.use_analysis_2m_initialized_land_skin:
+
+            def build_analysis_2m_trajectory(
+                dinosaur_state,
+                analysis_2m_land_skin_temperature,
+                ocean_bulk_shf_temperature_anchor=None,
+            ):
+                equilibrium_temperature_offset = None
+                if use_analysis_offset_equilibrium:
+                    equilibrium_temperature_offset = (
+                        _analysis_offset_weak_held_suarez_equilibrium(
+                            dinosaur_state,
+                            coords=coords,
+                            physics_specs=physics_specs,
+                            reference_temperature=reference_temperature,
+                        )
+                    )
+                analysis_2m_trajectory_fn = build_trajectory(
+                    equilibrium_temperature_offset=equilibrium_temperature_offset,
+                    ocean_bulk_shf_temperature_anchor=(
+                        ocean_bulk_shf_temperature_anchor
+                    ),
+                    analysis_2m_land_skin_temperature=(
+                        analysis_2m_land_skin_temperature
+                    ),
+                )
+                return analysis_2m_trajectory_fn(dinosaur_state)
+
+            if use_ocean_bulk_sensible_heat_flux:
+
+                def trajectory_fn(
+                    dinosaur_state,
+                    ocean_bulk_shf_temperature_anchor,
+                    analysis_2m_land_skin_temperature,
+                ):
+                    return build_analysis_2m_trajectory(
+                        dinosaur_state,
+                        analysis_2m_land_skin_temperature,
+                        ocean_bulk_shf_temperature_anchor,
+                    )
+
+            else:
+
+                def trajectory_fn(
+                    dinosaur_state,
+                    analysis_2m_land_skin_temperature,
+                ):
+                    return build_analysis_2m_trajectory(
+                        dinosaur_state,
+                        analysis_2m_land_skin_temperature,
+                    )
+
+        elif use_analysis_offset_equilibrium:
             if use_ocean_bulk_sensible_heat_flux:
 
                 def trajectory_fn(
@@ -1591,6 +1672,79 @@ def _ekman_coupled_equatorial_taper(
         1.0,
     )
     return taper_fraction * taper_fraction * (3.0 - 2.0 * taper_fraction)
+
+
+def _analysis_2m_land_skin_temperature(
+    initial_state: WeatherState,
+    *,
+    spatial_shape: tuple[int, int],
+    latitude_reversed: bool,
+    physics_specs: Any,
+) -> jax.Array | None:
+    """Return lead-zero T2m in Dinosaur units and latitude order when available."""
+    if TWO_METER_TEMPERATURE_VARIABLE not in initial_state.variables:
+        return None
+    temperature_index = int(
+        initial_state.variable_indices((TWO_METER_TEMPERATURE_VARIABLE,))[0]
+    )
+    analyzed_temperature = initial_state.values[temperature_index]
+    if analyzed_temperature.shape != tuple(spatial_shape):
+        return None
+    analyzed_temperature = analyzed_temperature * _unit_factor(
+        physics_specs,
+        "kelvin",
+    )
+    return _to_dinosaur_latitude_order(
+        analyzed_temperature,
+        latitude_reversed,
+    )
+
+
+def _analysis_2m_initialized_land_skin(
+    incumbent_skin: tuple[jax.Array, jax.Array],
+    *,
+    analyzed_temperature: jax.Array | None,
+    land_weight: jax.Array | None,
+) -> tuple[jax.Array, jax.Array]:
+    """Override valid active-land cells while preserving incumbent fallback cells."""
+    incumbent_skin_temperature, incumbent_deep_temperature = incumbent_skin
+    expected_shape = incumbent_skin_temperature.shape
+    if (
+        analyzed_temperature is None
+        or land_weight is None
+        or incumbent_deep_temperature.shape != expected_shape
+        or analyzed_temperature.shape != expected_shape
+        or land_weight.shape != expected_shape
+    ):
+        return incumbent_skin
+
+    analyzed_temperature = jnp.asarray(
+        analyzed_temperature,
+        dtype=incumbent_skin_temperature.dtype,
+    )
+    land_weight = jnp.asarray(land_weight, dtype=incumbent_skin_temperature.dtype)
+    land_mask_is_valid = (
+        jnp.all(jnp.isfinite(land_weight))
+        & jnp.all(land_weight >= 0.0)
+        & jnp.all(land_weight <= 1.0)
+    )
+    analysis_cell_is_valid = jnp.isfinite(analyzed_temperature) & (
+        analyzed_temperature > 0.0
+    )
+    active_land_cell = _active_land_skin_weight(land_weight) > 0.0
+    use_analysis = land_mask_is_valid & active_land_cell & analysis_cell_is_valid
+    return (
+        jnp.where(
+            use_analysis,
+            analyzed_temperature,
+            incumbent_skin_temperature,
+        ),
+        jnp.where(
+            use_analysis,
+            analyzed_temperature,
+            incumbent_deep_temperature,
+        ),
+    )
 
 
 def _land_skin_reservoir_initial_skin(
@@ -3262,6 +3416,20 @@ def prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model() -> (
             "pthick_ri2m_lateskin_skri"
         ),
         use_prognostic_skin_ri2m_lower_boundary=True,
+    )
+
+
+def analysis_2m_initialized_land_skin_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with land skin/deep initialized from analyzed T2m."""
+    return replace(
+        prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model(),
+        name=(
+            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+            "pthick_ri2m_lateskin_skri_a2si"
+        ),
+        use_analysis_2m_initialized_land_skin=True,
     )
 
 
