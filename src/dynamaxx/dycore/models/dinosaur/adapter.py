@@ -191,6 +191,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_bulk_richardson_2m_temperature_diagnostic: bool = False
     use_pressure_thickness_weighted_ri2m_temperature: bool = False
     use_prognostic_skin_ri2m_lower_boundary: bool = False
+    use_ocean_anchor_ri2m_lower_boundary: bool = False
     apply_exact_coriolis_rotation_split: bool = False
     apply_symmetric_exact_coriolis_rotation_split: bool = False
     temperature_tendency_formulation: str = (
@@ -253,6 +254,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             or self.apply_ocean_bulk_sensible_heat_flux
             or self.apply_land_skin_reservoir
             or self.use_prognostic_skin_ri2m_lower_boundary
+            or self.use_ocean_anchor_ri2m_lower_boundary
         ):
             land_sea_fraction = _load_land_sea_fraction_for_grid(
                 longitude=forecast_input.longitude,
@@ -344,6 +346,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     latitude_reversed=grid.latitude_reversed,
                     physics_specs=physics_specs,
                 )
+            ocean_bulk_shf_temperature_anchor = None
             if (
                 self.apply_ocean_bulk_sensible_heat_flux
                 and ocean_bulk_shf_ocean_weight is not None
@@ -409,6 +412,14 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
                 prognostic_skin_temperature=prognostic_skin_temperature,
                 land_weight=land_skin_reservoir_land_weight,
+                use_ocean_anchor_ri2m_lower_boundary=(
+                    self.use_ocean_anchor_ri2m_lower_boundary
+                ),
+                ocean_temperature_anchor=(
+                    ocean_bulk_shf_temperature_anchor
+                    if self.use_ocean_anchor_ri2m_lower_boundary
+                    else None
+                ),
             )
             if self.apply_near_surface_residual_correction:
                 residual_correction = (
@@ -3433,6 +3444,20 @@ def analysis_2m_initialized_land_skin_dinosaur_dycore_model() -> (
     )
 
 
+def ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with an ocean-anchor RI2m output endpoint."""
+    return replace(
+        analysis_2m_initialized_land_skin_dinosaur_dycore_model(),
+        name=(
+            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+            "pthick_ri2m_lateskin_skri_a2si_ori"
+        ),
+        use_ocean_anchor_ri2m_lower_boundary=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -3583,6 +3608,8 @@ def dinosaur_state_to_weather_state(
     use_prognostic_skin_ri2m_lower_boundary: bool = False,
     prognostic_skin_temperature: jax.Array | None = None,
     land_weight: jax.Array | None = None,
+    use_ocean_anchor_ri2m_lower_boundary: bool = False,
+    ocean_temperature_anchor: jax.Array | None = None,
 ) -> WeatherState:
     """Convert a Dinosaur trajectory into packed WeatherState channels."""
     temperature = (
@@ -3675,6 +3702,7 @@ def dinosaur_state_to_weather_state(
                 use_pressure_thickness_weighted_ri2m_temperature
             ),
         )
+    atmospheric_two_meter_temperature = two_meter_temperature
     if use_prognostic_skin_ri2m_lower_boundary:
         skin_temperature_kelvin = (
             None
@@ -3684,6 +3712,25 @@ def dinosaur_state_to_weather_state(
         two_meter_temperature = _prognostic_skin_ri2m_temperature(
             incumbent_temperature=two_meter_temperature,
             skin_temperature=skin_temperature_kelvin,
+            land_weight=land_weight,
+            forecast_time=trajectory.sim_time,
+            temperature=temperature,
+            u_wind=u_wind,
+            v_wind=v_wind,
+            surface_pressure_hpa=surface_pressure_hpa,
+            sigma_coords=cast(sigma_coordinates.SigmaCoordinates, coords.vertical),
+            physics_specs=physics_specs,
+        )
+    if use_ocean_anchor_ri2m_lower_boundary:
+        ocean_temperature_anchor_kelvin = (
+            None
+            if ocean_temperature_anchor is None
+            else ocean_temperature_anchor / _unit_factor(physics_specs, "kelvin")
+        )
+        two_meter_temperature = _ocean_anchor_ri2m_temperature(
+            incumbent_temperature=atmospheric_two_meter_temperature,
+            land_observed_temperature=two_meter_temperature,
+            ocean_temperature_anchor=ocean_temperature_anchor_kelvin,
             land_weight=land_weight,
             forecast_time=trajectory.sim_time,
             temperature=temperature,
@@ -3962,6 +4009,93 @@ def _prognostic_skin_ri2m_temperature(
         & (blend_weight > 0.0)
     )
     return jnp.where(use_candidate, blended_temperature, incumbent_temperature)
+
+
+def _ocean_anchor_ri2m_temperature(
+    *,
+    incumbent_temperature: jax.Array,
+    land_observed_temperature: jax.Array,
+    ocean_temperature_anchor: jax.Array | None,
+    land_weight: jax.Array | None,
+    forecast_time: jax.Array | None,
+    temperature: jax.Array,
+    u_wind: jax.Array,
+    v_wind: jax.Array,
+    surface_pressure_hpa: jax.Array | None,
+    sigma_coords: sigma_coordinates.SigmaCoordinates,
+    physics_specs: Any,
+) -> jax.Array:
+    """Add a bounded ocean RI2m endpoint without changing the land observer."""
+    expected_spatial_shape = incumbent_temperature.shape[-2:]
+    expected_trajectory_shape = (
+        incumbent_temperature.shape[0],
+        sigma_coords.layers,
+        *expected_spatial_shape,
+    )
+    if (
+        ocean_temperature_anchor is None
+        or land_weight is None
+        or forecast_time is None
+        or surface_pressure_hpa is None
+        or incumbent_temperature.ndim != 3
+        or land_observed_temperature.shape != incumbent_temperature.shape
+        or ocean_temperature_anchor.shape != expected_spatial_shape
+        or land_weight.shape != expected_spatial_shape
+        or forecast_time.shape != incumbent_temperature.shape[:1]
+        or temperature.shape != expected_trajectory_shape
+        or u_wind.shape != expected_trajectory_shape
+        or v_wind.shape != expected_trajectory_shape
+        or surface_pressure_hpa.shape != incumbent_temperature.shape
+    ):
+        return land_observed_temperature
+
+    land_fraction = jnp.asarray(land_weight, dtype=incumbent_temperature.dtype)
+    valid_land_fraction = (
+        jnp.isfinite(land_fraction) & (land_fraction >= 0.0) & (land_fraction <= 1.0)
+    )
+    ocean_fraction = jnp.where(
+        valid_land_fraction,
+        1.0 - jnp.clip(land_fraction, 0.0, 1.0),
+        jnp.zeros_like(land_fraction),
+    )
+    anchor = jnp.asarray(
+        ocean_temperature_anchor,
+        dtype=incumbent_temperature.dtype,
+    )
+    valid_anchor = jnp.isfinite(anchor) & (anchor > 0.0)
+    anchor_trajectory = jnp.broadcast_to(
+        anchor[jnp.newaxis],
+        incumbent_temperature.shape,
+    )
+    fully_ocean_observed_temperature = _prognostic_skin_ri2m_temperature(
+        incumbent_temperature=incumbent_temperature,
+        skin_temperature=anchor_trajectory,
+        land_weight=jnp.ones_like(land_fraction),
+        forecast_time=forecast_time,
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+        physics_specs=physics_specs,
+    )
+    ocean_correction = ocean_fraction[jnp.newaxis] * (
+        fully_ocean_observed_temperature - incumbent_temperature
+    )
+    combined_temperature = land_observed_temperature + ocean_correction
+    use_ocean_correction = (
+        valid_land_fraction[jnp.newaxis]
+        & valid_anchor[jnp.newaxis]
+        & (ocean_fraction[jnp.newaxis] > 0.0)
+        & jnp.isfinite(ocean_correction)
+        & jnp.isfinite(combined_temperature)
+        & (fully_ocean_observed_temperature != incumbent_temperature)
+    )
+    return jnp.where(
+        use_ocean_correction,
+        combined_temperature,
+        land_observed_temperature,
+    )
 
 
 @dataclass(frozen=True)

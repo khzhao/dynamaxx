@@ -321,6 +321,15 @@ def dino_lateskin_skri_a2si_model() -> DycoreModel:
     return analysis_2m_initialized_land_skin_dinosaur_dycore_model()
 
 
+def dino_lateskin_skri_a2si_ori_model() -> DycoreModel:
+    """Return the incumbent with an ocean-anchor RI2m output endpoint."""
+    from dynamaxx.dycore.models.dinosaur import (
+        ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model,
+    )
+
+    return ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -425,6 +434,10 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     (
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si"
     ): dino_lateskin_skri_a2si_model,
+    (
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori"
+    ): dino_lateskin_skri_a2si_ori_model,
 }
 
 

@@ -51,6 +51,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY,
     DEFAULT_WEAK_HELD_SUAREZ_KS_TIMESCALE_DAYS,
     DinosaurPrimitiveEquationsDycoreModel,
+    _active_land_skin_weight,
     _analysis_2m_initialized_land_skin,
     _analysis_2m_land_skin_temperature,
     _analysis_offset_weak_held_suarez_equilibrium,
@@ -77,6 +78,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _land_skin_reservoir_local_increments,
     _layer_mean_hydrostatic_temperature_from_geopotential_thickness,
     _nondimensionalize_seconds,
+    _ocean_anchor_ri2m_temperature,
     _ocean_bulk_sensible_heat_flux_temperature_anchor,
     _OceanBulkSensibleHeatFluxForcingSigma,
     _orographic_lift_forecast_time_ramp,
@@ -122,6 +124,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
     log_pressure_initialization_dinosaur_dycore_model,
     midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
+    ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model,
     ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
     orographic_lift_lower_column_wind_dinosaur_dycore_model,
     orographic_lift_theta_dinosaur_dycore_model,
@@ -926,6 +929,31 @@ def test_analysis_2m_land_skin_factory_preserves_exact_incumbent():
     )
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_analysis_2m_initialized_land_skin"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_ocean_anchor_ri2m_factory_preserves_exact_incumbent():
+    """The ocean observer changes only its name and default-false selector."""
+    model = ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model()
+    incumbent = analysis_2m_initialized_land_skin_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori"
+    )
+    assert model.use_ocean_anchor_ri2m_lower_boundary
+    assert not incumbent.use_ocean_anchor_ri2m_lower_boundary
+    assert (
+        replace(
+            model,
+            name=incumbent.name,
+            use_ocean_anchor_ri2m_lower_boundary=False,
+        )
+        == incumbent
+    )
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {"name", "use_ocean_anchor_ri2m_lower_boundary"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -3168,6 +3196,238 @@ def test_prognostic_skin_ri2m_unavailable_inputs_are_exact_incumbent():
     np.testing.assert_array_equal(unsupported, incumbent)
 
 
+def _ocean_anchor_ri2m_case() -> tuple[jax.Array, jax.Array, dict[str, Any]]:
+    sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.10, 0.35, 0.70, 1.0], dtype=np.float32)
+    )
+    time_count = 4
+    point_count = 8
+    layer_temperature = jnp.asarray(
+        [240.0, 262.0, 286.0, 296.0],
+        dtype=jnp.float32,
+    )
+    temperature = jnp.broadcast_to(
+        layer_temperature[jnp.newaxis, :, jnp.newaxis, jnp.newaxis],
+        (time_count, sigma_coords.layers, 1, point_count),
+    )
+    u_wind = jnp.broadcast_to(
+        jnp.asarray([12.0, 8.0, 5.0, 7.0], dtype=jnp.float32)[
+            jnp.newaxis, :, jnp.newaxis, jnp.newaxis
+        ],
+        temperature.shape,
+    )
+    v_wind = jnp.broadcast_to(
+        jnp.asarray([-4.0, 2.0, 1.0, 3.0], dtype=jnp.float32)[
+            jnp.newaxis, :, jnp.newaxis, jnp.newaxis
+        ],
+        temperature.shape,
+    )
+    surface_pressure_hpa = jnp.full(
+        (time_count, 1, point_count),
+        1000.0,
+        dtype=jnp.float32,
+    )
+    incumbent_temperature = _bulk_richardson_2m_temperature(
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+        use_pressure_thickness_weighted_ri2m_temperature=True,
+    )
+    physics_specs = units.SimUnits.from_si()
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    forecast_time = jnp.asarray([0.0, 120.0, 180.0, 240.0], dtype=jnp.float32) * hour
+    land_weight = jnp.asarray(
+        [[0.0, 0.25, 0.005, 1.0, 0.5, 0.5, 0.5, 0.5]],
+        dtype=jnp.float32,
+    )
+    skin_temperature = jnp.full_like(incumbent_temperature, 278.0)
+    land_observed_temperature = _prognostic_skin_ri2m_temperature(
+        incumbent_temperature=incumbent_temperature,
+        skin_temperature=skin_temperature,
+        land_weight=land_weight,
+        forecast_time=forecast_time,
+        temperature=temperature,
+        u_wind=u_wind,
+        v_wind=v_wind,
+        surface_pressure_hpa=surface_pressure_hpa,
+        sigma_coords=sigma_coords,
+        physics_specs=physics_specs,
+    )
+    common_kwargs = {
+        "ocean_temperature_anchor": jnp.full((1, point_count), 274.0),
+        "land_weight": land_weight,
+        "forecast_time": forecast_time,
+        "temperature": temperature,
+        "u_wind": u_wind,
+        "v_wind": v_wind,
+        "surface_pressure_hpa": surface_pressure_hpa,
+        "sigma_coords": sigma_coords,
+        "physics_specs": physics_specs,
+    }
+    return incumbent_temperature, land_observed_temperature, common_kwargs
+
+
+def test_ocean_anchor_ri2m_uses_complementary_bounded_weights():
+    """Ocean RI2m is late, bounded, and complementary to the land observer."""
+    incumbent, land_observed, common_kwargs = _ocean_anchor_ri2m_case()
+
+    candidate = _ocean_anchor_ri2m_temperature(
+        incumbent_temperature=incumbent,
+        land_observed_temperature=land_observed,
+        **common_kwargs,
+    )
+    anchor_trajectory = jnp.broadcast_to(
+        common_kwargs["ocean_temperature_anchor"][jnp.newaxis],
+        incumbent.shape,
+    )
+    fully_ocean_observed = _prognostic_skin_ri2m_temperature(
+        incumbent_temperature=incumbent,
+        skin_temperature=anchor_trajectory,
+        land_weight=jnp.ones_like(common_kwargs["land_weight"]),
+        forecast_time=common_kwargs["forecast_time"],
+        temperature=common_kwargs["temperature"],
+        u_wind=common_kwargs["u_wind"],
+        v_wind=common_kwargs["v_wind"],
+        surface_pressure_hpa=common_kwargs["surface_pressure_hpa"],
+        sigma_coords=common_kwargs["sigma_coords"],
+        physics_specs=common_kwargs["physics_specs"],
+    )
+    ocean_weight = 1.0 - common_kwargs["land_weight"]
+    expected = land_observed + ocean_weight[jnp.newaxis] * (
+        fully_ocean_observed - incumbent
+    )
+
+    np.testing.assert_array_equal(candidate[:2], land_observed[:2])
+    np.testing.assert_array_equal(candidate[:, :, 3], land_observed[:, :, 3])
+    np.testing.assert_allclose(candidate, expected, rtol=0.0, atol=1.0e-6)
+    assert not bool(jnp.array_equal(candidate[-1, :, :3], land_observed[-1, :, :3]))
+
+    land_observer_weight = _active_land_skin_weight(common_kwargs["land_weight"])
+    assert bool(jnp.all(land_observer_weight + ocean_weight <= 1.0))
+    np.testing.assert_allclose(
+        land_observer_weight[:, [0, 1, 3]] + ocean_weight[:, [0, 1, 3]],
+        1.0,
+        rtol=0.0,
+        atol=0.0,
+    )
+    lower_references = _pressure_thickness_weighted_ri2m_reference_states(
+        temperature=common_kwargs["temperature"],
+        u_wind=common_kwargs["u_wind"],
+        v_wind=common_kwargs["v_wind"],
+        sigma_coords=common_kwargs["sigma_coords"],
+    )
+    assert lower_references is not None
+    ocean_departure = fully_ocean_observed[-1] - lower_references.lower_temperature[-1]
+    assert bool(
+        jnp.all(
+            jnp.abs(ocean_departure)
+            <= _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN + 1.0e-6
+        )
+    )
+
+
+def test_ocean_anchor_ri2m_falls_back_per_cell_for_invalid_dependencies():
+    """Invalid anchor, mask, pressure, clock, or references preserve incumbent output."""
+    incumbent, land_observed, common_kwargs = _ocean_anchor_ri2m_case()
+    common_kwargs["ocean_temperature_anchor"] = (
+        common_kwargs["ocean_temperature_anchor"]
+        .at[0, 1]
+        .set(jnp.nan)
+        .at[0, 2]
+        .set(0.0)
+    )
+    common_kwargs["land_weight"] = (
+        common_kwargs["land_weight"].at[0, 3].set(jnp.nan).at[0, 4].set(1.1)
+    )
+    common_kwargs["surface_pressure_hpa"] = (
+        common_kwargs["surface_pressure_hpa"]
+        .at[:, 0, 5]
+        .set(-1.0)
+        .at[:, 0, 7]
+        .set(jnp.nan)
+    )
+    common_kwargs["temperature"] = (
+        common_kwargs["temperature"].at[:, :, 0, 6].set(jnp.nan)
+    )
+    common_kwargs["forecast_time"] = common_kwargs["forecast_time"].at[2].set(jnp.nan)
+
+    candidate = _ocean_anchor_ri2m_temperature(
+        incumbent_temperature=incumbent,
+        land_observed_temperature=land_observed,
+        **common_kwargs,
+    )
+
+    np.testing.assert_array_equal(candidate[2], land_observed[2])
+    np.testing.assert_array_equal(
+        candidate[:, :, 1:],
+        land_observed[:, :, 1:],
+    )
+    assert not bool(jnp.array_equal(candidate[-1, :, 0], land_observed[-1, :, 0]))
+    assert bool(jnp.isfinite(candidate).all())
+
+
+@pytest.mark.parametrize(
+    "missing_name",
+    (
+        "ocean_temperature_anchor",
+        "land_weight",
+        "forecast_time",
+        "surface_pressure_hpa",
+    ),
+)
+def test_ocean_anchor_ri2m_missing_dependencies_are_exact_incumbent(missing_name):
+    """A missing candidate dependency cannot change the accepted land output."""
+    incumbent, land_observed, common_kwargs = _ocean_anchor_ri2m_case()
+    common_kwargs[missing_name] = None
+
+    candidate = _ocean_anchor_ri2m_temperature(
+        incumbent_temperature=incumbent,
+        land_observed_temperature=land_observed,
+        **common_kwargs,
+    )
+
+    np.testing.assert_array_equal(candidate, land_observed)
+
+
+def test_ocean_anchor_ri2m_shape_and_geometry_fallbacks_are_exact():
+    """Incompatible arrays or unsupported vertical geometry preserve land output."""
+    incumbent, land_observed, common_kwargs = _ocean_anchor_ri2m_case()
+    incompatible_values = {
+        "ocean_temperature_anchor": jnp.ones((1, 7), dtype=jnp.float32),
+        "land_weight": jnp.ones((1, 7), dtype=jnp.float32),
+        "forecast_time": jnp.ones((3,), dtype=jnp.float32),
+        "surface_pressure_hpa": jnp.ones((4, 1, 7), dtype=jnp.float32),
+    }
+    for field_name, incompatible_value in incompatible_values.items():
+        candidate_kwargs = dict(common_kwargs)
+        candidate_kwargs[field_name] = incompatible_value
+        candidate = _ocean_anchor_ri2m_temperature(
+            incumbent_temperature=incumbent,
+            land_observed_temperature=land_observed,
+            **candidate_kwargs,
+        )
+        np.testing.assert_array_equal(candidate, land_observed)
+
+    shallow_sigma_coords = sigma_coordinates.SigmaCoordinates(
+        np.asarray([0.0, 0.25, 0.65, 1.0], dtype=np.float32)
+    )
+    shallow_kwargs = dict(common_kwargs)
+    shallow_kwargs.update(
+        sigma_coords=shallow_sigma_coords,
+        temperature=common_kwargs["temperature"][:, :3],
+        u_wind=common_kwargs["u_wind"][:, :3],
+        v_wind=common_kwargs["v_wind"][:, :3],
+    )
+    shallow_candidate = _ocean_anchor_ri2m_temperature(
+        incumbent_temperature=incumbent,
+        land_observed_temperature=land_observed,
+        **shallow_kwargs,
+    )
+    np.testing.assert_array_equal(shallow_candidate, land_observed)
+
+
 def test_dinosaur_forecast_handles_multiple_initial_times():
     """Dinosaur forecasts preserve the initialization-time axis."""
     model = DinosaurPrimitiveEquationsDycoreModel(
@@ -3188,11 +3448,11 @@ def test_dinosaur_forecast_handles_multiple_initial_times():
 def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_count(
     monkeypatch,
 ):
-    """The candidate emits the incumbent WeatherState using one trajectory per init."""
+    """Analysis and ocean descendants keep one trajectory per initialization."""
     real_trajectory_from_step = time_integration.trajectory_from_step
     real_analysis_extraction = _analysis_2m_land_skin_temperature
     active_model = {"name": "incumbent"}
-    trajectory_counts = {"incumbent": 0, "candidate": 0}
+    trajectory_counts = {"incumbent": 0, "candidate": 0, "ocean_candidate": 0}
     extracted_temperatures = []
 
     def counting_trajectory_from_step(*args, **kwargs):
@@ -3274,6 +3534,10 @@ def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_cou
         analysis_2m_initialized_land_skin_dinosaur_dycore_model(),
         **runtime_overrides,
     )
+    ocean_candidate = replace(
+        ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model(),
+        **runtime_overrides,
+    )
     initial_state = _structured_initial_state(init_count=2)
     temperature_index = int(initial_state.variable_indices(("2m_temperature",))[0])
     initial_state = WeatherState(
@@ -3286,6 +3550,8 @@ def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_cou
     incumbent_forecast = incumbent.forecast(forecast_input)
     active_model["name"] = "candidate"
     candidate_forecast = candidate.forecast(forecast_input)
+    active_model["name"] = "ocean_candidate"
+    ocean_candidate_forecast = ocean_candidate.forecast(forecast_input)
 
     assert isinstance(candidate_forecast, WeatherState)
     assert (
@@ -3303,9 +3569,17 @@ def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_cou
         )
     )
     np.testing.assert_array_equal(candidate_forecast.values, incumbent_forecast.values)
+    np.testing.assert_array_equal(
+        ocean_candidate_forecast.values,
+        candidate_forecast.values,
+    )
     np.testing.assert_array_equal(forecast_input.initial_state.values, initial_values)
-    assert trajectory_counts == {"incumbent": 2, "candidate": 2}
-    assert len(extracted_temperatures) == 2
+    assert trajectory_counts == {
+        "incumbent": 2,
+        "candidate": 2,
+        "ocean_candidate": 2,
+    }
+    assert len(extracted_temperatures) == 4
     assert all(temperature.shape == (4, 3) for temperature in extracted_temperatures)
     np.testing.assert_array_equal(
         extracted_temperatures[1] - extracted_temperatures[0],
@@ -3315,7 +3589,14 @@ def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_cou
             dtype=jnp.float32,
         ),
     )
+    np.testing.assert_array_equal(
+        extracted_temperatures[2:],
+        extracted_temperatures[:2],
+    )
     assert all("skin" not in variable for variable in candidate_forecast.variables)
+    assert all(
+        "anchor" not in variable for variable in ocean_candidate_forecast.variables
+    )
 
 
 def test_weather_state_to_dinosaur_state_regrids_pressure_levels_to_sigma():
@@ -4446,6 +4727,145 @@ def test_prognostic_skin_ri2m_packing_changes_only_late_t2m():
     candidate_t2m = candidate.select(("2m_temperature",)).values[:, 0]
     np.testing.assert_array_equal(candidate_t2m[0], incumbent_t2m[0])
     assert not bool(jnp.array_equal(candidate_t2m[1], incumbent_t2m[1]))
+
+
+def test_ocean_anchor_ri2m_packing_preserves_early_land_and_non_t2m_output():
+    """Ocean-anchor packing changes only late ocean and coastal T2m."""
+    forecast_input = _forecast_input(
+        _structured_initial_state(init_count=1),
+        lead_steps=(0,),
+    )
+    pressure_levels_hpa = (500,)
+    grid = grid_metadata(
+        longitude=forecast_input.longitude,
+        latitude=forecast_input.latitude,
+        layer_count=4,
+        spectral_wavenumbers=None,
+    )
+    physics_specs = units.SimUnits.from_si()
+    reference_temperature = _reference_temperature(
+        layer_count=4,
+        temperature_kelvin=250.0,
+    )
+    longitude, sin_latitude = grid.coords.horizontal.nodal_mesh
+    spatial_pattern = jnp.cos(longitude) * (1.0 - sin_latitude**2)
+    temperature = jnp.stack(
+        [
+            240.0 + spatial_pattern,
+            262.0 + spatial_pattern,
+            286.0 + spatial_pattern,
+            296.0 + spatial_pattern,
+        ],
+        axis=0,
+    )
+    u_wind = jnp.stack(
+        [
+            12.0 + spatial_pattern,
+            8.0 + spatial_pattern,
+            5.0 + spatial_pattern,
+            7.0 + spatial_pattern,
+        ],
+        axis=0,
+    )
+    v_wind = jnp.stack(
+        [
+            -4.0 + spatial_pattern,
+            2.0 + spatial_pattern,
+            1.0 + spatial_pattern,
+            3.0 + spatial_pattern,
+        ],
+        axis=0,
+    )
+    vorticity, divergence = spherical_harmonic.uv_nodal_to_vor_div_modal(
+        grid.coords.horizontal,
+        u_wind,
+        v_wind,
+    )
+    pressure_factor = _unit_factor(physics_specs, "pascal")
+    surface_pressure = jnp.full_like(spatial_pattern, 100_000.0) * pressure_factor
+    state = _primitive_equation_state(
+        vorticity=vorticity,
+        divergence=divergence,
+        temperature_variation=grid.coords.horizontal.to_modal(
+            temperature - reference_temperature[:, np.newaxis, np.newaxis]
+        ),
+        log_surface_pressure=grid.coords.horizontal.to_modal(jnp.log(surface_pressure))[
+            jnp.newaxis
+        ],
+        tracers={},
+        sim_time=jnp.asarray(0.0, dtype=jnp.float32),
+    )
+    trajectory = jax.tree_util.tree_map(
+        lambda value: jnp.stack([value, value, value]),
+        state,
+    )
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    trajectory = replace(
+        trajectory,
+        sim_time=jnp.asarray([0.0, 120.0, 240.0], dtype=jnp.float32) * hour,
+    )
+    output_variables = (
+        "temperature_500",
+        "u_component_of_wind_500",
+        "v_component_of_wind_500",
+        "geopotential_500",
+        "surface_pressure",
+        "mean_sea_level_pressure",
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+    )
+    land_weight = jnp.zeros(
+        grid.coords.horizontal.nodal_shape,
+        dtype=jnp.float32,
+    )
+    land_weight = land_weight.at[0].set(1.0).at[1].set(0.25)
+    common_kwargs = {
+        "trajectory": trajectory,
+        "coords": grid.coords,
+        "pressure_levels_hpa": pressure_levels_hpa,
+        "latitude_reversed": grid.latitude_reversed,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "output_variables": output_variables,
+        "use_surface_layer_richardson_10m_wind_diagnostic": True,
+        "use_bulk_richardson_2m_temperature_diagnostic": True,
+        "use_pressure_thickness_weighted_ri2m_temperature": True,
+        "use_prognostic_skin_ri2m_lower_boundary": True,
+        "prognostic_skin_temperature": jnp.full(
+            (3, *grid.coords.horizontal.nodal_shape),
+            278.0 * _unit_factor(physics_specs, "kelvin"),
+            dtype=jnp.float32,
+        ),
+        "land_weight": land_weight,
+    }
+
+    incumbent = dinosaur_state_to_weather_state(**common_kwargs)
+    candidate = dinosaur_state_to_weather_state(
+        **common_kwargs,
+        use_ocean_anchor_ri2m_lower_boundary=True,
+        ocean_temperature_anchor=jnp.full(
+            grid.coords.horizontal.nodal_shape,
+            274.0 * _unit_factor(physics_specs, "kelvin"),
+            dtype=jnp.float32,
+        ),
+    )
+
+    assert candidate.variables == incumbent.variables == output_variables
+    assert candidate.values.shape == incumbent.values.shape
+    assert all("anchor" not in variable for variable in candidate.variables)
+    np.testing.assert_array_equal(candidate.values[:2], incumbent.values[:2])
+    unchanged_variables = tuple(
+        variable for variable in output_variables if variable != "2m_temperature"
+    )
+    np.testing.assert_array_equal(
+        candidate.select(unchanged_variables).values,
+        incumbent.select(unchanged_variables).values,
+    )
+    incumbent_t2m = incumbent.select(("2m_temperature",)).values[:, 0]
+    candidate_t2m = candidate.select(("2m_temperature",)).values[:, 0]
+    np.testing.assert_array_equal(candidate_t2m[:, 0], incumbent_t2m[:, 0])
+    assert not bool(jnp.array_equal(candidate_t2m[-1, 1:], incumbent_t2m[-1, 1:]))
 
 
 def test_bulk_richardson_2m_temperature_keeps_residual_lead_zero_exact():
@@ -6242,6 +6662,102 @@ def test_prognostic_skin_ri2m_retention_preserves_rollout_and_skin_carry(
     np.testing.assert_array_equal(candidate_skin_trajectory[0][0], initial_skin[0])
     np.testing.assert_array_equal(candidate_skin_trajectory[1][0], initial_skin[1])
     assert "skin" not in candidate_trajectory.tracers
+
+
+def test_ocean_anchor_selector_preserves_atmospheric_and_skin_trajectories(
+    monkeypatch,
+):
+    """The output-only ocean selector cannot alter atmospheric or skin rollout."""
+    coords, physics_specs, initial_state, _ = _synthetic_ekman_coupled_state(
+        wind_scale=1.0
+    )
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    initial_state = replace(
+        initial_state,
+        sim_time=jnp.asarray(240.0 * hour, dtype=jnp.float32),
+    )
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    land_weight = jnp.full(
+        coords.horizontal.nodal_shape,
+        0.5,
+        dtype=jnp.float32,
+    )
+    ocean_weight = 1.0 - land_weight
+    initial_skin = _land_skin_reservoir_initial_skin(
+        initial_state,
+        coords=coords,
+        reference_temperature=reference_temperature,
+    )
+    analyzed_temperature = initial_skin[0] + 2.0
+    ocean_temperature_anchor = initial_skin[0] - 2.0
+    incumbent = DinosaurPrimitiveEquationsDycoreModel(
+        include_vertical_advection=False,
+        apply_spectral_filter=False,
+        apply_ocean_bulk_sensible_heat_flux=True,
+        apply_land_skin_reservoir=True,
+        use_analysis_2m_initialized_land_skin=True,
+        use_prognostic_skin_ri2m_lower_boundary=True,
+        jit_forecast=False,
+    )
+    candidate = replace(
+        incumbent,
+        use_ocean_anchor_ri2m_lower_boundary=True,
+    )
+
+    def deterministic_solver(equation, *, time_step):
+        del equation
+
+        def advance_sim_time(state):
+            return replace(state, sim_time=state.sim_time + time_step)
+
+        return advance_sim_time
+
+    monkeypatch.setattr(
+        DinosaurPrimitiveEquationsDycoreModel,
+        "_ode_solver",
+        lambda self: deterministic_solver,
+    )
+    trajectory_kwargs = {
+        "coords": coords,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "inner_steps": 1,
+        "output_count": 2,
+        "use_humidity_in_dynamics": False,
+        "ocean_bulk_shf_ocean_weight": ocean_weight,
+        "land_skin_reservoir_land_weight": land_weight,
+    }
+
+    incumbent_final, incumbent_output = incumbent._trajectory_function(
+        **trajectory_kwargs
+    )(
+        initial_state,
+        ocean_temperature_anchor,
+        analyzed_temperature,
+    )
+    candidate_final, candidate_output = candidate._trajectory_function(
+        **trajectory_kwargs
+    )(
+        initial_state,
+        ocean_temperature_anchor,
+        analyzed_temperature,
+    )
+
+    for incumbent_leaf, candidate_leaf in zip(
+        jax.tree_util.tree_leaves(incumbent_final),
+        jax.tree_util.tree_leaves(candidate_final),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(candidate_leaf, incumbent_leaf)
+    for incumbent_leaf, candidate_leaf in zip(
+        jax.tree_util.tree_leaves(incumbent_output),
+        jax.tree_util.tree_leaves(candidate_output),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(candidate_leaf, incumbent_leaf)
 
 
 def test_analysis_2m_land_skin_initializes_after_dfi_with_per_cell_fallback(

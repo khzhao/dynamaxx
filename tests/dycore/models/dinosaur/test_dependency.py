@@ -169,6 +169,10 @@ assert dinosaur.analysis_2m_initialized_land_skin_dinosaur_dycore_model().name =
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
     "pthick_ri2m_lateskin_skri_a2si"
 )
+assert dinosaur.ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model().name == (
+    "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+    "pthick_ri2m_lateskin_skri_a2si_ori"
+)
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -281,6 +285,8 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori",
     )
 
     model = create_dycore_model("dinosaur")
@@ -998,6 +1004,24 @@ def test_dinosaur_analysis_2m_land_skin_model_is_registered():
     assert not incumbent.use_analysis_2m_initialized_land_skin
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_analysis_2m_initialized_land_skin"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_dinosaur_ocean_anchor_ri2m_model_is_registered():
+    """The ocean observer is a side-by-side descendant of the incumbent."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori"
+    )
+    incumbent = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si"
+    )
+
+    assert model.use_ocean_anchor_ri2m_lower_boundary
+    assert not incumbent.use_ocean_anchor_ri2m_lower_boundary
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "use_ocean_anchor_ri2m_lower_boundary"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
