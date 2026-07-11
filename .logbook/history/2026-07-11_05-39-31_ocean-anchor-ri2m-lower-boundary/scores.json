@@ -1,0 +1,484 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "ocean-anchor-ri2m-lower-boundary",
+  "candidate_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori",
+  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si",
+  "scoring_head": "6f4a63731b2dd7598ef9a6c3c085365ceed7aea9",
+  "completed_at": "2026-07-11T10:45:34.884Z",
+  "candidate_patch_sha256": "3fedb24a90283f166c29ce487ea4d82f65f58195c75a17f0a441425dbb6a20e3",
+  "evaluation_fingerprint": {
+    "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
+    "eval_code_commit": "603f44a9b052557bd3bf3a16a9dcd9c05f343449",
+    "protocols": [
+      "fast",
+      "iteration",
+      "validation"
+    ],
+    "target_variables": [
+      "2m_temperature",
+      "mean_sea_level_pressure",
+      "geopotential_500",
+      "10m_u_component_of_wind"
+    ],
+    "lead_days": "1..15"
+  },
+  "commands": [
+    {
+      "command": "uv run pytest",
+      "exit_status": 0,
+      "started_at": null,
+      "finished_at": null,
+      "notes": "Verified from exact-patch evidence supplied by the Orchestrator and Implementer; the Scorer did not rerun pytest. Focused Orchestrator evidence: 13 passed and 273 deselected. Implementer evidence: full suite 352 passed and 2 skipped; related subset 33 passed; dependency/registry subset 73 passed; Ruff and git diff check passed."
+    },
+    {
+      "command": "uv run dynamaxx-eval fast --model dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori",
+      "exit_status": 0,
+      "started_at": "2026-07-11T06:19:48.667Z",
+      "finished_at": "2026-07-11T06:26:39.272Z",
+      "notes": "Candidate only; fixed command used one worker; 1 of 1 fresh chunk completed without retry."
+    },
+    {
+      "command": "uv run dynamaxx-eval iteration --model dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-07-11T06:26:46.424Z",
+      "finished_at": "2026-07-11T09:59:04.870Z",
+      "notes": "Candidate only; four effective GPU workers; 229 of 229 fresh chunks completed without retry."
+    },
+    {
+      "command": "uv run dynamaxx-eval validation --model dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori --workers 4",
+      "exit_status": 0,
+      "started_at": "2026-07-11T09:59:10.861Z",
+      "finished_at": "2026-07-11T10:45:34.884Z",
+      "notes": "Candidate only; single permitted validation run; four effective GPU workers; 46 of 46 fresh chunks completed without retry."
+    }
+  ],
+  "execution_counts": {
+    "candidate_fast_commands": 1,
+    "candidate_iteration_commands": 1,
+    "candidate_validation_commands": 1,
+    "incumbent_iteration_commands": 0,
+    "incumbent_validation_commands": 0,
+    "total_incumbent_commands": 0,
+    "golden_commands": 0
+  },
+  "artifacts": {
+    "candidate_fast_json": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+    "candidate_fast_csv": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.csv",
+    "candidate_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+    "candidate_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.csv",
+    "candidate_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+    "candidate_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.csv",
+    "incumbent_iteration_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+    "incumbent_iteration_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+    "incumbent_validation_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+    "incumbent_validation_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv"
+  },
+  "artifact_hashes": {
+    "candidate_fast_json_sha256": "a211bda5bfe7709736a25166d0b0eb30ca8db235759be05350aa9aa3559c2e67",
+    "candidate_fast_csv_sha256": "f3754947a2c963f034e178c58503f2269386b5a2ffed4b968600e5a9d9af0fe6",
+    "candidate_iteration_json_sha256": "6e6f1844ac6e6bbe5fcc067c61483b6f51393155b7cefaf9543f8bbf173c6a49",
+    "candidate_iteration_csv_sha256": "7437b08470d110f579539a57ac628f853ada64c5bfdd9617e1d8fcf04ea451dd",
+    "candidate_validation_json_sha256": "920b91240fe66eec975d4b60abcc4bfa79e7efa1620c59e49d38de2ab4cbabe9",
+    "candidate_validation_csv_sha256": "0e3a0e7e45c344981af31d61aae9ce9a82e618502cc827f5f43e95a5f6e01dbf",
+    "incumbent_iteration_json_sha256": "11f3ba30500d46991a97dcff649d28476d33d1bb76b35739cba35bcd177a11a9",
+    "incumbent_iteration_csv_sha256": "b10cb3ba768ff9584bac7eb093069058dedf3c74dc780c32f188d9fa30d99e47",
+    "incumbent_validation_json_sha256": "f79511b3011a42fac75815b6e437eb54e976d9e0877c84e2dc43e581631858c7",
+    "incumbent_validation_csv_sha256": "66ba46c75cc706e008b2dcb6ccc258b24094872635382d0238fe2e9ae59991a7"
+  },
+  "primary_scores": {
+    "candidate_fast": -0.08508207852031233,
+    "candidate_iteration": -0.08429962366251152,
+    "candidate_validation": -0.08458916260281377,
+    "incumbent_iteration": -0.08966691030501653,
+    "incumbent_validation": -0.09015390068642175,
+    "iteration_delta": 0.005367286642505006,
+    "validation_delta": 0.005564738083607981,
+    "iteration_threshold": 0.002,
+    "iteration_margin_above_threshold": 0.003367286642505006,
+    "validation_threshold": 0.001,
+    "validation_margin_above_threshold": 0.004564738083607981
+  },
+  "diagnostics": {
+    "candidate_failed": false,
+    "candidate_issue_count": 0,
+    "incumbent_failed": false,
+    "incumbent_issue_count": 0,
+    "by_protocol": {
+      "fast": {
+        "candidate_failed": false,
+        "candidate_issue_count": 0,
+        "candidate_record_count": 120,
+        "candidate_exact_model_record_count": 60,
+        "candidate_persistence_record_count": 60,
+        "candidate_guardrail_pair_count": 60,
+        "all_candidate_numeric_metrics_finite": true
+      },
+      "iteration": {
+        "candidate_failed": false,
+        "candidate_issue_count": 0,
+        "candidate_record_count": 120,
+        "candidate_exact_model_record_count": 60,
+        "candidate_persistence_record_count": 60,
+        "candidate_guardrail_pair_count": 60,
+        "all_candidate_numeric_metrics_finite": true,
+        "incumbent_failed": false,
+        "incumbent_issue_count": 0,
+        "incumbent_record_count": 120,
+        "incumbent_exact_model_record_count": 60,
+        "incumbent_persistence_record_count": 60,
+        "incumbent_guardrail_pair_count": 60
+      },
+      "validation": {
+        "candidate_failed": false,
+        "candidate_issue_count": 0,
+        "candidate_record_count": 120,
+        "candidate_exact_model_record_count": 60,
+        "candidate_persistence_record_count": 60,
+        "candidate_guardrail_pair_count": 60,
+        "all_candidate_numeric_metrics_finite": true,
+        "incumbent_failed": false,
+        "incumbent_issue_count": 0,
+        "incumbent_record_count": 120,
+        "incumbent_exact_model_record_count": 60,
+        "incumbent_persistence_record_count": 60,
+        "incumbent_guardrail_pair_count": 60
+      }
+    }
+  },
+  "cache_reuse": {
+    "leaderboard_path": ".logbook/leaderboard.json",
+    "leaderboard_incumbent_commit": "603f44a9b052557bd3bf3a16a9dcd9c05f343449",
+    "iteration": {
+      "reused": true,
+      "recomputed": false,
+      "incumbent_command_run": false,
+      "json_path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "csv_path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+      "json_sha256": "11f3ba30500d46991a97dcff649d28476d33d1bb76b35739cba35bcd177a11a9",
+      "csv_sha256": "b10cb3ba768ff9584bac7eb093069058dedf3c74dc780c32f188d9fa30d99e47",
+      "checks": {
+        "requested_model_matches_leaderboard_incumbent": true,
+        "leaderboard_commit_matches_accepted_source": true,
+        "data_path_matches": true,
+        "protocol_in_fingerprint": true,
+        "target_variables_match": true,
+        "lead_days_match": true,
+        "evaluation_code_compatible": true,
+        "json_exists": true,
+        "csv_exists": true,
+        "json_readable": true,
+        "csv_readable": true,
+        "finite_primary_score": true,
+        "primary_score_matches_leaderboard_exactly": true,
+        "json_record_count": 120,
+        "csv_record_count": 120,
+        "exact_incumbent_records": 60,
+        "persistence_records": 60,
+        "json_unique_guardrail_pairs_per_model": 60,
+        "csv_unique_guardrail_pairs_per_model": 60,
+        "guardrail_keys_complete": true,
+        "all_guardrail_rmse_finite": true,
+        "artifact_hashes_match_accepted_history": true,
+        "diagnostics_failed": false,
+        "diagnostic_issue_count": 0
+      },
+      "reason": "The authoritative leaderboard artifact passed every cache-validity check. HEAD differs from the incumbent source commit only by accepted logbook and leaderboard artifacts, fixed evaluation code is unchanged, and the frozen candidate source/registry/test edits do not invalidate the cache."
+    },
+    "validation": {
+      "reused": true,
+      "recomputed": false,
+      "incumbent_command_run": false,
+      "json_path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "csv_path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.csv",
+      "json_sha256": "f79511b3011a42fac75815b6e437eb54e976d9e0877c84e2dc43e581631858c7",
+      "csv_sha256": "66ba46c75cc706e008b2dcb6ccc258b24094872635382d0238fe2e9ae59991a7",
+      "checks": {
+        "requested_model_matches_leaderboard_incumbent": true,
+        "leaderboard_commit_matches_accepted_source": true,
+        "data_path_matches": true,
+        "protocol_in_fingerprint": true,
+        "target_variables_match": true,
+        "lead_days_match": true,
+        "evaluation_code_compatible": true,
+        "json_exists": true,
+        "csv_exists": true,
+        "json_readable": true,
+        "csv_readable": true,
+        "finite_primary_score": true,
+        "primary_score_matches_leaderboard_exactly": true,
+        "json_record_count": 120,
+        "csv_record_count": 120,
+        "exact_incumbent_records": 60,
+        "persistence_records": 60,
+        "json_unique_guardrail_pairs_per_model": 60,
+        "csv_unique_guardrail_pairs_per_model": 60,
+        "guardrail_keys_complete": true,
+        "all_guardrail_rmse_finite": true,
+        "artifact_hashes_match_accepted_history": true,
+        "diagnostics_failed": false,
+        "diagnostic_issue_count": 0
+      },
+      "reason": "The authoritative leaderboard artifact passed every cache-validity check. HEAD differs from the incumbent source commit only by accepted logbook and leaderboard artifacts, fixed evaluation code is unchanged, and the frozen candidate source/registry/test edits do not invalidate the cache."
+    }
+  },
+  "gate_status": {
+    "tests_passed": true,
+    "fast_passed": true,
+    "iteration_promotes_to_validation": true,
+    "validation_acceptance_gate_passed": true,
+    "validation_run_count": 1,
+    "golden_run": false
+  },
+  "regressions": {
+    "mean_rmse_regression_by_variable_leads_1_to_5_days": [
+      {
+        "protocol": "iteration",
+        "variable": "2m_temperature",
+        "candidate_mean_rmse": 4.46210474736082,
+        "incumbent_mean_rmse": 4.462104892072657,
+        "absolute_change": -1.4471183629183315e-7,
+        "relative_regression": -3.2431294151988034e-8,
+        "relative_regression_percent": -3.2431294151988033e-6,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "iteration",
+        "variable": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 651.8563774120016,
+        "incumbent_mean_rmse": 651.8563388558034,
+        "absolute_change": 3.8556198205697e-5,
+        "relative_regression": 5.914830601076042e-8,
+        "relative_regression_percent": 5.9148306010760424e-6,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "iteration",
+        "variable": "geopotential_500",
+        "candidate_mean_rmse": 560.6278186801441,
+        "incumbent_mean_rmse": 560.628089529327,
+        "absolute_change": -0.00027084918292530347,
+        "relative_regression": -4.831173963343396e-7,
+        "relative_regression_percent": -4.831173963343396e-5,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "iteration",
+        "variable": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 3.8618505231548577,
+        "incumbent_mean_rmse": 3.861851763905954,
+        "absolute_change": -1.240751096531767e-6,
+        "relative_regression": -3.2128397783887136e-7,
+        "relative_regression_percent": -3.2128397783887136e-5,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "2m_temperature",
+        "candidate_mean_rmse": 4.458783573817496,
+        "incumbent_mean_rmse": 4.458783792234554,
+        "absolute_change": -2.1841705777347897e-7,
+        "relative_regression": -4.8985792527970405e-8,
+        "relative_regression_percent": -4.898579252797041e-6,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 639.7770762566176,
+        "incumbent_mean_rmse": 639.7770691285048,
+        "absolute_change": 7.128112883947324e-6,
+        "relative_regression": 1.1141557314108082e-8,
+        "relative_regression_percent": 1.1141557314108081e-6,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "geopotential_500",
+        "candidate_mean_rmse": 553.317497982029,
+        "incumbent_mean_rmse": 553.3175811459055,
+        "absolute_change": -8.316387652484991e-5,
+        "relative_regression": -1.50300441118498e-7,
+        "relative_regression_percent": -1.5030044111849802e-5,
+        "passes_2_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 3.8264208589197772,
+        "incumbent_mean_rmse": 3.8264192627965583,
+        "absolute_change": 1.5961232189276586e-6,
+        "relative_regression": 4.171323394815663e-7,
+        "relative_regression_percent": 4.171323394815663e-5,
+        "passes_2_percent_gate": true
+      }
+    ],
+    "max_rmse_regression_by_variable_and_lead": [
+      {
+        "protocol": "iteration",
+        "variable": "2m_temperature",
+        "lead_hours": 72,
+        "candidate_rmse": 4.7109387713923585,
+        "incumbent_rmse": 4.71093848314508,
+        "absolute_change": 2.8824727849041665e-7,
+        "relative_regression": 6.118680588203716e-8,
+        "relative_regression_percent": 6.118680588203717e-6,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "iteration",
+        "variable": "mean_sea_level_pressure",
+        "lead_hours": 96,
+        "candidate_rmse": 794.8184696168244,
+        "incumbent_rmse": 794.8182626957416,
+        "absolute_change": 0.00020692108273578924,
+        "relative_regression": 2.603376047676438e-7,
+        "relative_regression_percent": 2.603376047676438e-5,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "iteration",
+        "variable": "geopotential_500",
+        "lead_hours": 240,
+        "candidate_rmse": 1029.998154221594,
+        "incumbent_rmse": 1029.9983371912056,
+        "absolute_change": -0.00018296961161468062,
+        "relative_regression": -1.7764068640502545e-7,
+        "relative_regression_percent": -1.7764068640502544e-5,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "iteration",
+        "variable": "10m_u_component_of_wind",
+        "lead_hours": 24,
+        "candidate_rmse": 2.7656696345320113,
+        "incumbent_rmse": 2.7656697980693368,
+        "absolute_change": -1.6353732545937305e-7,
+        "relative_regression": -5.913118246203341e-8,
+        "relative_regression_percent": -5.913118246203341e-6,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "2m_temperature",
+        "lead_hours": 48,
+        "candidate_rmse": 3.742440428038259,
+        "incumbent_rmse": 3.7424400845456085,
+        "absolute_change": 3.43492650323185e-7,
+        "relative_regression": 9.178307269143373e-8,
+        "relative_regression_percent": 9.178307269143373e-6,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "mean_sea_level_pressure",
+        "lead_hours": 144,
+        "candidate_rmse": 881.4054673901254,
+        "incumbent_rmse": 881.4051281902097,
+        "absolute_change": 0.0003391999157429382,
+        "relative_regression": 3.8483996166373323e-7,
+        "relative_regression_percent": 3.8483996166373326e-5,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "geopotential_500",
+        "lead_hours": 240,
+        "candidate_rmse": 1026.9421473347963,
+        "incumbent_rmse": 1026.9415650767046,
+        "absolute_change": 0.0005822580917538289,
+        "relative_regression": 5.669826906951017e-7,
+        "relative_regression_percent": 5.6698269069510174e-5,
+        "passes_10_percent_gate": true
+      },
+      {
+        "protocol": "validation",
+        "variable": "10m_u_component_of_wind",
+        "lead_hours": 264,
+        "candidate_rmse": 4.804437855035027,
+        "incumbent_rmse": 4.8044343853865445,
+        "absolute_change": 3.4696484823015794e-6,
+        "relative_regression": 7.221762655048574e-7,
+        "relative_regression_percent": 7.221762655048573e-5,
+        "passes_10_percent_gate": true
+      }
+    ],
+    "mean_rmse_change_by_variable_leads_6_to_15_days": [
+      {
+        "protocol": "iteration",
+        "variable": "2m_temperature",
+        "candidate_mean_rmse": 6.585097242208891,
+        "incumbent_mean_rmse": 6.700298348364709,
+        "absolute_change": -0.11520110615581736,
+        "relative_change": -0.017193429331983943,
+        "relative_change_percent": -1.7193429331983945
+      },
+      {
+        "protocol": "iteration",
+        "variable": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 933.7505984459228,
+        "incumbent_mean_rmse": 933.7506263673819,
+        "absolute_change": -2.7921459036406304e-5,
+        "relative_change": -2.990247957854721e-8,
+        "relative_change_percent": -2.990247957854721e-6
+      },
+      {
+        "protocol": "iteration",
+        "variable": "geopotential_500",
+        "candidate_mean_rmse": 1023.135729920046,
+        "incumbent_mean_rmse": 1023.1361659163898,
+        "absolute_change": -0.00043599634386737307,
+        "relative_change": -4.2613716374385545e-7,
+        "relative_change_percent": -4.2613716374385546e-5
+      },
+      {
+        "protocol": "iteration",
+        "variable": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 4.840557413217945,
+        "incumbent_mean_rmse": 4.840558511766743,
+        "absolute_change": -1.098548798594834e-6,
+        "relative_change": -2.269467037583391e-7,
+        "relative_change_percent": -2.269467037583391e-5
+      },
+      {
+        "protocol": "validation",
+        "variable": "2m_temperature",
+        "candidate_mean_rmse": 6.553309374512959,
+        "incumbent_mean_rmse": 6.670681850664512,
+        "absolute_change": -0.11737247615155333,
+        "relative_change": -0.017595274183232267,
+        "relative_change_percent": -1.7595274183232266
+      },
+      {
+        "protocol": "validation",
+        "variable": "mean_sea_level_pressure",
+        "candidate_mean_rmse": 912.0667494590414,
+        "incumbent_mean_rmse": 912.0667540513205,
+        "absolute_change": -4.592279083226458e-6,
+        "relative_change": -5.035025191772376e-9,
+        "relative_change_percent": -5.035025191772376e-7
+      },
+      {
+        "protocol": "validation",
+        "variable": "geopotential_500",
+        "candidate_mean_rmse": 1019.9273311949715,
+        "incumbent_mean_rmse": 1019.9271994728506,
+        "absolute_change": 0.0001317221209546915,
+        "relative_change": 1.291485519974093e-7,
+        "relative_change_percent": 1.291485519974093e-5
+      },
+      {
+        "protocol": "validation",
+        "variable": "10m_u_component_of_wind",
+        "candidate_mean_rmse": 4.78512591099941,
+        "incumbent_mean_rmse": 4.78512418061847,
+        "absolute_change": 1.7303809398683256e-6,
+        "relative_change": 3.6161672603545194e-7,
+        "relative_change_percent": 3.6161672603545195e-5
+      }
+    ],
+    "iteration_early_mean_violation_count": 0,
+    "iteration_per_lead_violation_count": 0,
+    "validation_early_mean_violation_count": 0,
+    "validation_per_lead_violation_count": 0
+  }
+}

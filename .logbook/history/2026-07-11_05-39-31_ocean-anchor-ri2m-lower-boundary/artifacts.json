@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "ocean-anchor-ri2m-lower-boundary",
+  "history_path": ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary",
+  "source_artifacts": [
+    {
+      "type": "git_commit",
+      "path": "ea124f2d1b43e8e9e54efcbe0abf05e80f6b8001",
+      "description": "Accepted source/test commit for the ocean-anchor RI2m lower-boundary observer."
+    },
+    {
+      "type": "diff",
+      "path": ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/candidate.diff",
+      "sha256": "3fedb24a90283f166c29ce487ea4d82f65f58195c75a17f0a441425dbb6a20e3",
+      "description": "Exact six-file implementation diff captured before acceptance."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+      "sha256": "a211bda5bfe7709736a25166d0b0eb30ca8db235759be05350aa9aa3559c2e67",
+      "description": "Candidate fast metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.csv",
+      "sha256": "f3754947a2c963f034e178c58503f2269386b5a2ffed4b968600e5a9d9af0fe6",
+      "description": "Candidate fast metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+      "sha256": "6e6f1844ac6e6bbe5fcc067c61483b6f51393155b7cefaf9543f8bbf173c6a49",
+      "description": "Candidate iteration metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.csv",
+      "sha256": "7437b08470d110f579539a57ac628f853ada64c5bfdd9617e1d8fcf04ea451dd",
+      "description": "Candidate iteration metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+      "sha256": "920b91240fe66eec975d4b60abcc4bfa79e7efa1620c59e49d38de2ab4cbabe9",
+      "description": "Candidate validation metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.csv",
+      "sha256": "0e3a0e7e45c344981af31d61aae9ce9a82e618502cc827f5f43e95a5f6e01dbf",
+      "description": "Candidate validation metrics table."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "description": "Cached incumbent iteration metrics reused without rerun."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si.json",
+      "description": "Cached incumbent validation metrics reused without rerun."
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/proposal.md",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/resource_snapshot.md",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/implementation.md",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/candidate.diff",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/scores.json",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/scoring_notes.md",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/decision.md",
+    ".logbook/history/2026-07-11_05-39-31_ocean-anchor-ri2m-lower-boundary/artifacts.json"
+  ],
+  "notes": "Accepted candidate. Incumbent metrics were reused from the valid leaderboard cache; no incumbent rerun, rejected-artifact commit, or golden evaluation was performed."
+}
