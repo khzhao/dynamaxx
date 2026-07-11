@@ -80,6 +80,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     theta_tendency_dinosaur_dycore_model,
     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
+    zero_mean_radiative_land_skin_energy_dinosaur_dycore_model,
 )
 
 __version__ = "1.3.6"
@@ -153,4 +154,5 @@ __all__ = [
     "weatherbench_utils",
     "weak_held_suarez_dinosaur_dycore_model",
     "xarray_utils",
+    "zero_mean_radiative_land_skin_energy_dinosaur_dycore_model",
 ]

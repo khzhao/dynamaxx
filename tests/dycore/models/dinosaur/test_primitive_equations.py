@@ -13,6 +13,7 @@ from dynamaxx.dycore.models.dinosaur import (
     coordinate_systems,
     held_suarez,
     primitive_equations,
+    radiation,
     scales,
     sigma_coordinates,
     spherical_harmonic,
@@ -33,6 +34,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _LAND_OCEAN_LOW_MODE_T2M_MEMORY_MAX_CORRECTION_KELVIN,
     _LAND_SEA_SURFACE_TEMPERATURE_OCEAN_DECAY_EXPONENT,
     _LAND_SKIN_RESERVOIR_DEEP_RESTORE_DAYS,
+    _LAND_SKIN_RESERVOIR_EXCHANGE_DEPTH_METERS,
     _LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO,
     _LAND_SKIN_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     _OCEAN_BULK_SHF_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
@@ -40,6 +42,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _OROGRAPHIC_LIFT_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN,
     _SCALE_SEPARATED_RESIDUAL_LOW_MODE_CUTOFF,
     _SCALE_SEPARATED_RESIDUAL_TAPER_ZERO_MODE,
+    _STEFAN_BOLTZMANN_CONSTANT_SI,
     _SURFACE_LAYER_TEMPERATURE_MAX_DEPARTURE_KELVIN,
     _TERRAIN_WORK_FORM_DRAG_MAX_HEAT_INCREMENT_KELVIN,
     _TERRAIN_WORK_FORM_DRAG_MAX_WIND_STEP_INCREMENT_METERS_PER_SECOND,
@@ -90,6 +93,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _primitive_equation,
     _primitive_equation_state,
     _prognostic_skin_ri2m_temperature,
+    _radiative_land_skin_initial_time_offset,
+    _radiative_land_skin_reference_time,
     _reference_temperature,
     _scale_separated_residual_low_mode_mask,
     _split_near_surface_residual_by_scale,
@@ -103,6 +108,8 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _tropical_wtg_mass_dse_relaxation_step_filter,
     _unit_factor,
     _valid_land_sea_fraction_or_none,
+    _zero_mean_radiative_land_skin_power,
+    _zero_mean_radiative_land_skin_temperature_increment,
     analysis_2m_initialized_land_skin_dinosaur_dycore_model,
     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
     bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model,
@@ -143,6 +150,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
     weak_held_suarez_dinosaur_dycore_model,
     weather_state_to_dinosaur_state,
+    zero_mean_radiative_land_skin_energy_dinosaur_dycore_model,
 )
 from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
 from dynamaxx.utils.consts import SECONDS_PER_HOUR
@@ -954,6 +962,34 @@ def test_ocean_anchor_ri2m_factory_preserves_exact_incumbent():
     )
     for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
         if field_name in {"name", "use_ocean_anchor_ri2m_lower_boundary"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_zero_mean_radiative_land_skin_factory_preserves_exact_incumbent():
+    """The radiative skin candidate changes only its name and selector."""
+    model = zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
+    incumbent = ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model()
+
+    assert (
+        model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+    )
+    assert model.apply_zero_mean_radiative_land_skin_energy
+    assert not incumbent.apply_zero_mean_radiative_land_skin_energy
+    assert (
+        replace(
+            model,
+            name=incumbent.name,
+            apply_zero_mean_radiative_land_skin_energy=False,
+        )
+        == incumbent
+    )
+    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "apply_zero_mean_radiative_land_skin_energy",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 
@@ -3443,6 +3479,164 @@ def test_dinosaur_forecast_handles_multiple_initial_times():
     assert forecast.variables == ("temperature_250",)
     assert forecast.values.shape == (1, 2, 1, 4, 3)
     np.testing.assert_allclose(forecast.values[0, :, 0], 250.0, atol=1e-4)
+
+
+def test_radiative_land_skin_multi_initial_forecast_uses_each_sample_phase(
+    monkeypatch,
+):
+    """A batched forecast matches separate runs while retaining distinct phases."""
+
+    def deterministic_solver(equation, *, time_step):
+        del equation
+
+        def advance_sim_time(state):
+            return replace(state, sim_time=state.sim_time + time_step)
+
+        return advance_sim_time
+
+    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
+        del initial_time
+        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
+
+    def missing_ocean_temperature_anchor(*args, **kwargs):
+        del args, kwargs
+        return None
+
+    captured_offsets = []
+    captured_skin_trajectories = []
+    real_time_offset = _radiative_land_skin_initial_time_offset
+    real_state_packing = dinosaur_state_to_weather_state
+
+    def capture_time_offset(*args, **kwargs):
+        time_offset = real_time_offset(*args, **kwargs)
+        captured_offsets.append(time_offset)
+        return time_offset
+
+    def capture_state_packing(*args, **kwargs):
+        captured_skin_trajectories.append(kwargs["prognostic_skin_temperature"])
+        return real_state_packing(*args, **kwargs)
+
+    monkeypatch.setattr(
+        DinosaurPrimitiveEquationsDycoreModel,
+        "_ode_solver",
+        lambda self: deterministic_solver,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_load_land_sea_fraction_for_grid",
+        fake_land_sea_fraction,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_radiative_land_skin_initial_time_offset",
+        capture_time_offset,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "_ocean_bulk_sensible_heat_flux_temperature_anchor",
+        missing_ocean_temperature_anchor,
+    )
+    monkeypatch.setattr(
+        dinosaur_adapter,
+        "dinosaur_state_to_weather_state",
+        capture_state_packing,
+    )
+    step_hours = 240
+    step_seconds = step_hours * SECONDS_PER_HOUR
+    initial_times = np.asarray(
+        ["2020-03-20T00:00:00", "2020-03-20T12:00:00"],
+        dtype="datetime64[ns]",
+    )
+    valid_times = initial_times[:, np.newaxis] + np.timedelta64(step_hours, "h")
+    forecast_input = ForecastInput(
+        initial_times=initial_times,
+        valid_times=valid_times,
+        lead_steps=(1,),
+        lead_hours=(step_hours,),
+        step_seconds=step_seconds,
+        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
+        latitude=np.array([90.0, 0.0, -90.0]),
+        initial_state=_structured_initial_state(init_count=2),
+    )
+    output_variables = (
+        "2m_temperature",
+        "temperature_500",
+        "mean_sea_level_pressure",
+    )
+    model = replace(
+        zero_mean_radiative_land_skin_energy_dinosaur_dycore_model(),
+        inner_step_seconds=step_seconds,
+        spectral_wavenumbers=None,
+        output_variables=output_variables,
+        include_vertical_advection=False,
+        apply_spectral_filter=False,
+        apply_digital_filter_initialization=False,
+        apply_weak_held_suarez_relaxation=False,
+        apply_near_surface_residual_correction=False,
+        apply_ocean_bulk_sensible_heat_flux=True,
+        apply_exact_coriolis_rotation_split=False,
+        apply_symmetric_exact_coriolis_rotation_split=False,
+        apply_theta_layer_mean_recentering=False,
+        use_horizontal_semilagrangian_theta_transport=False,
+        use_midpoint_semilagrangian_theta_departure=False,
+        use_dry_static_energy_hsl_transport=False,
+        use_layer_mass_weighted_dse_hsl_transport=False,
+        use_pressure_ramped_vertical_dse_increment=False,
+        apply_tropical_wtg_mass_dse_relaxation=False,
+        apply_coupled_ekman_surface_closure=False,
+        apply_orographic_lift_theta_tendency=False,
+        apply_terrain_work_form_drag_heating=False,
+        jit_forecast=True,
+    )
+
+    batch_forecast = model.forecast(forecast_input)
+    separate_forecasts = [
+        model.forecast(forecast_input.slice_initial_time(initial_index))
+        for initial_index in range(initial_times.size)
+    ]
+
+    assert batch_forecast.variables == output_variables
+    assert batch_forecast.values.shape == (1, 2, len(output_variables), 4, 3)
+    assert bool(jnp.isfinite(batch_forecast.values).all())
+    for initial_index, separate_forecast in enumerate(separate_forecasts):
+        np.testing.assert_allclose(
+            batch_forecast.values[:, initial_index],
+            separate_forecast.values[:, 0],
+            rtol=2.0e-6,
+            atol=2.0e-6,
+        )
+    assert len(captured_offsets) == 4
+    assert float(captured_offsets[0]) == 0.0
+    assert float(captured_offsets[1]) > 0.0
+    assert float(captured_offsets[2]) == 0.0
+    assert float(captured_offsets[3]) == 0.0
+    assert len(captured_skin_trajectories) == 4
+    assert not bool(
+        jnp.allclose(
+            captured_skin_trajectories[0][1],
+            captured_skin_trajectories[1][1],
+            rtol=0.0,
+            atol=1.0e-7,
+        )
+    )
+    np.testing.assert_allclose(
+        captured_skin_trajectories[0],
+        captured_skin_trajectories[2],
+        rtol=2.0e-6,
+        atol=2.0e-6,
+    )
+    np.testing.assert_allclose(
+        captured_skin_trajectories[1],
+        captured_skin_trajectories[3],
+        rtol=2.0e-6,
+        atol=2.0e-6,
+    )
+    for variable_name in ("temperature_500", "mean_sea_level_pressure"):
+        variable_index = output_variables.index(variable_name)
+        np.testing.assert_array_equal(
+            batch_forecast.values[0, 0, variable_index],
+            batch_forecast.values[0, 1, variable_index],
+        )
 
 
 def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_count(
@@ -6352,6 +6546,304 @@ def test_land_skin_reservoir_ramp_is_zero_through_day_five():
     )
 
 
+def test_radiative_land_skin_shortwave_tracks_longitude_and_initial_time_phase():
+    """Solar shortwave follows local longitude for each fixed initialization."""
+    coords, physics_specs, _, _ = _synthetic_ekman_coupled_state(wind_scale=0.0)
+    reference_time = np.datetime64("2020-03-20T00:00:00", "ns")
+    twelve_hours_later = reference_time + np.timedelta64(12, "h")
+    batch_reference = _radiative_land_skin_reference_time(
+        np.asarray([reference_time, twelve_hours_later])
+    )
+    midnight_offset = _radiative_land_skin_initial_time_offset(
+        reference_time,
+        reference_time=batch_reference,
+        physics_specs=physics_specs,
+    )
+    noon_offset = _radiative_land_skin_initial_time_offset(
+        twelve_hours_later,
+        reference_time=batch_reference,
+        physics_specs=physics_specs,
+    )
+    invalid_offset = _radiative_land_skin_initial_time_offset(
+        np.datetime64("NaT", "ns"),
+        reference_time=batch_reference,
+        physics_specs=physics_specs,
+    )
+    solar_radiation = radiation.SolarRadiation(
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_datetime=batch_reference,
+    )
+    midnight_flux = solar_radiation.radiation_flux(midnight_offset)
+    noon_flux = solar_radiation.radiation_flux(noon_offset)
+    longitude, sin_latitude = coords.horizontal.nodal_mesh
+    equator_index = int(jnp.argmin(jnp.abs(sin_latitude[0])))
+    zero_longitude_index = int(jnp.argmin(jnp.abs(longitude[:, 0])))
+    opposite_longitude_index = int(jnp.argmin(jnp.abs(longitude[:, 0] - jnp.pi)))
+
+    assert float(midnight_offset) == 0.0
+    assert np.isfinite(float(noon_offset))
+    assert float(noon_offset) > 0.0
+    assert np.isnan(float(invalid_offset))
+    assert float(midnight_flux[opposite_longitude_index, equator_index]) > float(
+        midnight_flux[zero_longitude_index, equator_index]
+    )
+    assert float(noon_flux[zero_longitude_index, equator_index]) > float(
+        noon_flux[opposite_longitude_index, equator_index]
+    )
+
+
+def test_radiative_land_skin_power_is_componentwise_land_area_neutral():
+    """Shortwave and longwave are centered separately with physical LW signs."""
+    toa_flux_si = jnp.asarray(
+        [[100.0, 300.0], [700.0, 900.0], [0.0, 500.0]],
+        dtype=jnp.float32,
+    )
+    skin_temperature_si = jnp.full_like(toa_flux_si, 280.0)
+    deep_temperature_si = jnp.asarray(
+        [[290.0, 290.0], [270.0, 270.0], [280.0, 280.0]],
+        dtype=jnp.float32,
+    )
+    active_land_weight = jnp.asarray(
+        [[1.0, 0.5], [1.0, 0.25], [0.0, 1.0]],
+        dtype=jnp.float32,
+    )
+    area_weights = jnp.asarray(
+        [[0.5, 1.0], [0.75, 1.25], [0.5, 1.0]],
+        dtype=jnp.float32,
+    )
+
+    shortwave_power, longwave_power = _zero_mean_radiative_land_skin_power(
+        toa_radiation_flux_si=toa_flux_si,
+        skin_temperature_si=skin_temperature_si,
+        deep_temperature_si=deep_temperature_si,
+        active_land_weight=active_land_weight,
+        area_weights=area_weights,
+    )
+    combined_weights = active_land_weight * area_weights
+    absorbed_shortwave = 0.7 * toa_flux_si
+    absorbed_shortwave_mean = jnp.sum(absorbed_shortwave * combined_weights) / jnp.sum(
+        combined_weights
+    )
+    expected_shortwave = active_land_weight * (
+        absorbed_shortwave - absorbed_shortwave_mean
+    )
+
+    np.testing.assert_allclose(
+        shortwave_power,
+        expected_shortwave,
+        rtol=2.0e-6,
+        atol=2.0e-5,
+    )
+    np.testing.assert_allclose(
+        jnp.sum(shortwave_power * area_weights),
+        0.0,
+        rtol=0.0,
+        atol=2.0e-5,
+    )
+    np.testing.assert_allclose(
+        jnp.sum(longwave_power * area_weights),
+        0.0,
+        rtol=0.0,
+        atol=2.0e-5,
+    )
+    assert float(longwave_power[0, 0]) > 0.0
+    assert float(longwave_power[1, 0]) < 0.0
+    zero_contrast_longwave = _zero_mean_radiative_land_skin_power(
+        toa_radiation_flux_si=toa_flux_si,
+        skin_temperature_si=skin_temperature_si,
+        deep_temperature_si=skin_temperature_si,
+        active_land_weight=active_land_weight,
+        area_weights=area_weights,
+    )[1]
+    np.testing.assert_array_equal(
+        zero_contrast_longwave,
+        jnp.zeros_like(zero_contrast_longwave),
+    )
+    raw_longwave = _STEFAN_BOLTZMANN_CONSTANT_SI * (
+        deep_temperature_si**4 - skin_temperature_si**4
+    )
+    assert float(raw_longwave[0, 0]) > 0.0
+    assert float(raw_longwave[1, 0]) < 0.0
+
+
+def test_radiative_land_skin_heat_capacity_conversion_and_common_cap_are_neutral():
+    """The fixed air-derived skin capacity and one cap scale preserve net energy."""
+    physics_specs = units.SimUnits.from_si()
+    shape = (4, 3)
+    toa_flux_si = jnp.asarray(
+        [
+            [1200.0, 900.0, 600.0],
+            [700.0, 400.0, 100.0],
+            [0.0, 50.0, 150.0],
+            [300.0, 500.0, 800.0],
+        ],
+        dtype=jnp.float32,
+    )
+    air_temperature_si = jnp.asarray(
+        275.0 + np.arange(np.prod(shape), dtype=np.float32).reshape(shape) * 0.5
+    )
+    skin_temperature_si = jnp.full(shape, 280.0, dtype=jnp.float32)
+    deep_temperature_si = skin_temperature_si + jnp.asarray(
+        [[4.0, 2.0, 0.0], [-2.0, -4.0, 1.0], [0.0, 3.0, -3.0], [2.0, -1.0, 1.0]],
+        dtype=jnp.float32,
+    )
+    pressure_si = jnp.asarray(
+        92_000.0 + np.arange(np.prod(shape), dtype=np.float32).reshape(shape) * 500.0
+    )
+    land_weight = jnp.asarray(
+        [[1.0, 0.5, 0.0], [0.75, 1.0, 0.25], [0.0, 1.0, 0.5], [1.0, 0.0, 1.0]],
+        dtype=jnp.float32,
+    )
+    area_weights = jnp.asarray([[0.5, 1.0, 0.5]] * shape[0], dtype=jnp.float32)
+    temperature_unit = _unit_factor(physics_specs, "kelvin")
+    pressure_unit = _unit_factor(physics_specs, "pascal")
+    power_flux_unit = _unit_factor(physics_specs, "watt / meter ** 2")
+    specific_heat_unit = _unit_factor(physics_specs, "joule / kilogram / kelvin")
+    lowest_sigma = jnp.asarray(0.9, dtype=jnp.float32)
+    step_seconds = 21_600.0
+    increment = _zero_mean_radiative_land_skin_temperature_increment(
+        toa_radiation_flux=toa_flux_si * power_flux_unit,
+        air_temperature=air_temperature_si * temperature_unit,
+        skin_temperature=skin_temperature_si * temperature_unit,
+        deep_temperature=deep_temperature_si * temperature_unit,
+        surface_pressure=pressure_si * pressure_unit,
+        land_weight=land_weight,
+        area_weights=area_weights,
+        lowest_sigma=lowest_sigma,
+        coupling_weight=1.0,
+        physics_specs=physics_specs,
+        step_seconds_si=step_seconds,
+    )
+    active_land_weight = _active_land_skin_weight(land_weight)
+    shortwave_power, longwave_power = _zero_mean_radiative_land_skin_power(
+        toa_radiation_flux_si=toa_flux_si,
+        skin_temperature_si=skin_temperature_si,
+        deep_temperature_si=deep_temperature_si,
+        active_land_weight=active_land_weight,
+        area_weights=area_weights,
+    )
+    density_si = (lowest_sigma * pressure_si) / (
+        _DRY_AIR_GAS_CONSTANT_SI * air_temperature_si
+    )
+    cp_si = physics_specs.Cp / specific_heat_unit
+    skin_heat_capacity_si = (
+        density_si
+        * cp_si
+        * _LAND_SKIN_RESERVOIR_EXCHANGE_DEPTH_METERS
+        / _LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO
+    )
+    raw_increment = (
+        (shortwave_power + longwave_power)
+        * step_seconds
+        / skin_heat_capacity_si
+        * temperature_unit
+    )
+    increment_cap = (
+        _LAND_SKIN_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN * temperature_unit
+    )
+    expected_common_scale = min(
+        1.0,
+        increment_cap
+        / float(
+            jnp.max(
+                jnp.where(
+                    active_land_weight > 0.0,
+                    jnp.abs(raw_increment),
+                    0.0,
+                )
+            )
+        ),
+    )
+
+    assert expected_common_scale < 1.0
+    np.testing.assert_allclose(
+        increment,
+        raw_increment * expected_common_scale,
+        rtol=2.0e-6,
+        atol=2.0e-7,
+    )
+    assert float(jnp.max(jnp.abs(increment))) <= increment_cap * 1.000001
+    recovered_scaled_power = (
+        increment / temperature_unit * skin_heat_capacity_si / step_seconds
+    )
+    np.testing.assert_allclose(
+        jnp.sum(recovered_scaled_power * area_weights),
+        0.0,
+        rtol=0.0,
+        atol=2.0e-6,
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_input",
+    [
+        "empty_land",
+        "negative_radiation",
+        "nonfinite_radiation",
+        "shape_mismatch",
+        "nonpositive_air",
+        "nonpositive_skin",
+        "nonfinite_deep",
+        "nonpositive_pressure",
+        "nonpositive_cp",
+        "nonpositive_area",
+        "nonfinite_area",
+        "nonfinite_intermediate",
+    ],
+)
+def test_radiative_land_skin_invalid_inputs_are_exact_zero_fallback(invalid_input):
+    """Every frozen invalid-input class removes only the radiative addend."""
+    physics_specs = units.SimUnits.from_si()
+    shape = (3, 2)
+    common_kwargs = {
+        "toa_radiation_flux": jnp.full(shape, 100.0, dtype=jnp.float32),
+        "air_temperature": jnp.full(shape, 280.0, dtype=jnp.float32),
+        "skin_temperature": jnp.full(shape, 280.0, dtype=jnp.float32),
+        "deep_temperature": jnp.full(shape, 285.0, dtype=jnp.float32),
+        "surface_pressure": jnp.full(shape, 1.0, dtype=jnp.float32),
+        "land_weight": jnp.ones(shape, dtype=jnp.float32),
+        "area_weights": jnp.ones(shape, dtype=jnp.float32),
+        "lowest_sigma": 0.9,
+        "coupling_weight": 1.0,
+        "physics_specs": physics_specs,
+        "step_seconds_si": 900.0,
+    }
+    if invalid_input == "empty_land":
+        common_kwargs["land_weight"] = jnp.zeros(shape, dtype=jnp.float32)
+    elif invalid_input == "negative_radiation":
+        common_kwargs["toa_radiation_flux"] = jnp.full(shape, -1.0, dtype=jnp.float32)
+    elif invalid_input == "nonfinite_radiation":
+        common_kwargs["toa_radiation_flux"] = jnp.full(
+            shape, jnp.nan, dtype=jnp.float32
+        )
+    elif invalid_input == "shape_mismatch":
+        common_kwargs["toa_radiation_flux"] = jnp.ones((2, 3), dtype=jnp.float32)
+    elif invalid_input == "nonpositive_air":
+        common_kwargs["air_temperature"] = jnp.zeros(shape, dtype=jnp.float32)
+    elif invalid_input == "nonpositive_skin":
+        common_kwargs["skin_temperature"] = jnp.zeros(shape, dtype=jnp.float32)
+    elif invalid_input == "nonfinite_deep":
+        common_kwargs["deep_temperature"] = jnp.full(shape, jnp.inf, dtype=jnp.float32)
+    elif invalid_input == "nonpositive_pressure":
+        common_kwargs["surface_pressure"] = jnp.zeros(shape, dtype=jnp.float32)
+    elif invalid_input == "nonpositive_cp":
+        common_kwargs["physics_specs"] = replace(
+            physics_specs,
+            kappa=-abs(physics_specs.kappa),
+        )
+    elif invalid_input == "nonpositive_area":
+        common_kwargs["area_weights"] = jnp.zeros(shape, dtype=jnp.float32)
+    elif invalid_input == "nonfinite_area":
+        common_kwargs["area_weights"] = jnp.full(shape, jnp.nan, dtype=jnp.float32)
+    elif invalid_input == "nonfinite_intermediate":
+        common_kwargs["deep_temperature"] = jnp.full(shape, 1.0e20, dtype=jnp.float32)
+
+    increment = _zero_mean_radiative_land_skin_temperature_increment(**common_kwargs)
+
+    np.testing.assert_array_equal(increment, jnp.zeros_like(increment))
+
+
 def test_land_skin_reservoir_exchange_is_capped_and_conservative():
     """The capped air increment has an equal heat-capacity skin response."""
     physics_specs = units.SimUnits.from_si()
@@ -6580,6 +7072,235 @@ def test_land_skin_reservoir_changes_only_temperature_after_full_ramp():
     )
     np.testing.assert_array_equal(fallback_skin[0], skin[0])
     np.testing.assert_array_equal(fallback_skin[1], skin[1])
+
+
+@pytest.mark.parametrize(
+    "fallback_case",
+    [
+        "missing_time",
+        "invalid_time_offset",
+        "invalid_radiation",
+        "radiation_shape",
+        "empty_land",
+        "nonpositive_pressure",
+    ],
+)
+def test_radiative_land_skin_step_fallback_is_exact_incumbent(fallback_case):
+    """Invalid radiative diagnostics retain the complete incumbent step."""
+    coords, physics_specs, _, state = _synthetic_ekman_coupled_state(wind_scale=1.0)
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    state = replace(state, sim_time=jnp.asarray(240.0 * hour, dtype=jnp.float32))
+    initial_skin = _land_skin_reservoir_initial_skin(
+        state,
+        coords=coords,
+        reference_temperature=reference_temperature,
+    )
+    skin = (initial_skin[0] + 5.0, initial_skin[1] + 2.0)
+    land_weight = jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32)
+    radiation_time_offset = jnp.asarray(0.0, dtype=jnp.float32)
+    radiation_flux = jnp.full(
+        coords.horizontal.nodal_shape,
+        500.0 * _unit_factor(physics_specs, "watt / meter ** 2"),
+        dtype=jnp.float32,
+    )
+    if fallback_case == "missing_time":
+        state = replace(state, sim_time=None)
+    elif fallback_case == "invalid_time_offset":
+        radiation_time_offset = jnp.asarray(jnp.nan, dtype=jnp.float32)
+    elif fallback_case == "invalid_radiation":
+        radiation_flux = jnp.full_like(radiation_flux, jnp.nan)
+    elif fallback_case == "radiation_shape":
+        radiation_flux = jnp.ones((3, 2), dtype=jnp.float32)
+    elif fallback_case == "empty_land":
+        land_weight = jnp.zeros_like(land_weight)
+    elif fallback_case == "nonpositive_pressure":
+        zero_pressure_log = coords.horizontal.to_modal(
+            jnp.full(coords.horizontal.nodal_shape, -1000.0, dtype=jnp.float32)
+        )[jnp.newaxis]
+        state = replace(state, log_surface_pressure=zero_pressure_log)
+
+    class FixedSolarRadiation:
+        def radiation_flux(self, time):
+            del time
+            return radiation_flux
+
+    incumbent_state, incumbent_skin = _apply_land_skin_reservoir_step(
+        state,
+        skin,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        land_weight=land_weight,
+        step_seconds_si=900.0,
+    )
+    candidate_state, candidate_skin = _apply_land_skin_reservoir_step(
+        state,
+        skin,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        land_weight=land_weight,
+        step_seconds_si=900.0,
+        solar_radiation_model=cast(Any, FixedSolarRadiation()),
+        radiation_time_offset=radiation_time_offset,
+    )
+
+    for incumbent_leaf, candidate_leaf in zip(
+        jax.tree_util.tree_leaves(incumbent_state),
+        jax.tree_util.tree_leaves(candidate_state),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(candidate_leaf, incumbent_leaf)
+    np.testing.assert_array_equal(candidate_skin[0], incumbent_skin[0])
+    np.testing.assert_array_equal(candidate_skin[1], incumbent_skin[1])
+
+
+def test_radiative_land_skin_changes_only_active_private_skin_for_current_step():
+    """Radiation leaves the current atmosphere, deep node, and ocean skin exact."""
+    coords, physics_specs, _, state = _synthetic_ekman_coupled_state(wind_scale=0.0)
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
+    state = replace(state, sim_time=jnp.asarray(240.0 * hour, dtype=jnp.float32))
+    skin = _land_skin_reservoir_initial_skin(
+        state,
+        coords=coords,
+        reference_temperature=reference_temperature,
+    )
+    longitude, _ = coords.horizontal.nodal_mesh
+    land_weight = jnp.where(
+        longitude < jnp.pi,
+        jnp.asarray(1.0, dtype=jnp.float32),
+        jnp.asarray(0.0, dtype=jnp.float32),
+    )
+    radiation_flux_si = 700.0 + 500.0 * jnp.cos(longitude - 0.25)
+    radiation_flux = radiation_flux_si * _unit_factor(
+        physics_specs, "watt / meter ** 2"
+    )
+
+    class FixedSolarRadiation:
+        def radiation_flux(self, time):
+            del time
+            return radiation_flux
+
+    incumbent_state, incumbent_skin = _apply_land_skin_reservoir_step(
+        state,
+        skin,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        land_weight=land_weight,
+        step_seconds_si=900.0,
+    )
+    candidate_state, candidate_skin = _apply_land_skin_reservoir_step(
+        state,
+        skin,
+        coords=coords,
+        physics_specs=physics_specs,
+        reference_temperature=reference_temperature,
+        land_weight=land_weight,
+        step_seconds_si=900.0,
+        solar_radiation_model=cast(Any, FixedSolarRadiation()),
+        radiation_time_offset=jnp.asarray(0.0, dtype=jnp.float32),
+    )
+
+    for incumbent_leaf, candidate_leaf in zip(
+        jax.tree_util.tree_leaves(incumbent_state),
+        jax.tree_util.tree_leaves(candidate_state),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(candidate_leaf, incumbent_leaf)
+    np.testing.assert_array_equal(candidate_skin[1], incumbent_skin[1])
+    ocean_cell = _active_land_skin_weight(land_weight) == 0.0
+    np.testing.assert_array_equal(
+        candidate_skin[0][ocean_cell],
+        incumbent_skin[0][ocean_cell],
+    )
+    assert bool(
+        jnp.any(candidate_skin[0][~ocean_cell] != incumbent_skin[0][~ocean_cell])
+    )
+
+
+def test_radiative_land_skin_is_exact_incumbent_through_120_hours(monkeypatch):
+    """A valid solar branch remains bitwise inactive over the early ramp window."""
+    coords, physics_specs, initial_state, _ = _synthetic_ekman_coupled_state(
+        wind_scale=1.0
+    )
+    initial_state = replace(initial_state, sim_time=jnp.asarray(0.0, dtype=jnp.float32))
+    reference_temperature = _reference_temperature(
+        layer_count=coords.vertical.layers,
+        temperature_kelvin=250.0,
+    )
+    inner_step_seconds = 60.0 * SECONDS_PER_HOUR
+    incumbent = DinosaurPrimitiveEquationsDycoreModel(
+        inner_step_seconds=inner_step_seconds,
+        include_vertical_advection=False,
+        apply_spectral_filter=False,
+        apply_land_skin_reservoir=True,
+        use_prognostic_skin_ri2m_lower_boundary=True,
+        jit_forecast=False,
+    )
+    candidate = replace(
+        incumbent,
+        apply_zero_mean_radiative_land_skin_energy=True,
+    )
+
+    def deterministic_solver(equation, *, time_step):
+        del equation
+
+        def advance_sim_time(state):
+            return replace(state, sim_time=state.sim_time + time_step)
+
+        return advance_sim_time
+
+    monkeypatch.setattr(
+        DinosaurPrimitiveEquationsDycoreModel,
+        "_ode_solver",
+        lambda self: deterministic_solver,
+    )
+    land_weight = jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32)
+    trajectory_kwargs = {
+        "coords": coords,
+        "physics_specs": physics_specs,
+        "reference_temperature": reference_temperature,
+        "inner_steps": 1,
+        "output_count": 3,
+        "use_humidity_in_dynamics": False,
+        "land_skin_reservoir_land_weight": land_weight,
+    }
+    reference_time = np.datetime64("2020-06-20T00:00:00", "ns")
+
+    incumbent_final, incumbent_output = incumbent._trajectory_function(
+        **trajectory_kwargs
+    )(initial_state)
+    candidate_final, candidate_output = candidate._trajectory_function(
+        **trajectory_kwargs,
+        radiative_land_skin_reference_time=reference_time,
+    )(
+        initial_state,
+        jnp.asarray(0.0, dtype=jnp.float32),
+    )
+
+    incumbent_final_state, _ = incumbent_final
+    candidate_final_state, _ = candidate_final
+    for incumbent_leaf, candidate_leaf in zip(
+        jax.tree_util.tree_leaves(incumbent_final_state),
+        jax.tree_util.tree_leaves(candidate_final_state),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(candidate_leaf, incumbent_leaf)
+    for incumbent_leaf, candidate_leaf in zip(
+        jax.tree_util.tree_leaves(incumbent_output),
+        jax.tree_util.tree_leaves(candidate_output),
+        strict=True,
+    ):
+        np.testing.assert_array_equal(candidate_leaf, incumbent_leaf)
 
 
 def test_prognostic_skin_ri2m_retention_preserves_rollout_and_skin_carry(

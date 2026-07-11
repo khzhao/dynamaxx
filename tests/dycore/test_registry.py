@@ -69,6 +69,8 @@ def test_registry_lists_default_dycore_models():
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
         "pthick_ri2m_lateskin_skri_a2si_ori",
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori_rskin",
     )
 
 
@@ -941,6 +943,28 @@ def test_registry_creates_ocean_anchor_ri2m_model():
     assert not incumbent.use_ocean_anchor_ri2m_lower_boundary
     for field_name in model.__dataclass_fields__:
         if field_name in {"name", "use_ocean_anchor_ri2m_lower_boundary"}:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_zero_mean_radiative_land_skin_model():
+    """The radiative skin model changes only the incumbent name and selector."""
+    model = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+    )
+    incumbent = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori"
+    )
+
+    assert model.apply_zero_mean_radiative_land_skin_energy
+    assert not incumbent.apply_zero_mean_radiative_land_skin_energy
+    for field_name in model.__dataclass_fields__:
+        if field_name in {
+            "name",
+            "apply_zero_mean_radiative_land_skin_energy",
+        }:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

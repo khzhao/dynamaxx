@@ -14,6 +14,7 @@ from dynamaxx.dycore.models.dinosaur import (
     coordinate_systems,
     held_suarez,
     primitive_equations,
+    radiation,
     scales,
     sigma_coordinates,
     spherical_harmonic,
@@ -87,6 +88,8 @@ _LAND_SKIN_RESERVOIR_MAX_STEP_TEMPERATURE_INCREMENT_KELVIN = 0.05
 _LAND_SKIN_RESERVOIR_MIN_LAND_FRACTION = 0.01
 _LAND_SKIN_RESERVOIR_RAMP_START_HOURS = 120.0
 _LAND_SKIN_RESERVOIR_RAMP_FULL_HOURS = 240.0
+_LAND_SKIN_RADIATIVE_ABSORBED_SHORTWAVE_FRACTION = 0.7
+_STEFAN_BOLTZMANN_CONSTANT_SI = 5.670374419e-8
 _SURFACE_LAYER_WIND_MIN_FACTOR = 0.55
 _SURFACE_LAYER_WIND_MAX_FACTOR = 1.05
 _SURFACE_LAYER_SHEAR_FLOOR_METERS_PER_SECOND = 2.0
@@ -187,6 +190,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     apply_ocean_bulk_sensible_heat_flux: bool = False
     apply_land_skin_reservoir: bool = False
     use_analysis_2m_initialized_land_skin: bool = False
+    apply_zero_mean_radiative_land_skin_energy: bool = False
     use_surface_layer_richardson_10m_wind_diagnostic: bool = False
     use_bulk_richardson_2m_temperature_diagnostic: bool = False
     use_pressure_thickness_weighted_ri2m_temperature: bool = False
@@ -298,6 +302,11 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     terrain_height_meters,
                     grid.latitude_reversed,
                 )
+        radiative_land_skin_reference_time = None
+        if self.apply_zero_mean_radiative_land_skin_energy:
+            radiative_land_skin_reference_time = _radiative_land_skin_reference_time(
+                forecast_input.initial_times
+            )
 
         trajectory_fn = self._trajectory_function(
             coords=grid.coords,
@@ -309,6 +318,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             ocean_bulk_shf_ocean_weight=ocean_bulk_shf_ocean_weight,
             land_skin_reservoir_land_weight=land_skin_reservoir_land_weight,
             terrain_height_meters=terrain_height_meters,
+            radiative_land_skin_reference_time=(radiative_land_skin_reference_time),
         )
 
         forecasts = []
@@ -346,6 +356,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     latitude_reversed=grid.latitude_reversed,
                     physics_specs=physics_specs,
                 )
+            radiative_trajectory_arguments: tuple[Any, ...] = ()
+            if self.apply_zero_mean_radiative_land_skin_energy:
+                radiative_trajectory_arguments = (
+                    _radiative_land_skin_initial_time_offset(
+                        forecast_input.initial_times[initial_index],
+                        reference_time=radiative_land_skin_reference_time,
+                        physics_specs=physics_specs,
+                    ),
+                )
             ocean_bulk_shf_temperature_anchor = None
             if (
                 self.apply_ocean_bulk_sensible_heat_flux
@@ -366,20 +385,26 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         dinosaur_state,
                         ocean_bulk_shf_temperature_anchor,
                         analysis_2m_land_skin_temperature,
+                        *radiative_trajectory_arguments,
                     )
                 else:
                     _, trajectory_output = trajectory_fn(
                         dinosaur_state,
                         ocean_bulk_shf_temperature_anchor,
+                        *radiative_trajectory_arguments,
                     )
             else:
                 if self.use_analysis_2m_initialized_land_skin:
                     _, trajectory_output = trajectory_fn(
                         dinosaur_state,
                         analysis_2m_land_skin_temperature,
+                        *radiative_trajectory_arguments,
                     )
                 else:
-                    _, trajectory_output = trajectory_fn(dinosaur_state)
+                    _, trajectory_output = trajectory_fn(
+                        dinosaur_state,
+                        *radiative_trajectory_arguments,
+                    )
             retain_skin_trajectory = (
                 self.use_prognostic_skin_ri2m_lower_boundary
                 and land_skin_reservoir_land_weight is not None
@@ -473,6 +498,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
         ocean_bulk_shf_ocean_weight: jax.Array | None = None,
         land_skin_reservoir_land_weight: jax.Array | None = None,
         terrain_height_meters: jax.Array | None = None,
+        radiative_land_skin_reference_time: np.datetime64 | None = None,
     ):
         orography = jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32)
         use_coriolis_rotation_split = (
@@ -497,6 +523,19 @@ class DinosaurPrimitiveEquationsDycoreModel:
             self.apply_land_skin_reservoir
             and land_skin_reservoir_land_weight is not None
         )
+        solar_radiation_model = None
+        if (
+            self.apply_zero_mean_radiative_land_skin_energy
+            and radiative_land_skin_reference_time is not None
+        ):
+            try:
+                solar_radiation_model = radiation.SolarRadiation(
+                    coords=coords,
+                    physics_specs=physics_specs,
+                    reference_datetime=radiative_land_skin_reference_time,
+                )
+            except (OverflowError, TypeError, ValueError):
+                solar_radiation_model = None
 
         def build_equation(
             equation_physics_specs: Any,
@@ -578,6 +617,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             equilibrium_temperature_offset: jax.Array | None = None,
             ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
             analysis_2m_land_skin_temperature: jax.Array | None = None,
+            radiative_land_skin_initial_time_offset: jax.Array | None = None,
         ) -> Any:
             equation = build_equation(
                 rollout_physics_specs,
@@ -696,6 +736,8 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     reference_temperature=reference_temperature,
                     land_weight=cast(jax.Array, land_skin_reservoir_land_weight),
                     step_seconds_si=self.inner_step_seconds,
+                    solar_radiation_model=solar_radiation_model,
+                    radiation_time_offset=(radiative_land_skin_initial_time_offset),
                 )
                 land_skin_trajectory_fn = time_integration.trajectory_from_step(
                     land_skin_step_fn,
@@ -749,6 +791,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 dinosaur_state,
                 analysis_2m_land_skin_temperature,
                 ocean_bulk_shf_temperature_anchor=None,
+                radiative_land_skin_initial_time_offset=None,
             ):
                 equilibrium_temperature_offset = None
                 if use_analysis_offset_equilibrium:
@@ -768,6 +811,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     analysis_2m_land_skin_temperature=(
                         analysis_2m_land_skin_temperature
                     ),
+                    radiative_land_skin_initial_time_offset=(
+                        radiative_land_skin_initial_time_offset
+                    ),
                 )
                 return analysis_2m_trajectory_fn(dinosaur_state)
 
@@ -777,11 +823,13 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     dinosaur_state,
                     ocean_bulk_shf_temperature_anchor,
                     analysis_2m_land_skin_temperature,
+                    radiative_land_skin_initial_time_offset=None,
                 ):
                     return build_analysis_2m_trajectory(
                         dinosaur_state,
                         analysis_2m_land_skin_temperature,
                         ocean_bulk_shf_temperature_anchor,
+                        radiative_land_skin_initial_time_offset,
                     )
 
             else:
@@ -789,10 +837,14 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 def trajectory_fn(
                     dinosaur_state,
                     analysis_2m_land_skin_temperature,
+                    radiative_land_skin_initial_time_offset=None,
                 ):
                     return build_analysis_2m_trajectory(
                         dinosaur_state,
                         analysis_2m_land_skin_temperature,
+                        radiative_land_skin_initial_time_offset=(
+                            radiative_land_skin_initial_time_offset
+                        ),
                     )
 
         elif use_analysis_offset_equilibrium:
@@ -801,6 +853,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 def trajectory_fn(
                     dinosaur_state,
                     ocean_bulk_shf_temperature_anchor,
+                    radiative_land_skin_initial_time_offset=None,
                 ):
                     equilibrium_temperature_offset = (
                         _analysis_offset_weak_held_suarez_equilibrium(
@@ -815,12 +868,18 @@ class DinosaurPrimitiveEquationsDycoreModel:
                         ocean_bulk_shf_temperature_anchor=(
                             ocean_bulk_shf_temperature_anchor
                         ),
+                        radiative_land_skin_initial_time_offset=(
+                            radiative_land_skin_initial_time_offset
+                        ),
                     )
                     return offset_trajectory_fn(dinosaur_state)
 
             else:
 
-                def trajectory_fn(dinosaur_state):
+                def trajectory_fn(
+                    dinosaur_state,
+                    radiative_land_skin_initial_time_offset=None,
+                ):
                     equilibrium_temperature_offset = (
                         _analysis_offset_weak_held_suarez_equilibrium(
                             dinosaur_state,
@@ -831,6 +890,9 @@ class DinosaurPrimitiveEquationsDycoreModel:
                     )
                     offset_trajectory_fn = build_trajectory(
                         equilibrium_temperature_offset=equilibrium_temperature_offset,
+                        radiative_land_skin_initial_time_offset=(
+                            radiative_land_skin_initial_time_offset
+                        ),
                     )
                     return offset_trajectory_fn(dinosaur_state)
 
@@ -839,16 +901,34 @@ class DinosaurPrimitiveEquationsDycoreModel:
             def trajectory_fn(
                 dinosaur_state,
                 ocean_bulk_shf_temperature_anchor,
+                radiative_land_skin_initial_time_offset=None,
             ):
                 ocean_bulk_shf_trajectory_fn = build_trajectory(
                     ocean_bulk_shf_temperature_anchor=(
                         ocean_bulk_shf_temperature_anchor
                     ),
+                    radiative_land_skin_initial_time_offset=(
+                        radiative_land_skin_initial_time_offset
+                    ),
                 )
                 return ocean_bulk_shf_trajectory_fn(dinosaur_state)
 
         else:
-            trajectory_fn = build_trajectory()
+            if self.apply_zero_mean_radiative_land_skin_energy:
+
+                def trajectory_fn(
+                    dinosaur_state,
+                    radiative_land_skin_initial_time_offset=None,
+                ):
+                    radiative_trajectory_fn = build_trajectory(
+                        radiative_land_skin_initial_time_offset=(
+                            radiative_land_skin_initial_time_offset
+                        )
+                    )
+                    return radiative_trajectory_fn(dinosaur_state)
+
+            else:
+                trajectory_fn = build_trajectory()
         return jax.jit(trajectory_fn) if self.jit_forecast else trajectory_fn
 
     def _ode_solver(self) -> Any:
@@ -1758,6 +1838,51 @@ def _analysis_2m_initialized_land_skin(
     )
 
 
+def _radiative_land_skin_reference_time(
+    initial_times: np.ndarray,
+) -> np.datetime64:
+    """Return one valid batch reference for dynamic per-sample solar offsets."""
+    initial_times = np.asarray(initial_times, dtype="datetime64[ns]")
+    valid_indices = np.flatnonzero(~np.isnat(initial_times))
+    if valid_indices.size:
+        return initial_times[int(valid_indices[0])]
+    return np.datetime64(radiation.WB_REFERENCE_DATETIME, "ns")
+
+
+def _radiative_land_skin_initial_time_offset(
+    initial_time: np.datetime64,
+    *,
+    reference_time: np.datetime64 | None,
+    physics_specs: Any,
+) -> jax.Array:
+    """Return a finite nondimensional offset or NaN for exact fallback."""
+    invalid_offset = jnp.asarray(jnp.nan, dtype=jnp.float32)
+    if reference_time is None:
+        return invalid_offset
+    try:
+        initial_time = np.asarray(initial_time, dtype="datetime64[ns]")
+        reference_time = np.asarray(reference_time, dtype="datetime64[ns]")
+        if (
+            initial_time.shape
+            or reference_time.shape
+            or np.isnat(initial_time)
+            or np.isnat(reference_time)
+        ):
+            return invalid_offset
+        time_offset = np.float32(
+            radiation.datetime_to_time(
+                initial_time[()],
+                physics_specs,
+                reference_time[()],
+            )
+        )
+    except (OverflowError, TypeError, ValueError):
+        return invalid_offset
+    if not np.isfinite(time_offset):
+        return invalid_offset
+    return jnp.asarray(time_offset, dtype=jnp.float32)
+
+
 def _land_skin_reservoir_initial_skin(
     state: Any,
     *,
@@ -1790,6 +1915,8 @@ def _land_skin_reservoir_step(
     reference_temperature: np.ndarray,
     land_weight: jax.Array,
     step_seconds_si: float,
+    solar_radiation_model: radiation.SolarRadiation | None = None,
+    radiation_time_offset: jax.Array | None = None,
 ) -> Any:
     """Wrap a rollout step with a late-ramped external land reservoir."""
 
@@ -1804,6 +1931,8 @@ def _land_skin_reservoir_step(
             reference_temperature=reference_temperature,
             land_weight=land_weight,
             step_seconds_si=step_seconds_si,
+            solar_radiation_model=solar_radiation_model,
+            radiation_time_offset=radiation_time_offset,
         )
 
     return land_skin_step
@@ -1819,6 +1948,8 @@ def _apply_land_skin_reservoir_step(
     land_weight: jax.Array,
     step_seconds_si: float,
     deep_restore_days: float = _LAND_SKIN_RESERVOIR_DEEP_RESTORE_DAYS,
+    solar_radiation_model: radiation.SolarRadiation | None = None,
+    radiation_time_offset: jax.Array | None = None,
 ) -> tuple[Any, tuple[jax.Array, jax.Array]]:
     """Apply one bounded skin/air exchange after a resolved rollout step."""
     if state.sim_time is None:
@@ -1893,6 +2024,21 @@ def _apply_land_skin_reservoir_step(
         + skin_exchange_increment * projection_scale
         + skin_restore_increment
     )
+    if solar_radiation_model is not None and radiation_time_offset is not None:
+        radiative_skin_increment = _zero_mean_radiative_land_skin_increment(
+            state=state,
+            air_temperature=lowest_temperature,
+            skin_temperature=skin_temperature,
+            deep_temperature=deep_temperature,
+            land_weight=land_weight,
+            coupling_weight=coupling_weight,
+            coords=coords,
+            physics_specs=physics_specs,
+            step_seconds_si=step_seconds_si,
+            solar_radiation_model=solar_radiation_model,
+            radiation_time_offset=radiation_time_offset,
+        )
+        updated_skin_temperature = updated_skin_temperature + radiative_skin_increment
 
     finite_diagnostics = jnp.all(
         jnp.asarray(
@@ -2015,6 +2161,257 @@ def _land_skin_reservoir_local_increments(
         jnp.where(finite_diagnostics, skin_exchange_increment, zero_skin_increment),
         jnp.where(finite_diagnostics, skin_restore_increment, zero_skin_increment),
     )
+
+
+def _active_land_area_neutral_power(
+    power: jax.Array,
+    *,
+    active_land_weight: jax.Array,
+    area_weights: jax.Array,
+) -> jax.Array:
+    """Center one power field over active land, then apply the land weight."""
+    combined_weights = active_land_weight * area_weights
+    combined_weight_sum = jnp.sum(combined_weights)
+    safe_weight_sum = jnp.where(
+        jnp.isfinite(combined_weight_sum) & (combined_weight_sum > 0.0),
+        combined_weight_sum,
+        jnp.asarray(1.0, dtype=power.dtype),
+    )
+    weighted_mean = jnp.sum(power * combined_weights) / safe_weight_sum
+    weighted_anomaly = active_land_weight * (power - weighted_mean)
+    residual_mean = jnp.sum(weighted_anomaly * area_weights) / safe_weight_sum
+    return weighted_anomaly - active_land_weight * residual_mean
+
+
+def _zero_mean_radiative_land_skin_power(
+    *,
+    toa_radiation_flux_si: jax.Array,
+    skin_temperature_si: jax.Array,
+    deep_temperature_si: jax.Array,
+    active_land_weight: jax.Array,
+    area_weights: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    """Return separately centered shortwave and longwave land power in W/m2."""
+    shortwave_power = (
+        _LAND_SKIN_RADIATIVE_ABSORBED_SHORTWAVE_FRACTION * toa_radiation_flux_si
+    )
+    longwave_power = _STEFAN_BOLTZMANN_CONSTANT_SI * (
+        deep_temperature_si**4 - skin_temperature_si**4
+    )
+    return (
+        _active_land_area_neutral_power(
+            shortwave_power,
+            active_land_weight=active_land_weight,
+            area_weights=area_weights,
+        ),
+        _active_land_area_neutral_power(
+            longwave_power,
+            active_land_weight=active_land_weight,
+            area_weights=area_weights,
+        ),
+    )
+
+
+def _zero_mean_radiative_land_skin_temperature_increment(
+    *,
+    toa_radiation_flux: jax.Array,
+    air_temperature: jax.Array,
+    skin_temperature: jax.Array,
+    deep_temperature: jax.Array,
+    surface_pressure: jax.Array,
+    land_weight: jax.Array,
+    area_weights: jax.Array,
+    lowest_sigma: jax.Array | float,
+    coupling_weight: jax.Array | float,
+    physics_specs: Any,
+    step_seconds_si: float,
+) -> jax.Array:
+    """Convert zero-net land power to one guarded, commonly capped skin dT."""
+    zero_increment = jnp.zeros_like(skin_temperature)
+    expected_shape = skin_temperature.shape
+    shaped_inputs = (
+        toa_radiation_flux,
+        air_temperature,
+        deep_temperature,
+        surface_pressure,
+        land_weight,
+        area_weights,
+    )
+    if any(value.shape != expected_shape for value in shaped_inputs):
+        return zero_increment
+
+    dtype = skin_temperature.dtype
+    toa_radiation_flux = jnp.asarray(toa_radiation_flux, dtype=dtype)
+    air_temperature = jnp.asarray(air_temperature, dtype=dtype)
+    deep_temperature = jnp.asarray(deep_temperature, dtype=dtype)
+    surface_pressure = jnp.asarray(surface_pressure, dtype=dtype)
+    land_weight = jnp.asarray(land_weight, dtype=dtype)
+    area_weights = jnp.asarray(area_weights, dtype=dtype)
+    lowest_sigma = jnp.asarray(lowest_sigma, dtype=dtype)
+    coupling_weight = jnp.asarray(coupling_weight, dtype=dtype)
+    step_seconds = jnp.asarray(step_seconds_si, dtype=dtype)
+
+    temperature_unit_factor = jnp.asarray(
+        _unit_factor(physics_specs, "kelvin"), dtype=dtype
+    )
+    pressure_unit_factor = jnp.asarray(
+        _unit_factor(physics_specs, "pascal"), dtype=dtype
+    )
+    power_flux_unit_factor = jnp.asarray(
+        _unit_factor(physics_specs, "watt / meter ** 2"), dtype=dtype
+    )
+    specific_heat_unit_factor = jnp.asarray(
+        _unit_factor(physics_specs, "joule / kilogram / kelvin"), dtype=dtype
+    )
+    active_land_weight = _active_land_skin_weight(land_weight).astype(dtype)
+    toa_radiation_flux_si = toa_radiation_flux / power_flux_unit_factor
+    air_temperature_si = air_temperature / temperature_unit_factor
+    skin_temperature_si = skin_temperature / temperature_unit_factor
+    deep_temperature_si = deep_temperature / temperature_unit_factor
+    lowest_pressure_si = lowest_sigma * surface_pressure / pressure_unit_factor
+    density_si = lowest_pressure_si / (
+        jnp.asarray(_DRY_AIR_GAS_CONSTANT_SI, dtype=dtype) * air_temperature_si
+    )
+    cp_si = jnp.asarray(physics_specs.Cp, dtype=dtype) / specific_heat_unit_factor
+    skin_heat_capacity_si = (
+        density_si
+        * cp_si
+        * _LAND_SKIN_RESERVOIR_EXCHANGE_DEPTH_METERS
+        / _LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO
+    )
+    shortwave_power, longwave_power = _zero_mean_radiative_land_skin_power(
+        toa_radiation_flux_si=toa_radiation_flux_si,
+        skin_temperature_si=skin_temperature_si,
+        deep_temperature_si=deep_temperature_si,
+        active_land_weight=active_land_weight,
+        area_weights=area_weights,
+    )
+    radiative_power = shortwave_power + longwave_power
+    raw_increment = (
+        jnp.clip(coupling_weight, 0.0, 1.0)
+        * radiative_power
+        * step_seconds
+        / skin_heat_capacity_si
+        * temperature_unit_factor
+    )
+    active_increment_magnitude = jnp.max(
+        jnp.where(
+            active_land_weight > 0.0,
+            jnp.abs(raw_increment),
+            jnp.zeros_like(raw_increment),
+        )
+    )
+    increment_cap = _land_skin_temperature_increment_cap(physics_specs).astype(dtype)
+    common_scale = jnp.minimum(
+        jnp.asarray(1.0, dtype=dtype),
+        increment_cap
+        / jnp.maximum(active_increment_magnitude, jnp.asarray(1.0e-30, dtype=dtype)),
+    )
+    capped_increment = raw_increment * common_scale
+    active_area_sum = jnp.sum(active_land_weight * area_weights)
+    finite_diagnostics = jnp.all(
+        jnp.asarray(
+            [
+                jnp.all(jnp.isfinite(toa_radiation_flux)),
+                jnp.all(toa_radiation_flux >= 0.0),
+                jnp.all(jnp.isfinite(air_temperature)),
+                jnp.all(jnp.isfinite(skin_temperature)),
+                jnp.all(jnp.isfinite(deep_temperature)),
+                jnp.all(air_temperature > 0.0),
+                jnp.all(skin_temperature > 0.0),
+                jnp.all(deep_temperature > 0.0),
+                jnp.all(jnp.isfinite(surface_pressure)),
+                jnp.all(surface_pressure > 0.0),
+                jnp.all(jnp.isfinite(land_weight)),
+                jnp.all(land_weight >= 0.0),
+                jnp.all(land_weight <= 1.0),
+                jnp.all(jnp.isfinite(area_weights)),
+                jnp.all(area_weights > 0.0),
+                jnp.isfinite(active_area_sum),
+                active_area_sum > 0.0,
+                jnp.isfinite(lowest_sigma),
+                lowest_sigma > 0.0,
+                jnp.isfinite(coupling_weight),
+                coupling_weight >= 0.0,
+                coupling_weight <= 1.0,
+                jnp.isfinite(step_seconds),
+                step_seconds > 0.0,
+                jnp.isfinite(temperature_unit_factor),
+                temperature_unit_factor > 0.0,
+                jnp.isfinite(pressure_unit_factor),
+                pressure_unit_factor > 0.0,
+                jnp.isfinite(power_flux_unit_factor),
+                power_flux_unit_factor > 0.0,
+                jnp.isfinite(specific_heat_unit_factor),
+                specific_heat_unit_factor > 0.0,
+                jnp.isfinite(cp_si),
+                cp_si > 0.0,
+                jnp.all(jnp.isfinite(lowest_pressure_si)),
+                jnp.all(lowest_pressure_si > 0.0),
+                jnp.all(jnp.isfinite(density_si)),
+                jnp.all(density_si > 0.0),
+                jnp.all(jnp.isfinite(skin_heat_capacity_si)),
+                jnp.all(skin_heat_capacity_si > 0.0),
+                jnp.all(jnp.isfinite(shortwave_power)),
+                jnp.all(jnp.isfinite(longwave_power)),
+                jnp.all(jnp.isfinite(radiative_power)),
+                jnp.all(jnp.isfinite(raw_increment)),
+                jnp.isfinite(active_increment_magnitude),
+                jnp.isfinite(increment_cap),
+                increment_cap > 0.0,
+                jnp.isfinite(common_scale),
+                jnp.all(jnp.isfinite(capped_increment)),
+            ]
+        )
+    )
+    return jnp.where(finite_diagnostics, capped_increment, zero_increment)
+
+
+def _zero_mean_radiative_land_skin_increment(
+    *,
+    state: Any,
+    air_temperature: jax.Array,
+    skin_temperature: jax.Array,
+    deep_temperature: jax.Array,
+    land_weight: jax.Array,
+    coupling_weight: jax.Array | float,
+    coords: coordinate_systems.CoordinateSystem,
+    physics_specs: Any,
+    step_seconds_si: float,
+    solar_radiation_model: radiation.SolarRadiation,
+    radiation_time_offset: jax.Array,
+) -> jax.Array:
+    """Evaluate the current per-sample solar phase and guarded skin increment."""
+    if state.sim_time is None:
+        return jnp.zeros_like(skin_temperature)
+    radiation_time_offset = jnp.asarray(
+        radiation_time_offset, dtype=skin_temperature.dtype
+    )
+    sim_time = jnp.asarray(state.sim_time, dtype=skin_temperature.dtype)
+    radiation_time = radiation_time_offset + sim_time
+    toa_radiation_flux = solar_radiation_model.radiation_flux(radiation_time)
+    surface_pressure = jnp.exp(
+        coords.horizontal.to_nodal(state.log_surface_pressure)[0]
+    )
+    increment = _zero_mean_radiative_land_skin_temperature_increment(
+        toa_radiation_flux=toa_radiation_flux,
+        air_temperature=air_temperature,
+        skin_temperature=skin_temperature,
+        deep_temperature=deep_temperature,
+        surface_pressure=surface_pressure,
+        land_weight=land_weight,
+        area_weights=jnp.asarray(coords.horizontal.quadrature_weights),
+        lowest_sigma=jnp.asarray(coords.vertical.centers)[-1],
+        coupling_weight=coupling_weight,
+        physics_specs=physics_specs,
+        step_seconds_si=step_seconds_si,
+    )
+    valid_time = (
+        jnp.all(jnp.isfinite(radiation_time_offset))
+        & jnp.all(jnp.isfinite(sim_time))
+        & jnp.all(jnp.isfinite(radiation_time))
+    )
+    return jnp.where(valid_time, increment, jnp.zeros_like(increment))
 
 
 def _lowest_layer_temperature(
@@ -3455,6 +3852,20 @@ def ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model() -> (
             "pthick_ri2m_lateskin_skri_a2si_ori"
         ),
         use_ocean_anchor_ri2m_lower_boundary=True,
+    )
+
+
+def zero_mean_radiative_land_skin_energy_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the incumbent with zero-net radiative land-skin energy."""
+    return replace(
+        ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model(),
+        name=(
+            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+            "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+        ),
+        apply_zero_mean_radiative_land_skin_energy=True,
     )
 
 

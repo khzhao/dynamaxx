@@ -330,6 +330,15 @@ def dino_lateskin_skri_a2si_ori_model() -> DycoreModel:
     return ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model()
 
 
+def dino_lateskin_skri_a2si_ori_rskin_model() -> DycoreModel:
+    """Return the incumbent with zero-net radiative land-skin energy."""
+    from dynamaxx.dycore.models.dinosaur import (
+        zero_mean_radiative_land_skin_energy_dinosaur_dycore_model,
+    )
+
+    return zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -438,6 +447,10 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
         "pthick_ri2m_lateskin_skri_a2si_ori"
     ): dino_lateskin_skri_a2si_ori_model,
+    (
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+    ): dino_lateskin_skri_a2si_ori_rskin_model,
 }
 
 
