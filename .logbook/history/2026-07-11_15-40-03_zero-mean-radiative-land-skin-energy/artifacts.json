@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "zero-mean-radiative-land-skin-energy",
+  "history_path": ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy",
+  "source_artifacts": [
+    {
+      "type": "git_commit",
+      "path": "8d8b2cba4399bf9f35689c4e55855e2436d367a6",
+      "description": "Accepted source/test commit for zero-mean radiative land-skin energy."
+    },
+    {
+      "type": "diff",
+      "path": ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/candidate.diff",
+      "sha256": "a84e6b7448200603fb42d5b213723c1e083956cd8057107a9a349c2413b62594",
+      "description": "Exact six-file implementation diff captured before acceptance."
+    }
+  ],
+  "evaluation_artifacts": [
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.json",
+      "sha256": "10c0c88dd0bd782faad3010a1a5ffb528aa4f301df2ca85943144501811af9fe",
+      "description": "Candidate fast metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/fast_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.csv",
+      "sha256": "a22193d21ea25ad61c8a294aa1e7785416ae08454bf166de07ae23919795accc",
+      "description": "Candidate fast metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.json",
+      "sha256": "4097de3f1dfc95a978e85c45a9e77d4a15a46f7feead6260c945617c3e888471",
+      "description": "Candidate iteration metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.csv",
+      "sha256": "62cce8abb724e50a6ff2f75857aa51fb9eb1c5dd622bab5ff3e7c836b9dc943c",
+      "description": "Candidate iteration metrics table."
+    },
+    {
+      "type": "metrics_json",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.json",
+      "sha256": "663ec458c764e4d169842f71d129da349fab52dc2dc735b3279c1e30e52cbecf",
+      "description": "Candidate validation metrics."
+    },
+    {
+      "type": "metrics_csv",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.csv",
+      "sha256": "3d1cda55f61c2bec08f8ccb0900a4352b6385e8e2d83d73a72e53177d9d4cd08",
+      "description": "Candidate validation metrics table."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+      "sha256": "6e6f1844ac6e6bbe5fcc067c61483b6f51393155b7cefaf9543f8bbf173c6a49",
+      "description": "Cached incumbent iteration metrics reused without rerun."
+    },
+    {
+      "type": "cached_incumbent_metrics",
+      "path": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori.json",
+      "sha256": "920b91240fe66eec975d4b60abcc4bfa79e7efa1620c59e49d38de2ab4cbabe9",
+      "description": "Cached incumbent validation metrics reused without rerun."
+    }
+  ],
+  "log_artifacts": [
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/proposal.md",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/resource_snapshot.md",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/implementation.md",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/candidate.diff",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/scores.json",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/scoring_notes.md",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/decision.md",
+    ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy/artifacts.json"
+  ],
+  "notes": "Accepted candidate. Incumbent metrics were reused from the valid leaderboard cache; no incumbent rerun, rejected-artifact commit, or golden evaluation was performed."
+}

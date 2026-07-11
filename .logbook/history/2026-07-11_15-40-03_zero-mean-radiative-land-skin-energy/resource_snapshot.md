@@ -1,0 +1,23 @@
+# Resource Snapshot
+
+- Recorded at: 2026-07-11T15:39:00Z
+- Baseline HEAD: b3acd8d84198fab11a43aa9b029f51087be4caa6
+- Accepted incumbent source commit: ea124f2d1b43e8e9e54efcbe0abf05e80f6b8001
+- Incumbent model: dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori
+- Baseline worktree: only protected pre-existing `?? gifs/`
+- CPU count: 48
+- Available RAM: 186098622464 bytes
+- GPUs: four idle NVIDIA L4 devices; 22566 MiB free on each
+- Free repository/output disk: 4439639015424 bytes
+- Selected scoring workers: 4
+- Worker rationale: four idle GPUs, about 173 GiB available RAM, 48 CPUs, and more than 4 TiB free disk satisfy protocol limits.
+- WeatherBench2 path: /home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative
+- Incumbent cache status: valid and authoritative; the preceding rejected candidate did not change source HEAD, evaluation code, fixed protocols, or accepted cache files.
+- Incumbent iteration score: -0.08429962366251152
+- Incumbent validation score: -0.08458916260281377
+- Incumbent iteration JSON SHA-256: 6e6f1844ac6e6bbe5fcc067c61483b6f51393155b7cefaf9543f8bbf173c6a49
+- Incumbent iteration CSV SHA-256: 7437b08470d110f579539a57ac628f853ada64c5bfdd9617e1d8fcf04ea451dd
+- Incumbent validation JSON SHA-256: 920b91240fe66eec975d4b60abcc4bfa79e7efa1620c59e49d38de2ab4cbabe9
+- Incumbent validation CSV SHA-256: 0e3a0e7e45c344981af31d61aae9ce9a82e618502cc827f5f43e95a5f6e01dbf
+- Incumbent rerun authorized: no.
+- Golden authorized: no.
