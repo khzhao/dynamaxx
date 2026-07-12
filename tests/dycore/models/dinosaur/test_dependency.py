@@ -177,6 +177,7 @@ assert dinosaur.zero_mean_radiative_land_skin_energy_dinosaur_dycore_model().nam
     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
     "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
 )
+assert dinosaur.anticipated_pv_flux_dinosaur_dycore_model().name == "dino_rskin_apv"
 assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
 
 fields = {
@@ -293,6 +294,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
         "pthick_ri2m_lateskin_skri_a2si_ori",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
         "pthick_ri2m_lateskin_skri_a2si_ori_rskin",
+        "dino_rskin_apv",
     )
 
     model = create_dycore_model("dinosaur")

@@ -71,6 +71,7 @@ def test_registry_lists_default_dycore_models():
         "pthick_ri2m_lateskin_skri_a2si_ori",
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
         "pthick_ri2m_lateskin_skri_a2si_ori_rskin",
+        "dino_rskin_apv",
     )
 
 
@@ -965,6 +966,23 @@ def test_registry_creates_zero_mean_radiative_land_skin_model():
             "name",
             "apply_zero_mean_radiative_land_skin_energy",
         }:
+            continue
+        assert getattr(model, field_name) == getattr(incumbent, field_name)
+
+
+def test_registry_creates_anticipated_pv_flux_model():
+    """The APVM model changes only the radiative incumbent name and selector."""
+    model = create_dycore_model("dino_rskin_apv")
+    incumbent = create_dycore_model(
+        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+        "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+    )
+
+    assert model.name == "dino_rskin_apv"
+    assert model.apply_anticipated_pv_flux
+    assert not incumbent.apply_anticipated_pv_flux
+    for field_name in model.__dataclass_fields__:
+        if field_name in {"name", "apply_anticipated_pv_flux"}:
             continue
         assert getattr(model, field_name) == getattr(incumbent, field_name)
 

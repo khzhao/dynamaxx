@@ -990,6 +990,18 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         default=False,
         kw_only=True,
     )
+    use_anticipated_pv_flux: bool = dataclasses.field(
+        default=False,
+        kw_only=True,
+    )
+    anticipated_pv_step_seconds: float = dataclasses.field(
+        default=0.0,
+        kw_only=True,
+    )
+    anticipated_pv_coriolis_parameter: Array | None = dataclasses.field(
+        default=None,
+        kw_only=True,
+    )
     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
         default=0.0,
         kw_only=True,
@@ -1160,10 +1172,143 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         g_part = (alpha * f + jnp.pad(alpha * f, padding)[:-1, ...]) / del_𝜎
         return temperature_field * (v_dot_grad_log_sp - g_part)
 
+    def _anticipated_pv_input_shapes_are_valid(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+    ) -> bool:
+        """Return whether APVM-only inputs match the equation grid."""
+        expected_nodal_shape = (
+            self.coords.vertical.layers,
+            *self.coords.horizontal.nodal_shape,
+        )
+        coriolis_parameter = self.anticipated_pv_coriolis_parameter
+        return (
+            coriolis_parameter is not None
+            and coriolis_parameter.shape == self.coords.horizontal.nodal_shape
+            and state.log_surface_pressure.shape == self.coords.surface_modal_shape
+            and aux_state.vorticity.shape == expected_nodal_shape
+            and aux_state.cos_lat_u[0].shape == expected_nodal_shape
+            and aux_state.cos_lat_u[1].shape == expected_nodal_shape
+        )
+
+    @jax.named_call
+    def _anticipated_pv_diagnostic(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+    ) -> tuple[Array, Array, Array]:
+        """Return sigma-layer pressure mass, PV proxy, and valid-mass mask."""
+        nodal_log_surface_pressure = self.coords.horizontal.to_nodal(
+            state.log_surface_pressure
+        )
+        nodal_surface_pressure = jnp.exp(nodal_log_surface_pressure)
+        layer_sigma_thickness = jnp.asarray(
+            self.coords.vertical.layer_thickness,
+            dtype=nodal_surface_pressure.dtype,
+        )[:, np.newaxis, np.newaxis]
+        layer_pressure_mass = nodal_surface_pressure * layer_sigma_thickness
+        valid_layer_pressure_mass = jnp.isfinite(layer_pressure_mass) & (
+            layer_pressure_mass > 0.0
+        )
+        safe_layer_pressure_mass = jnp.where(
+            valid_layer_pressure_mass,
+            layer_pressure_mass,
+            jnp.ones_like(layer_pressure_mass),
+        )
+        physical_coriolis_parameter = jnp.asarray(
+            self.anticipated_pv_coriolis_parameter,
+            dtype=aux_state.vorticity.dtype,
+        )
+        layer_potential_vorticity = (
+            aux_state.vorticity + physical_coriolis_parameter
+        ) / safe_layer_pressure_mass
+        return (
+            layer_pressure_mass,
+            layer_potential_vorticity,
+            valid_layer_pressure_mass,
+        )
+
+    @jax.named_call
+    def _anticipated_pv_flux_components(
+        self,
+        state: State,
+        aux_state: DiagnosticStateSigma,
+    ) -> tuple[Array, Array, Array, Array]:
+        """Return APVM flux components, anticipated vorticity, and validity."""
+        (
+            layer_pressure_mass,
+            layer_potential_vorticity,
+            valid_layer_pressure_mass,
+        ) = self._anticipated_pv_diagnostic(state, aux_state)
+        modal_potential_vorticity = self.coords.horizontal.to_modal(
+            layer_potential_vorticity
+        )
+        modal_cos_lat_grad_pv = self.coords.horizontal.cos_lat_grad(
+            modal_potential_vorticity,
+            clip=False,
+        )
+        nodal_cos_lat_grad_pv = self.coords.horizontal.to_nodal(modal_cos_lat_grad_pv)
+        u, v = aux_state.cos_lat_u
+        pv_material_derivative = (
+            u * nodal_cos_lat_grad_pv[0] + v * nodal_cos_lat_grad_pv[1]
+        ) * self.coords.horizontal.sec2_lat
+        anticipated_pv_step_seconds = jnp.asarray(
+            self.anticipated_pv_step_seconds,
+            dtype=layer_pressure_mass.dtype,
+        )
+        delta_absolute_vorticity = (
+            -layer_pressure_mass * anticipated_pv_step_seconds * pv_material_derivative
+        )
+        anticipated_flux_u = (
+            -v * delta_absolute_vorticity * self.coords.horizontal.sec2_lat
+        )
+        anticipated_flux_v = (
+            u * delta_absolute_vorticity * self.coords.horizontal.sec2_lat
+        )
+        diagnostics_valid = jnp.all(
+            jnp.asarray(
+                [
+                    jnp.all(valid_layer_pressure_mass),
+                    jnp.isfinite(anticipated_pv_step_seconds)
+                    & (anticipated_pv_step_seconds > 0.0),
+                    jnp.all(jnp.isfinite(layer_potential_vorticity)),
+                    jnp.all(jnp.isfinite(modal_potential_vorticity)),
+                    jnp.all(
+                        jnp.stack(
+                            [
+                                jnp.all(jnp.isfinite(component))
+                                for component in modal_cos_lat_grad_pv
+                            ]
+                        )
+                    ),
+                    jnp.all(
+                        jnp.stack(
+                            [
+                                jnp.all(jnp.isfinite(component))
+                                for component in nodal_cos_lat_grad_pv
+                            ]
+                        )
+                    ),
+                    jnp.all(jnp.isfinite(pv_material_derivative)),
+                    jnp.all(jnp.isfinite(delta_absolute_vorticity)),
+                    jnp.all(jnp.isfinite(anticipated_flux_u)),
+                    jnp.all(jnp.isfinite(anticipated_flux_v)),
+                ]
+            )
+        )
+        return (
+            anticipated_flux_u,
+            anticipated_flux_v,
+            delta_absolute_vorticity,
+            diagnostics_valid,
+        )
+
     @jax.named_call
     def curl_and_div_tendencies(
         self,
         aux_state: DiagnosticStateSigma,
+        state: State | None = None,
     ) -> tuple[Array, Array]:
         """Computes curl and divergence tendencies for vorticity ζ and divergence 𝛅.
 
@@ -1177,6 +1322,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
 
         Args:
           aux_state: diagnostic state with pre-computed nodal values.
+          state: modal forecast state used only by the optional APVM diagnostic.
 
         Returns:
           Tuple of divergence and vorticity tendencies due to curl and divergence
@@ -1211,14 +1357,66 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         combined_v = self.coords.horizontal.to_modal(
             nodal_vorticity_v + vertical_term_v
         )
-        # computing tendencies
+        # Compute the incumbent pair independently for exact guarded fallback.
         dζ_dt = -self.coords.horizontal.curl_cos_lat(
             (combined_u, combined_v), clip=False
         )
         d𝛅_dt = -self.coords.horizontal.div_cos_lat(
             (combined_u, combined_v), clip=False
         )
-        return (dζ_dt, d𝛅_dt)
+        incumbent_tendencies = (dζ_dt, d𝛅_dt)
+        if (
+            not self.use_anticipated_pv_flux
+            or state is None
+            or not self._anticipated_pv_input_shapes_are_valid(state, aux_state)
+        ):
+            return incumbent_tendencies
+
+        (
+            anticipated_flux_u,
+            anticipated_flux_v,
+            _,
+            apvm_diagnostics_valid,
+        ) = self._anticipated_pv_flux_components(state, aux_state)
+
+        candidate_combined_u = self.coords.horizontal.to_modal(
+            nodal_vorticity_u + anticipated_flux_u + vertical_term_u
+        )
+        candidate_combined_v = self.coords.horizontal.to_modal(
+            nodal_vorticity_v + anticipated_flux_v + vertical_term_v
+        )
+        candidate_vorticity_tendency = -self.coords.horizontal.curl_cos_lat(
+            (candidate_combined_u, candidate_combined_v),
+            clip=False,
+        )
+        candidate_divergence_tendency = -self.coords.horizontal.div_cos_lat(
+            (candidate_combined_u, candidate_combined_v),
+            clip=False,
+        )
+
+        all_diagnostics_valid = jnp.all(
+            jnp.asarray(
+                [
+                    apvm_diagnostics_valid,
+                    jnp.all(jnp.isfinite(candidate_combined_u)),
+                    jnp.all(jnp.isfinite(candidate_combined_v)),
+                    jnp.all(jnp.isfinite(candidate_vorticity_tendency)),
+                    jnp.all(jnp.isfinite(candidate_divergence_tendency)),
+                ]
+            )
+        )
+        return (
+            jnp.where(
+                all_diagnostics_valid,
+                candidate_vorticity_tendency,
+                dζ_dt,
+            ),
+            jnp.where(
+                all_diagnostics_valid,
+                candidate_divergence_tendency,
+                d𝛅_dt,
+            ),
+        )
 
     @jax.named_call
     def nodal_temperature_vertical_tendency(
@@ -1981,7 +2179,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         """Computes explicit tendencies of the primitive equations."""
         aux_state = compute_diagnostic_state_sigma(state, self.coords)
         # tendencies that are computed in modal representation
-        vorticity_dot, divergence_dot = self.curl_and_div_tendencies(aux_state)
+        vorticity_dot, divergence_dot = self.curl_and_div_tendencies(
+            aux_state,
+            state=state,
+        )
         kinetic_energy_tendency = self.kinetic_energy_tendency(aux_state)
         orography_tendency = self.orography_tendency()
 
@@ -3380,6 +3581,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
         use_dry_static_energy_hsl_transport: bool = False,
         use_layer_mass_weighted_dse_hsl_transport: bool = False,
         use_pressure_ramped_vertical_dse_increment: bool = False,
+        use_anticipated_pv_flux: bool = False,
+        anticipated_pv_step_seconds: float = 0.0,
+        anticipated_pv_coriolis_parameter: Array | None = None,
         horizontal_semilagrangian_theta_transport_step: float = 0.0,
     ):
         super().__init__(
@@ -3409,6 +3613,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             use_pressure_ramped_vertical_dse_increment=(
                 use_pressure_ramped_vertical_dse_increment
             ),
+            use_anticipated_pv_flux=use_anticipated_pv_flux,
+            anticipated_pv_step_seconds=anticipated_pv_step_seconds,
+            anticipated_pv_coriolis_parameter=(anticipated_pv_coriolis_parameter),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
             ),

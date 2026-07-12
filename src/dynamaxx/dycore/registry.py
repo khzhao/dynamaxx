@@ -339,6 +339,15 @@ def dino_lateskin_skri_a2si_ori_rskin_model() -> DycoreModel:
     return zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
 
 
+def dino_rskin_apv_model() -> DycoreModel:
+    """Return the radiative-skin incumbent with rollout-only APVM flux."""
+    from dynamaxx.dycore.models.dinosaur import (
+        anticipated_pv_flux_dinosaur_dycore_model,
+    )
+
+    return anticipated_pv_flux_dinosaur_dycore_model()
+
+
 DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
     "persistence": persistence_model,
     "dinosaur": dinosaur_model,
@@ -451,6 +460,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
         "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
     ): dino_lateskin_skri_a2si_ori_rskin_model,
+    "dino_rskin_apv": dino_rskin_apv_model,
 }
 
 

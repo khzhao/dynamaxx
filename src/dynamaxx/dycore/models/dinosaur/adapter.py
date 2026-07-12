@@ -207,6 +207,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
     use_dry_static_energy_hsl_transport: bool = False
     use_layer_mass_weighted_dse_hsl_transport: bool = False
     use_pressure_ramped_vertical_dse_increment: bool = False
+    apply_anticipated_pv_flux: bool = False
     apply_tropical_wtg_mass_dse_relaxation: bool = False
     apply_coupled_ekman_surface_closure: bool = False
     use_coriolis_scaled_ekman_depth: bool = False
@@ -510,6 +511,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
             if use_coriolis_rotation_split
             else physics_specs
         )
+        anticipated_pv_coriolis_parameter = None
+        if self.apply_anticipated_pv_flux:
+            _, sin_latitude = coords.horizontal.nodal_mesh
+            anticipated_pv_coriolis_parameter = (
+                2.0 * physics_specs.angular_velocity * sin_latitude
+            )
         humidity_key = SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
         use_analysis_offset_equilibrium = (
             self.apply_weak_held_suarez_relaxation
@@ -541,6 +548,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
             equation_physics_specs: Any,
             equilibrium_temperature_offset: jax.Array | None = None,
             ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
+            use_anticipated_pv_flux: bool = False,
         ) -> Any:
             equation = _primitive_equation(
                 reference_temperature=reference_temperature,
@@ -564,6 +572,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 ),
                 use_pressure_ramped_vertical_dse_increment=(
                     self.use_pressure_ramped_vertical_dse_increment
+                ),
+                use_anticipated_pv_flux=use_anticipated_pv_flux,
+                anticipated_pv_step_seconds=(
+                    step_seconds if use_anticipated_pv_flux else 0.0
+                ),
+                anticipated_pv_coriolis_parameter=(
+                    anticipated_pv_coriolis_parameter
+                    if use_anticipated_pv_flux
+                    else None
                 ),
                 horizontal_semilagrangian_theta_transport_step=step_seconds,
             )
@@ -623,6 +640,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 rollout_physics_specs,
                 equilibrium_temperature_offset=equilibrium_temperature_offset,
                 ocean_bulk_shf_temperature_anchor=ocean_bulk_shf_temperature_anchor,
+                use_anticipated_pv_flux=self.apply_anticipated_pv_flux,
             )
             filters = build_filters(rollout_physics_specs)
             if (
@@ -642,12 +660,14 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 dfi_equation = build_equation(
                     physics_specs,
                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                    use_anticipated_pv_flux=False,
                 )
                 dfi_filters = build_filters(physics_specs)
-            elif use_ocean_bulk_sensible_heat_flux:
+            elif use_ocean_bulk_sensible_heat_flux or self.apply_anticipated_pv_flux:
                 dfi_equation = build_equation(
                     rollout_physics_specs,
                     equilibrium_temperature_offset=equilibrium_temperature_offset,
+                    use_anticipated_pv_flux=False,
                 )
             if self.apply_tropical_wtg_mass_dse_relaxation:
                 filters.append(
@@ -3869,6 +3889,17 @@ def zero_mean_radiative_land_skin_energy_dinosaur_dycore_model() -> (
     )
 
 
+def anticipated_pv_flux_dinosaur_dycore_model() -> (
+    DinosaurPrimitiveEquationsDycoreModel
+):
+    """Return the radiative-skin incumbent with rollout-only APVM flux."""
+    return replace(
+        zero_mean_radiative_land_skin_energy_dinosaur_dycore_model(),
+        name="dino_rskin_apv",
+        apply_anticipated_pv_flux=True,
+    )
+
+
 def weather_state_to_dinosaur_state(
     state: WeatherState,
     *,
@@ -5793,6 +5824,9 @@ def _primitive_equation(
     use_dry_static_energy_hsl_transport: bool = False,
     use_layer_mass_weighted_dse_hsl_transport: bool = False,
     use_pressure_ramped_vertical_dse_increment: bool = False,
+    use_anticipated_pv_flux: bool = False,
+    anticipated_pv_step_seconds: float = 0.0,
+    anticipated_pv_coriolis_parameter: jax.Array | None = None,
     horizontal_semilagrangian_theta_transport_step: float = 0.0,
 ) -> Any:
     """Build the Dinosaur primitive-equation object for this adapter."""
@@ -5817,6 +5851,9 @@ def _primitive_equation(
             use_pressure_ramped_vertical_dse_increment=(
                 use_pressure_ramped_vertical_dse_increment
             ),
+            use_anticipated_pv_flux=use_anticipated_pv_flux,
+            anticipated_pv_step_seconds=anticipated_pv_step_seconds,
+            anticipated_pv_coriolis_parameter=(anticipated_pv_coriolis_parameter),
             horizontal_semilagrangian_theta_transport_step=(
                 horizontal_semilagrangian_theta_transport_step
             ),
@@ -5842,6 +5879,9 @@ def _primitive_equation(
         use_pressure_ramped_vertical_dse_increment=(
             use_pressure_ramped_vertical_dse_increment
         ),
+        use_anticipated_pv_flux=use_anticipated_pv_flux,
+        anticipated_pv_step_seconds=anticipated_pv_step_seconds,
+        anticipated_pv_coriolis_parameter=anticipated_pv_coriolis_parameter,
         horizontal_semilagrangian_theta_transport_step=(
             horizontal_semilagrangian_theta_transport_step
         ),
