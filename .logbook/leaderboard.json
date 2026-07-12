@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "incumbent_model_name": "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin",
-  "incumbent_commit": "8d8b2cba4399bf9f35689c4e55855e2436d367a6",
-  "updated_at": "2026-07-11T21:06:54Z",
-  "iteration_primary_score": -0.07908852007250675,
-  "validation_primary_score": -0.07929026517101266,
-  "history_path": ".logbook/history/2026-07-11_15-40-03_zero-mean-radiative-land-skin-energy",
-  "iteration_metrics_json": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.json",
-  "iteration_metrics_csv": "outputs/eval/iteration_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.csv",
-  "validation_metrics_json": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.json",
-  "validation_metrics_csv": "outputs/eval/validation_dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin.csv",
+  "incumbent_model_name": "dino_rskin_apv",
+  "incumbent_commit": "7174848c3641a43299fc5c2682bef2fc75f2ff89",
+  "updated_at": "2026-07-12T08:27:19Z",
+  "iteration_primary_score": -0.07495718284454471,
+  "validation_primary_score": -0.07524184185018803,
+  "history_path": ".logbook/history/2026-07-12_02-51-03_one-step-anticipated-pv-flux",
+  "iteration_metrics_json": "outputs/eval/iteration_dino_rskin_apv.json",
+  "iteration_metrics_csv": "outputs/eval/iteration_dino_rskin_apv.csv",
+  "validation_metrics_json": "outputs/eval/validation_dino_rskin_apv.json",
+  "validation_metrics_csv": "outputs/eval/validation_dino_rskin_apv.csv",
   "evaluation_fingerprint": {
     "data_path": "/home/ubuntu/data/weathermaxx-data/weatherbench2/datasets/v1/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative",
     "protocols": [
@@ -23,7 +23,7 @@
       "10m_u_component_of_wind"
     ],
     "lead_days": "1..15",
-    "eval_code_commit": "8d8b2cba4399bf9f35689c4e55855e2436d367a6"
+    "eval_code_commit": "7174848c3641a43299fc5c2682bef2fc75f2ff89"
   },
-  "notes": "Accepted zero-mean-radiative-land-skin-energy after it improved iteration by +0.005211103590004776 and validation by +0.005298897431801106 over cached dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation metrics were reused from the leaderboard cache; no incumbent rerun was performed. The accepted source/test changes were committed as 8d8b2cba4399bf9f35689c4e55855e2436d367a6 with the full positive-commit protocol body."
+  "notes": "Accepted one-step-anticipated-pv-flux after it improved iteration by +0.004131337227962037 and validation by +0.004048423320824626 over cached dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri_a2si_ori_rskin metrics, with clean diagnostics and no fixed guardrail violations. Incumbent iteration and validation artifacts were reused from cache; no incumbent or golden command was run. The accepted source/test changes were committed as 7174848c3641a43299fc5c2682bef2fc75f2ff89 with the full positive-commit protocol body."
 }

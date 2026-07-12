@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "proposal_slug": "one-step-anticipated-pv-flux",
+  "history_path": ".logbook/history/2026-07-12_02-51-03_one-step-anticipated-pv-flux",
+  "source_commit": "7174848c3641a43299fc5c2682bef2fc75f2ff89",
+  "source_artifacts": [
+    "src/dynamaxx/dycore/models/dinosaur/primitive_equations.py",
+    "src/dynamaxx/dycore/models/dinosaur/adapter.py",
+    "src/dynamaxx/dycore/models/dinosaur/__init__.py",
+    "src/dynamaxx/dycore/registry.py",
+    "tests/dycore/models/dinosaur/test_anticipated_pv_flux.py",
+    "tests/dycore/models/dinosaur/test_dependency.py",
+    "tests/dycore/test_registry.py"
+  ],
+  "evaluation_artifacts": [
+    {
+      "path": "outputs/eval/fast_dino_rskin_apv.json",
+      "sha256": "4f58f5f9a46bf19222e26ae7630b86cbe6d4aafff600088420b129cbbaca9834"
+    },
+    {
+      "path": "outputs/eval/fast_dino_rskin_apv.csv",
+      "sha256": "757ae67eee8f207449deae387e925a422851c885ee4959f5cb906c557e4a1cfb"
+    },
+    {
+      "path": "outputs/eval/iteration_dino_rskin_apv.json",
+      "sha256": "590d093b99e0180c46e1e6cb8c4f84d0f36f587daf07cfb60b1dcad00d987214"
+    },
+    {
+      "path": "outputs/eval/iteration_dino_rskin_apv.csv",
+      "sha256": "254d2166b510a3e9a36314e6ed5a2f53a0afcc557e80703fbce5a30e79f4b826"
+    },
+    {
+      "path": "outputs/eval/validation_dino_rskin_apv.json",
+      "sha256": "44ba131f6bab58198393c15166f9ba0233dc4131367168e7624b3d6ffc60d07b"
+    },
+    {
+      "path": "outputs/eval/validation_dino_rskin_apv.csv",
+      "sha256": "bdb5ca6eaea982220faa6cc4f7d948d8ffe352395440470196a5a8d70d322e67"
+    }
+  ],
+  "log_artifacts": [
+    "proposal.md",
+    "resource_snapshot.md",
+    "implementation.md",
+    "candidate.diff",
+    "scores.json",
+    "scoring_notes.md",
+    "decision.md",
+    "artifacts.json"
+  ],
+  "candidate_diff_sha256": "c05bf8f247f386bd3148eec6ce33ee2ecc5f403d8073baab7ba0dce01ee30f94",
+  "notes": "Accepted after clean fast, iteration, and validation gates. Cached incumbent metrics were reused; no incumbent or golden evaluation command was run."
+}

@@ -1,0 +1,928 @@
+diff --git a/src/dynamaxx/dycore/models/dinosaur/__init__.py b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+index 0d2349b..21c2140 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/__init__.py
++++ b/src/dynamaxx/dycore/models/dinosaur/__init__.py
+@@ -46,6 +46,7 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
+     DinosaurPrimitiveEquationsDycoreModel,
+     analysis_2m_initialized_land_skin_dinosaur_dycore_model,
+     analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
++    anticipated_pv_flux_dinosaur_dycore_model,
+     bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model,
+     coriolis_split_dinosaur_dycore_model,
+     coriolis_strang_split_dinosaur_dycore_model,
+@@ -95,6 +96,7 @@ __all__ = [
+     "DinosaurPrimitiveEquationsDycoreModel",
+     "analysis_2m_initialized_land_skin_dinosaur_dycore_model",
+     "analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model",
++    "anticipated_pv_flux_dinosaur_dycore_model",
+     "associated_legendre",
+     "bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model",
+     "coordinate_systems",
+diff --git a/src/dynamaxx/dycore/models/dinosaur/adapter.py b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+index 4bb2ba6..e5b6f9d 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/adapter.py
++++ b/src/dynamaxx/dycore/models/dinosaur/adapter.py
+@@ -207,6 +207,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+     use_dry_static_energy_hsl_transport: bool = False
+     use_layer_mass_weighted_dse_hsl_transport: bool = False
+     use_pressure_ramped_vertical_dse_increment: bool = False
++    apply_anticipated_pv_flux: bool = False
+     apply_tropical_wtg_mass_dse_relaxation: bool = False
+     apply_coupled_ekman_surface_closure: bool = False
+     use_coriolis_scaled_ekman_depth: bool = False
+@@ -510,6 +511,12 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             if use_coriolis_rotation_split
+             else physics_specs
+         )
++        anticipated_pv_coriolis_parameter = None
++        if self.apply_anticipated_pv_flux:
++            _, sin_latitude = coords.horizontal.nodal_mesh
++            anticipated_pv_coriolis_parameter = (
++                2.0 * physics_specs.angular_velocity * sin_latitude
++            )
+         humidity_key = SPECIFIC_HUMIDITY_VARIABLE if use_humidity_in_dynamics else None
+         use_analysis_offset_equilibrium = (
+             self.apply_weak_held_suarez_relaxation
+@@ -541,6 +548,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+             equation_physics_specs: Any,
+             equilibrium_temperature_offset: jax.Array | None = None,
+             ocean_bulk_shf_temperature_anchor: jax.Array | None = None,
++            use_anticipated_pv_flux: bool = False,
+         ) -> Any:
+             equation = _primitive_equation(
+                 reference_temperature=reference_temperature,
+@@ -565,6 +573,15 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 use_pressure_ramped_vertical_dse_increment=(
+                     self.use_pressure_ramped_vertical_dse_increment
+                 ),
++                use_anticipated_pv_flux=use_anticipated_pv_flux,
++                anticipated_pv_step_seconds=(
++                    step_seconds if use_anticipated_pv_flux else 0.0
++                ),
++                anticipated_pv_coriolis_parameter=(
++                    anticipated_pv_coriolis_parameter
++                    if use_anticipated_pv_flux
++                    else None
++                ),
+                 horizontal_semilagrangian_theta_transport_step=step_seconds,
+             )
+             if self.apply_weak_held_suarez_relaxation:
+@@ -623,6 +640,7 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 rollout_physics_specs,
+                 equilibrium_temperature_offset=equilibrium_temperature_offset,
+                 ocean_bulk_shf_temperature_anchor=ocean_bulk_shf_temperature_anchor,
++                use_anticipated_pv_flux=self.apply_anticipated_pv_flux,
+             )
+             filters = build_filters(rollout_physics_specs)
+             if (
+@@ -642,12 +660,14 @@ class DinosaurPrimitiveEquationsDycoreModel:
+                 dfi_equation = build_equation(
+                     physics_specs,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    use_anticipated_pv_flux=False,
+                 )
+                 dfi_filters = build_filters(physics_specs)
+-            elif use_ocean_bulk_sensible_heat_flux:
++            elif use_ocean_bulk_sensible_heat_flux or self.apply_anticipated_pv_flux:
+                 dfi_equation = build_equation(
+                     rollout_physics_specs,
+                     equilibrium_temperature_offset=equilibrium_temperature_offset,
++                    use_anticipated_pv_flux=False,
+                 )
+             if self.apply_tropical_wtg_mass_dse_relaxation:
+                 filters.append(
+@@ -3869,6 +3889,17 @@ def zero_mean_radiative_land_skin_energy_dinosaur_dycore_model() -> (
+     )
+ 
+ 
++def anticipated_pv_flux_dinosaur_dycore_model() -> (
++    DinosaurPrimitiveEquationsDycoreModel
++):
++    """Return the radiative-skin incumbent with rollout-only APVM flux."""
++    return replace(
++        zero_mean_radiative_land_skin_energy_dinosaur_dycore_model(),
++        name="dino_rskin_apv",
++        apply_anticipated_pv_flux=True,
++    )
++
++
+ def weather_state_to_dinosaur_state(
+     state: WeatherState,
+     *,
+@@ -5793,6 +5824,9 @@ def _primitive_equation(
+     use_dry_static_energy_hsl_transport: bool = False,
+     use_layer_mass_weighted_dse_hsl_transport: bool = False,
+     use_pressure_ramped_vertical_dse_increment: bool = False,
++    use_anticipated_pv_flux: bool = False,
++    anticipated_pv_step_seconds: float = 0.0,
++    anticipated_pv_coriolis_parameter: jax.Array | None = None,
+     horizontal_semilagrangian_theta_transport_step: float = 0.0,
+ ) -> Any:
+     """Build the Dinosaur primitive-equation object for this adapter."""
+@@ -5817,6 +5851,9 @@ def _primitive_equation(
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_anticipated_pv_flux=use_anticipated_pv_flux,
++            anticipated_pv_step_seconds=anticipated_pv_step_seconds,
++            anticipated_pv_coriolis_parameter=(anticipated_pv_coriolis_parameter),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+@@ -5842,6 +5879,9 @@ def _primitive_equation(
+         use_pressure_ramped_vertical_dse_increment=(
+             use_pressure_ramped_vertical_dse_increment
+         ),
++        use_anticipated_pv_flux=use_anticipated_pv_flux,
++        anticipated_pv_step_seconds=anticipated_pv_step_seconds,
++        anticipated_pv_coriolis_parameter=anticipated_pv_coriolis_parameter,
+         horizontal_semilagrangian_theta_transport_step=(
+             horizontal_semilagrangian_theta_transport_step
+         ),
+diff --git a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+index 4c30004..6759d43 100644
+--- a/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
++++ b/src/dynamaxx/dycore/models/dinosaur/primitive_equations.py
+@@ -990,6 +990,18 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         default=False,
+         kw_only=True,
+     )
++    use_anticipated_pv_flux: bool = dataclasses.field(
++        default=False,
++        kw_only=True,
++    )
++    anticipated_pv_step_seconds: float = dataclasses.field(
++        default=0.0,
++        kw_only=True,
++    )
++    anticipated_pv_coriolis_parameter: Array | None = dataclasses.field(
++        default=None,
++        kw_only=True,
++    )
+     horizontal_semilagrangian_theta_transport_step: float = dataclasses.field(
+         default=0.0,
+         kw_only=True,
+@@ -1160,10 +1172,143 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         g_part = (alpha * f + jnp.pad(alpha * f, padding)[:-1, ...]) / del_𝜎
+         return temperature_field * (v_dot_grad_log_sp - g_part)
+ 
++    def _anticipated_pv_input_shapes_are_valid(
++        self,
++        state: State,
++        aux_state: DiagnosticStateSigma,
++    ) -> bool:
++        """Return whether APVM-only inputs match the equation grid."""
++        expected_nodal_shape = (
++            self.coords.vertical.layers,
++            *self.coords.horizontal.nodal_shape,
++        )
++        coriolis_parameter = self.anticipated_pv_coriolis_parameter
++        return (
++            coriolis_parameter is not None
++            and coriolis_parameter.shape == self.coords.horizontal.nodal_shape
++            and state.log_surface_pressure.shape == self.coords.surface_modal_shape
++            and aux_state.vorticity.shape == expected_nodal_shape
++            and aux_state.cos_lat_u[0].shape == expected_nodal_shape
++            and aux_state.cos_lat_u[1].shape == expected_nodal_shape
++        )
++
++    @jax.named_call
++    def _anticipated_pv_diagnostic(
++        self,
++        state: State,
++        aux_state: DiagnosticStateSigma,
++    ) -> tuple[Array, Array, Array]:
++        """Return sigma-layer pressure mass, PV proxy, and valid-mass mask."""
++        nodal_log_surface_pressure = self.coords.horizontal.to_nodal(
++            state.log_surface_pressure
++        )
++        nodal_surface_pressure = jnp.exp(nodal_log_surface_pressure)
++        layer_sigma_thickness = jnp.asarray(
++            self.coords.vertical.layer_thickness,
++            dtype=nodal_surface_pressure.dtype,
++        )[:, np.newaxis, np.newaxis]
++        layer_pressure_mass = nodal_surface_pressure * layer_sigma_thickness
++        valid_layer_pressure_mass = jnp.isfinite(layer_pressure_mass) & (
++            layer_pressure_mass > 0.0
++        )
++        safe_layer_pressure_mass = jnp.where(
++            valid_layer_pressure_mass,
++            layer_pressure_mass,
++            jnp.ones_like(layer_pressure_mass),
++        )
++        physical_coriolis_parameter = jnp.asarray(
++            self.anticipated_pv_coriolis_parameter,
++            dtype=aux_state.vorticity.dtype,
++        )
++        layer_potential_vorticity = (
++            aux_state.vorticity + physical_coriolis_parameter
++        ) / safe_layer_pressure_mass
++        return (
++            layer_pressure_mass,
++            layer_potential_vorticity,
++            valid_layer_pressure_mass,
++        )
++
++    @jax.named_call
++    def _anticipated_pv_flux_components(
++        self,
++        state: State,
++        aux_state: DiagnosticStateSigma,
++    ) -> tuple[Array, Array, Array, Array]:
++        """Return APVM flux components, anticipated vorticity, and validity."""
++        (
++            layer_pressure_mass,
++            layer_potential_vorticity,
++            valid_layer_pressure_mass,
++        ) = self._anticipated_pv_diagnostic(state, aux_state)
++        modal_potential_vorticity = self.coords.horizontal.to_modal(
++            layer_potential_vorticity
++        )
++        modal_cos_lat_grad_pv = self.coords.horizontal.cos_lat_grad(
++            modal_potential_vorticity,
++            clip=False,
++        )
++        nodal_cos_lat_grad_pv = self.coords.horizontal.to_nodal(modal_cos_lat_grad_pv)
++        u, v = aux_state.cos_lat_u
++        pv_material_derivative = (
++            u * nodal_cos_lat_grad_pv[0] + v * nodal_cos_lat_grad_pv[1]
++        ) * self.coords.horizontal.sec2_lat
++        anticipated_pv_step_seconds = jnp.asarray(
++            self.anticipated_pv_step_seconds,
++            dtype=layer_pressure_mass.dtype,
++        )
++        delta_absolute_vorticity = (
++            -layer_pressure_mass * anticipated_pv_step_seconds * pv_material_derivative
++        )
++        anticipated_flux_u = (
++            -v * delta_absolute_vorticity * self.coords.horizontal.sec2_lat
++        )
++        anticipated_flux_v = (
++            u * delta_absolute_vorticity * self.coords.horizontal.sec2_lat
++        )
++        diagnostics_valid = jnp.all(
++            jnp.asarray(
++                [
++                    jnp.all(valid_layer_pressure_mass),
++                    jnp.isfinite(anticipated_pv_step_seconds)
++                    & (anticipated_pv_step_seconds > 0.0),
++                    jnp.all(jnp.isfinite(layer_potential_vorticity)),
++                    jnp.all(jnp.isfinite(modal_potential_vorticity)),
++                    jnp.all(
++                        jnp.stack(
++                            [
++                                jnp.all(jnp.isfinite(component))
++                                for component in modal_cos_lat_grad_pv
++                            ]
++                        )
++                    ),
++                    jnp.all(
++                        jnp.stack(
++                            [
++                                jnp.all(jnp.isfinite(component))
++                                for component in nodal_cos_lat_grad_pv
++                            ]
++                        )
++                    ),
++                    jnp.all(jnp.isfinite(pv_material_derivative)),
++                    jnp.all(jnp.isfinite(delta_absolute_vorticity)),
++                    jnp.all(jnp.isfinite(anticipated_flux_u)),
++                    jnp.all(jnp.isfinite(anticipated_flux_v)),
++                ]
++            )
++        )
++        return (
++            anticipated_flux_u,
++            anticipated_flux_v,
++            delta_absolute_vorticity,
++            diagnostics_valid,
++        )
++
+     @jax.named_call
+     def curl_and_div_tendencies(
+         self,
+         aux_state: DiagnosticStateSigma,
++        state: State | None = None,
+     ) -> tuple[Array, Array]:
+         """Computes curl and divergence tendencies for vorticity ζ and divergence 𝛅.
+ 
+@@ -1177,6 +1322,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+ 
+         Args:
+           aux_state: diagnostic state with pre-computed nodal values.
++          state: modal forecast state used only by the optional APVM diagnostic.
+ 
+         Returns:
+           Tuple of divergence and vorticity tendencies due to curl and divergence
+@@ -1211,14 +1357,66 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         combined_v = self.coords.horizontal.to_modal(
+             nodal_vorticity_v + vertical_term_v
+         )
+-        # computing tendencies
++        # Compute the incumbent pair independently for exact guarded fallback.
+         dζ_dt = -self.coords.horizontal.curl_cos_lat(
+             (combined_u, combined_v), clip=False
+         )
+         d𝛅_dt = -self.coords.horizontal.div_cos_lat(
+             (combined_u, combined_v), clip=False
+         )
+-        return (dζ_dt, d𝛅_dt)
++        incumbent_tendencies = (dζ_dt, d𝛅_dt)
++        if (
++            not self.use_anticipated_pv_flux
++            or state is None
++            or not self._anticipated_pv_input_shapes_are_valid(state, aux_state)
++        ):
++            return incumbent_tendencies
++
++        (
++            anticipated_flux_u,
++            anticipated_flux_v,
++            _,
++            apvm_diagnostics_valid,
++        ) = self._anticipated_pv_flux_components(state, aux_state)
++
++        candidate_combined_u = self.coords.horizontal.to_modal(
++            nodal_vorticity_u + anticipated_flux_u + vertical_term_u
++        )
++        candidate_combined_v = self.coords.horizontal.to_modal(
++            nodal_vorticity_v + anticipated_flux_v + vertical_term_v
++        )
++        candidate_vorticity_tendency = -self.coords.horizontal.curl_cos_lat(
++            (candidate_combined_u, candidate_combined_v),
++            clip=False,
++        )
++        candidate_divergence_tendency = -self.coords.horizontal.div_cos_lat(
++            (candidate_combined_u, candidate_combined_v),
++            clip=False,
++        )
++
++        all_diagnostics_valid = jnp.all(
++            jnp.asarray(
++                [
++                    apvm_diagnostics_valid,
++                    jnp.all(jnp.isfinite(candidate_combined_u)),
++                    jnp.all(jnp.isfinite(candidate_combined_v)),
++                    jnp.all(jnp.isfinite(candidate_vorticity_tendency)),
++                    jnp.all(jnp.isfinite(candidate_divergence_tendency)),
++                ]
++            )
++        )
++        return (
++            jnp.where(
++                all_diagnostics_valid,
++                candidate_vorticity_tendency,
++                dζ_dt,
++            ),
++            jnp.where(
++                all_diagnostics_valid,
++                candidate_divergence_tendency,
++                d𝛅_dt,
++            ),
++        )
+ 
+     @jax.named_call
+     def nodal_temperature_vertical_tendency(
+@@ -1981,7 +2179,10 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
+         """Computes explicit tendencies of the primitive equations."""
+         aux_state = compute_diagnostic_state_sigma(state, self.coords)
+         # tendencies that are computed in modal representation
+-        vorticity_dot, divergence_dot = self.curl_and_div_tendencies(aux_state)
++        vorticity_dot, divergence_dot = self.curl_and_div_tendencies(
++            aux_state,
++            state=state,
++        )
+         kinetic_energy_tendency = self.kinetic_energy_tendency(aux_state)
+         orography_tendency = self.orography_tendency()
+ 
+@@ -3380,6 +3581,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+         use_dry_static_energy_hsl_transport: bool = False,
+         use_layer_mass_weighted_dse_hsl_transport: bool = False,
+         use_pressure_ramped_vertical_dse_increment: bool = False,
++        use_anticipated_pv_flux: bool = False,
++        anticipated_pv_step_seconds: float = 0.0,
++        anticipated_pv_coriolis_parameter: Array | None = None,
+         horizontal_semilagrangian_theta_transport_step: float = 0.0,
+     ):
+         super().__init__(
+@@ -3409,6 +3613,9 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
+             use_pressure_ramped_vertical_dse_increment=(
+                 use_pressure_ramped_vertical_dse_increment
+             ),
++            use_anticipated_pv_flux=use_anticipated_pv_flux,
++            anticipated_pv_step_seconds=anticipated_pv_step_seconds,
++            anticipated_pv_coriolis_parameter=(anticipated_pv_coriolis_parameter),
+             horizontal_semilagrangian_theta_transport_step=(
+                 horizontal_semilagrangian_theta_transport_step
+             ),
+diff --git a/src/dynamaxx/dycore/registry.py b/src/dynamaxx/dycore/registry.py
+index e12559f..e4d821c 100644
+--- a/src/dynamaxx/dycore/registry.py
++++ b/src/dynamaxx/dycore/registry.py
+@@ -339,6 +339,15 @@ def dino_lateskin_skri_a2si_ori_rskin_model() -> DycoreModel:
+     return zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
+ 
+ 
++def dino_rskin_apv_model() -> DycoreModel:
++    """Return the radiative-skin incumbent with rollout-only APVM flux."""
++    from dynamaxx.dycore.models.dinosaur import (
++        anticipated_pv_flux_dinosaur_dycore_model,
++    )
++
++    return anticipated_pv_flux_dinosaur_dycore_model()
++
++
+ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+     "persistence": persistence_model,
+     "dinosaur": dinosaur_model,
+@@ -451,6 +460,7 @@ DYCORE_MODEL_FACTORIES: dict[str, DycoreModelFactory] = {
+         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+         "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+     ): dino_lateskin_skri_a2si_ori_rskin_model,
++    "dino_rskin_apv": dino_rskin_apv_model,
+ }
+ 
+ 
+diff --git a/tests/dycore/models/dinosaur/test_dependency.py b/tests/dycore/models/dinosaur/test_dependency.py
+index c9428f6..b1d0330 100644
+--- a/tests/dycore/models/dinosaur/test_dependency.py
++++ b/tests/dycore/models/dinosaur/test_dependency.py
+@@ -177,6 +177,7 @@ assert dinosaur.zero_mean_radiative_land_skin_energy_dinosaur_dycore_model().nam
+     "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+     "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
+ )
++assert dinosaur.anticipated_pv_flux_dinosaur_dycore_model().name == "dino_rskin_apv"
+ assert hybrid_coordinates.HybridCoordinates.ECMWF137().layers == 137
+ 
+ fields = {
+@@ -293,6 +294,7 @@ def test_dinosaur_is_registered_as_canonical_dycore_model():
+         "pthick_ri2m_lateskin_skri_a2si_ori",
+         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+         "pthick_ri2m_lateskin_skri_a2si_ori_rskin",
++        "dino_rskin_apv",
+     )
+ 
+     model = create_dycore_model("dinosaur")
+diff --git a/tests/dycore/test_registry.py b/tests/dycore/test_registry.py
+index 13af400..b48bf9b 100644
+--- a/tests/dycore/test_registry.py
++++ b/tests/dycore/test_registry.py
+@@ -71,6 +71,7 @@ def test_registry_lists_default_dycore_models():
+         "pthick_ri2m_lateskin_skri_a2si_ori",
+         "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
+         "pthick_ri2m_lateskin_skri_a2si_ori_rskin",
++        "dino_rskin_apv",
+     )
+ 
+ 
+@@ -969,6 +970,23 @@ def test_registry_creates_zero_mean_radiative_land_skin_model():
+         assert getattr(model, field_name) == getattr(incumbent, field_name)
+ 
+ 
++def test_registry_creates_anticipated_pv_flux_model():
++    """The APVM model changes only the radiative incumbent name and selector."""
++    model = create_dycore_model("dino_rskin_apv")
++    incumbent = create_dycore_model(
++        "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
++        "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
++    )
++
++    assert model.name == "dino_rskin_apv"
++    assert model.apply_anticipated_pv_flux
++    assert not incumbent.apply_anticipated_pv_flux
++    for field_name in model.__dataclass_fields__:
++        if field_name in {"name", "apply_anticipated_pv_flux"}:
++            continue
++        assert getattr(model, field_name) == getattr(incumbent, field_name)
++
++
+ def test_registry_rejects_unknown_dycore_model():
+     """Unknown dycore names fail with the registry assertion."""
+     with pytest.raises(AssertionError, match="unknown dycore model"):
+diff --git a/tests/dycore/models/dinosaur/test_anticipated_pv_flux.py b/tests/dycore/models/dinosaur/test_anticipated_pv_flux.py
+new file mode 100644
+index 0000000..ac5de9a
+--- /dev/null
++++ b/tests/dycore/models/dinosaur/test_anticipated_pv_flux.py
+@@ -0,0 +1,421 @@
++# Copyright 2026 dynamaxx
++
++from dataclasses import replace
++
++import jax
++import jax.numpy as jnp
++import numpy as np
++import pytest
++
++from dynamaxx.dycore.models.dinosaur import adapter as dinosaur_adapter
++from dynamaxx.dycore.models.dinosaur import (
++    coordinate_systems,
++    primitive_equations,
++    sigma_coordinates,
++    spherical_harmonic,
++    time_integration,
++    units,
++)
++from dynamaxx.dycore.models.dinosaur.adapter import (
++    DinosaurPrimitiveEquationsDycoreModel,
++    _nondimensionalize_seconds,
++    anticipated_pv_flux_dinosaur_dycore_model,
++    zero_mean_radiative_land_skin_energy_dinosaur_dycore_model,
++)
++
++
++def _apvm_test_setup():
++    physics_specs = units.SimUnits.from_si()
++    horizontal_grid = spherical_harmonic.Grid(
++        longitude_wavenumbers=3,
++        total_wavenumbers=5,
++        longitude_nodes=8,
++        latitude_nodes=5,
++        latitude_spacing="equiangular",
++        radius=physics_specs.radius,
++    )
++    vertical_grid = sigma_coordinates.SigmaCoordinates(
++        np.asarray([0.0, 0.25, 1.0], dtype=np.float32)
++    )
++    coords = coordinate_systems.CoordinateSystem(horizontal_grid, vertical_grid)
++    state = primitive_equations.State(
++        vorticity=(
++            jnp.zeros(coords.modal_shape, dtype=jnp.float32)
++            .at[:, 0, 1]
++            .set(jnp.asarray([0.06, -0.04], dtype=jnp.float32))
++            .at[:, 1, 2]
++            .set(jnp.asarray([0.015, 0.025], dtype=jnp.float32))
++        ),
++        divergence=(
++            jnp.zeros(coords.modal_shape, dtype=jnp.float32)
++            .at[:, 1, 1]
++            .set(jnp.asarray([0.04, 0.02], dtype=jnp.float32))
++            .at[:, 2, 2]
++            .set(jnp.asarray([-0.01, 0.015], dtype=jnp.float32))
++        ),
++        temperature_variation=(
++            jnp.zeros(coords.modal_shape, dtype=jnp.float32)
++            .at[:, 0, 0]
++            .set(jnp.asarray([0.3, -0.2], dtype=jnp.float32))
++        ),
++        log_surface_pressure=(
++            jnp.zeros(coords.surface_modal_shape, dtype=jnp.float32)
++            .at[0, 0, 0]
++            .set(0.02)
++            .at[0, 1, 1]
++            .set(0.01)
++        ),
++        tracers={
++            "passive": (
++                jnp.zeros(coords.modal_shape, dtype=jnp.float32)
++                .at[:, 0, 1]
++                .set(jnp.asarray([0.001, 0.002], dtype=jnp.float32))
++            )
++        },
++        sim_time=jnp.asarray(2.0, dtype=jnp.float32),
++    )
++    _, sin_latitude = coords.horizontal.nodal_mesh
++    physical_coriolis_parameter = 2.0 * physics_specs.angular_velocity * sin_latitude
++    rollout_physics_specs = replace(physics_specs, angular_velocity=0.0)
++    common_equation_kwargs = {
++        "reference_temperature": np.full(vertical_grid.layers, 250.0),
++        "orography": jnp.zeros(coords.horizontal.modal_shape, dtype=jnp.float32),
++        "coords": coords,
++        "physics_specs": rollout_physics_specs,
++        "include_vertical_advection": False,
++    }
++    incumbent_equation = primitive_equations.PrimitiveEquationsSigma(
++        **common_equation_kwargs
++    )
++    candidate_equation = primitive_equations.PrimitiveEquationsSigma(
++        **common_equation_kwargs,
++        use_anticipated_pv_flux=True,
++        anticipated_pv_step_seconds=_nondimensionalize_seconds(
++            physics_specs,
++            900.0,
++        ),
++        anticipated_pv_coriolis_parameter=physical_coriolis_parameter,
++    )
++    return (
++        coords,
++        physics_specs,
++        state,
++        incumbent_equation,
++        candidate_equation,
++    )
++
++
++def _replace_aux_state(aux_state, **updates):
++    values = {
++        "vorticity": aux_state.vorticity,
++        "divergence": aux_state.divergence,
++        "temperature_variation": aux_state.temperature_variation,
++        "cos_lat_u": aux_state.cos_lat_u,
++        "sigma_dot_explicit": aux_state.sigma_dot_explicit,
++        "sigma_dot_full": aux_state.sigma_dot_full,
++        "cos_lat_grad_log_sp": aux_state.cos_lat_grad_log_sp,
++        "u_dot_grad_log_sp": aux_state.u_dot_grad_log_sp,
++        "tracers": aux_state.tracers,
++    }
++    values.update(updates)
++    return primitive_equations.DiagnosticStateSigma(**values)
++
++
++def _assert_tree_array_equal(actual, expected):
++    actual_leaves = jax.tree_util.tree_leaves(actual)
++    expected_leaves = jax.tree_util.tree_leaves(expected)
++    assert len(actual_leaves) == len(expected_leaves)
++    for actual_leaf, expected_leaf in zip(actual_leaves, expected_leaves, strict=True):
++        np.testing.assert_array_equal(actual_leaf, expected_leaf)
++
++
++def test_apvm_factory_changes_only_name_and_selector():
++    """The APVM factory changes only the incumbent name and selector."""
++    candidate = anticipated_pv_flux_dinosaur_dycore_model()
++    incumbent = zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
++
++    assert candidate.name == "dino_rskin_apv"
++    assert candidate.apply_anticipated_pv_flux
++    assert not incumbent.apply_anticipated_pv_flux
++    for field_name in candidate.__dataclass_fields__:
++        if field_name in {"name", "apply_anticipated_pv_flux"}:
++            continue
++        assert getattr(candidate, field_name) == getattr(incumbent, field_name)
++
++
++def test_apvm_layer_pv_uses_surface_pressure_and_sigma_thickness():
++    """The layer PV denominator uses surface pressure and sigma thickness."""
++    coords, _, state, _, equation = _apvm_test_setup()
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++    physical_coriolis_parameter = equation.anticipated_pv_coriolis_parameter
++    absolute_vorticity = jnp.ones_like(aux_state.vorticity)
++    diagnostic_aux_state = _replace_aux_state(
++        aux_state,
++        vorticity=absolute_vorticity - physical_coriolis_parameter,
++    )
++
++    layer_mass, layer_pv, valid_mass = equation._anticipated_pv_diagnostic(
++        state,
++        diagnostic_aux_state,
++    )
++
++    surface_pressure = jnp.exp(coords.horizontal.to_nodal(state.log_surface_pressure))
++    sigma_thickness = jnp.asarray(
++        coords.vertical.layer_thickness,
++        dtype=surface_pressure.dtype,
++    )[:, np.newaxis, np.newaxis]
++    expected_mass = surface_pressure * sigma_thickness
++    np.testing.assert_allclose(layer_mass, expected_mass, rtol=1e-6, atol=1e-6)
++    np.testing.assert_allclose(layer_pv, 1.0 / expected_mass, rtol=1e-6, atol=1e-6)
++    np.testing.assert_array_equal(valid_mass, jnp.ones_like(valid_mass, dtype=bool))
++    np.testing.assert_allclose(
++        layer_pv[0] / layer_pv[1],
++        coords.vertical.layer_thickness[1] / coords.vertical.layer_thickness[0],
++        rtol=1e-6,
++        atol=1e-6,
++    )
++
++
++def test_apvm_flux_has_frozen_sign_and_zero_nodal_wind_work():
++    """The frozen APVM sign produces a flux perpendicular to nodal wind."""
++    coords, _, state, _, equation = _apvm_test_setup()
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++
++    flux_u, flux_v, delta_eta, diagnostics_valid = (
++        equation._anticipated_pv_flux_components(state, aux_state)
++    )
++    layer_mass, layer_pv, _ = equation._anticipated_pv_diagnostic(state, aux_state)
++    modal_pv = coords.horizontal.to_modal(layer_pv)
++    nodal_cos_lat_grad_pv = coords.horizontal.to_nodal(
++        coords.horizontal.cos_lat_grad(modal_pv, clip=False)
++    )
++    u, v = aux_state.cos_lat_u
++    material_derivative = (
++        u * nodal_cos_lat_grad_pv[0] + v * nodal_cos_lat_grad_pv[1]
++    ) * coords.horizontal.sec2_lat
++    expected_delta_eta = (
++        -layer_mass * equation.anticipated_pv_step_seconds * material_derivative
++    )
++
++    assert bool(diagnostics_valid)
++    np.testing.assert_allclose(delta_eta, expected_delta_eta, rtol=1e-6, atol=1e-6)
++    np.testing.assert_allclose(
++        flux_u,
++        -v * expected_delta_eta * coords.horizontal.sec2_lat,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    np.testing.assert_allclose(
++        flux_v,
++        u * expected_delta_eta * coords.horizontal.sec2_lat,
++        rtol=1e-6,
++        atol=1e-6,
++    )
++    assert float(jnp.sum(delta_eta * material_derivative)) < 0.0
++    np.testing.assert_allclose(u * flux_u + v * flux_v, 0.0, atol=1e-7)
++
++
++def test_constant_layer_pv_and_zero_wind_add_no_apvm_flux():
++    """Constant layer PV and zero wind each produce no APVM correction."""
++    coords, _, state, incumbent_equation, equation = _apvm_test_setup()
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++    layer_mass, _, _ = equation._anticipated_pv_diagnostic(state, aux_state)
++    constant_layer_pv = jnp.asarray([0.2, -0.1], dtype=jnp.float32)[
++        :, np.newaxis, np.newaxis
++    ]
++    constant_pv_aux_state = _replace_aux_state(
++        aux_state,
++        vorticity=(
++            constant_layer_pv * layer_mass - equation.anticipated_pv_coriolis_parameter
++        ),
++    )
++
++    flux_u, flux_v, _, diagnostics_valid = equation._anticipated_pv_flux_components(
++        state,
++        constant_pv_aux_state,
++    )
++
++    assert bool(diagnostics_valid)
++    np.testing.assert_allclose(flux_u, 0.0, atol=1e-6)
++    np.testing.assert_allclose(flux_v, 0.0, atol=1e-6)
++
++    zero_wind_aux_state = _replace_aux_state(
++        aux_state,
++        cos_lat_u=(
++            jnp.zeros_like(aux_state.cos_lat_u[0]),
++            jnp.zeros_like(aux_state.cos_lat_u[1]),
++        ),
++    )
++    candidate_tendencies = equation.curl_and_div_tendencies(
++        zero_wind_aux_state,
++        state=state,
++    )
++    incumbent_tendencies = incumbent_equation.curl_and_div_tendencies(
++        zero_wind_aux_state,
++        state=state,
++    )
++    _assert_tree_array_equal(candidate_tendencies, incumbent_tendencies)
++
++
++@pytest.mark.parametrize(
++    "invalid_diagnostic",
++    ["nonpositive_mass", "nonfinite_coriolis", "nonfinite_step", "invalid_shape"],
++)
++def test_invalid_apvm_diagnostic_selects_exact_incumbent_pair(invalid_diagnostic):
++    """Any invalid APVM diagnostic selects the complete incumbent pair."""
++    coords, _, state, incumbent_equation, equation = _apvm_test_setup()
++    aux_state = primitive_equations.compute_diagnostic_state_sigma(state, coords)
++    candidate_state = state
++    candidate_equation = equation
++    if invalid_diagnostic == "nonpositive_mass":
++        candidate_state = primitive_equations.State(
++            vorticity=state.vorticity,
++            divergence=state.divergence,
++            temperature_variation=state.temperature_variation,
++            log_surface_pressure=jnp.full_like(
++                state.log_surface_pressure,
++                -jnp.inf,
++            ),
++            tracers=state.tracers,
++            sim_time=state.sim_time,
++        )
++    elif invalid_diagnostic == "nonfinite_coriolis":
++        candidate_equation = replace(
++            equation,
++            anticipated_pv_coriolis_parameter=jnp.full(
++                coords.horizontal.nodal_shape,
++                jnp.nan,
++                dtype=jnp.float32,
++            ),
++        )
++    elif invalid_diagnostic == "nonfinite_step":
++        candidate_equation = replace(
++            equation,
++            anticipated_pv_step_seconds=jnp.nan,
++        )
++    else:
++        candidate_equation = replace(
++            equation,
++            anticipated_pv_coriolis_parameter=jnp.zeros((1,), dtype=jnp.float32),
++        )
++
++    candidate_tendencies = candidate_equation.curl_and_div_tendencies(
++        aux_state,
++        state=candidate_state,
++    )
++    incumbent_tendencies = incumbent_equation.curl_and_div_tendencies(
++        aux_state,
++        state=state,
++    )
++
++    _assert_tree_array_equal(candidate_tendencies, incumbent_tendencies)
++
++
++def test_apvm_only_changes_momentum_tendencies_and_jits_finitely():
++    """APVM changes only finite, clipped momentum tendencies under JIT."""
++    coords, _, state, incumbent_equation, candidate_equation = _apvm_test_setup()
++    selector_off_equation = replace(
++        candidate_equation,
++        use_anticipated_pv_flux=False,
++    )
++
++    incumbent_tendency = incumbent_equation.explicit_terms(state)
++    selector_off_tendency = selector_off_equation.explicit_terms(state)
++    candidate_tendency = candidate_equation.explicit_terms(state)
++    jitted_candidate_tendency = jax.jit(candidate_equation.explicit_terms)(state)
++
++    _assert_tree_array_equal(selector_off_tendency, incumbent_tendency)
++    np.testing.assert_array_equal(
++        candidate_tendency.temperature_variation,
++        incumbent_tendency.temperature_variation,
++    )
++    np.testing.assert_array_equal(
++        candidate_tendency.log_surface_pressure,
++        incumbent_tendency.log_surface_pressure,
++    )
++    _assert_tree_array_equal(candidate_tendency.tracers, incumbent_tendency.tracers)
++    assert not np.array_equal(
++        candidate_tendency.vorticity,
++        incumbent_tendency.vorticity,
++    )
++    assert not np.array_equal(
++        candidate_tendency.divergence,
++        incumbent_tendency.divergence,
++    )
++    for leaf in jax.tree_util.tree_leaves(jitted_candidate_tendency):
++        assert bool(jnp.all(jnp.isfinite(leaf)))
++    clipped_candidate = coords.horizontal.clip_wavenumbers(jitted_candidate_tendency)
++    _assert_tree_array_equal(jitted_candidate_tendency, clipped_candidate)
++
++
++def test_apvm_adapter_routes_physical_f_to_rollout_and_disables_dfi(monkeypatch):
++    """The adapter routes physical Coriolis to rollout and disables APVM in DFI."""
++    coords, physics_specs, _, _, _ = _apvm_test_setup()
++    primitive_calls = []
++    dfi_equations = []
++    real_primitive_equation = dinosaur_adapter._primitive_equation
++
++    def capture_primitive_equation(*args, **kwargs):
++        primitive_calls.append(kwargs)
++        return real_primitive_equation(*args, **kwargs)
++
++    def fake_digital_filter_initialization(
++        equation,
++        ode_solver,
++        filters,
++        time_span,
++        cutoff_period,
++        dt,
++    ):
++        del ode_solver, filters, time_span, cutoff_period, dt
++        dfi_equations.append(equation)
++        return lambda dinosaur_state: dinosaur_state
++
++    monkeypatch.setattr(
++        dinosaur_adapter,
++        "_primitive_equation",
++        capture_primitive_equation,
++    )
++    monkeypatch.setattr(
++        time_integration,
++        "digital_filter_initialization",
++        fake_digital_filter_initialization,
++    )
++    model = DinosaurPrimitiveEquationsDycoreModel(
++        apply_digital_filter_initialization=True,
++        apply_exact_coriolis_rotation_split=True,
++        apply_symmetric_exact_coriolis_rotation_split=True,
++        apply_anticipated_pv_flux=True,
++        apply_spectral_filter=False,
++        include_vertical_advection=False,
++        jit_forecast=False,
++    )
++
++    model._trajectory_function(
++        coords=coords,
++        physics_specs=physics_specs,
++        reference_temperature=np.full(coords.vertical.layers, 250.0),
++        inner_steps=1,
++        output_count=1,
++        use_humidity_in_dynamics=False,
++    )
++
++    assert len(primitive_calls) == 2
++    rollout_call, dfi_call = primitive_calls
++    assert rollout_call["physics_specs"].angular_velocity == 0.0
++    assert rollout_call["use_anticipated_pv_flux"]
++    np.testing.assert_allclose(
++        rollout_call["anticipated_pv_coriolis_parameter"],
++        2.0 * physics_specs.angular_velocity * coords.horizontal.nodal_mesh[1],
++    )
++    assert rollout_call["anticipated_pv_step_seconds"] == _nondimensionalize_seconds(
++        physics_specs,
++        900.0,
++    )
++    assert dfi_call["physics_specs"] is physics_specs
++    assert not dfi_call["use_anticipated_pv_flux"]
++    assert dfi_call["anticipated_pv_step_seconds"] == 0.0
++    assert dfi_call["anticipated_pv_coriolis_parameter"] is None
++    assert len(dfi_equations) == 1
++    assert not dfi_equations[0].use_anticipated_pv_flux
++    assert dfi_equations[0].anticipated_pv_step_seconds == 0.0
