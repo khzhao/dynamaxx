@@ -420,8 +420,14 @@ Rejected candidates must leave the repository clean:
 
 - candidate code changes are reverted;
 - generated evaluation outputs may remain only under `outputs/eval/`;
-- immutable history remains under `.logbook/history/`;
+- immutable history remains locally under the ignored `.logbook/history/`
+  tree and is not staged or committed;
 - research files are moved out of `.logbook/research/ready`;
+- `HEAD` matches the recorded iteration baseline and the index is empty;
 - `git status --short` contains no unexpected files.
+
+Do not use `git add -f` to track rejected implementation, history, proposal, or
+scoring artifacts. Writing complete history does not authorize committing a
+rejected experiment.
 
 Do not use destructive git commands that could discard unrelated user work.

@@ -168,4 +168,9 @@ Commit only accepted candidates. The commit message must include:
 - main files changed.
 
 Rejected candidates must not leave candidate code in the repository. Keep their
-history records so future Researcher and Evaluator runs can learn from them.
+history records locally under the ignored `.logbook/` tree so future Researcher
+and Evaluator runs can learn from them. Complete rejected history is a local
+process record, not a Git artifact: do not stage or commit it, and never use
+`git add -f` to override the ignore rule. A rejection must leave `HEAD`
+unchanged from the iteration baseline and the index empty, apart from any
+explicitly recorded pre-existing user-owned state.
