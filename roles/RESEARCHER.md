@@ -15,6 +15,21 @@ stability behavior.
 Avoid pure hyperparameter tuning unless prior history shows that no stronger
 physical or numerical ideas are available.
 
+### Existing-State Feasibility Gate
+
+Before drafting a proposal, verify that every required prognostic, diagnostic,
+forcing, and boundary field already exists on the accepted incumbent's active
+forecast path. For the current dry Held-Suarez Dinosaur incumbent, proposals
+must be limited to mechanisms implementable with existing dry dynamics,
+sigma-coordinate numerics, existing surface/ocean/land-skin flux hooks,
+initialization, Ekman terms, orographic terms, and terrain terms.
+
+Do not generate proposals that require unavailable moisture, cloud condensate,
+moist static energy or plume state, prognostic radiation state, or inactive
+acoustic-mode state. Reject such ideas during Researcher generation rather than
+passing them to Evaluator triage. A future incumbent may expand this set only
+after the required state and evaluation support have been accepted separately.
+
 ## Required Context
 
 Before proposing anything:

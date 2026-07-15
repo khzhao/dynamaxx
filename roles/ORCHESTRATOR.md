@@ -96,6 +96,20 @@ experiment ambiguous.
 
 Only one proposal may be implemented at a time.
 
+When the untriaged proposal backlog is 20 or more files, pause Researcher
+spawns until it falls below 20. Every later Researcher prompt must require the
+existing-state feasibility gate from `roles/RESEARCHER.md`: for the current dry
+Held-Suarez incumbent, allow only existing dry dynamics, sigma-coordinate
+numerics, active surface/ocean/land-skin hooks, initialization, Ekman,
+orographic, and terrain mechanisms; reject moisture, cloud, MSE/plume,
+prognostic-radiation, and inactive-acoustic ideas at generation time.
+
+Evaluator selection is viability-first rather than strict FIFO. If `ready`
+remains empty after one completed triage cycle, promote exactly one best-ranked
+viable staging proposal with its bounded caveats frozen and recorded, then run
+the normal Implementer and Scorer workflow. Do not permit repeated all-scrap
+cycles to leave the implementation pipeline empty.
+
 ## Continuous Workflow
 
 When the user asks for endless or continuous improvement, repeat the iteration
@@ -120,6 +134,10 @@ Researcher delegation must include:
 - any resource constraints that make large ideas impractical;
 - instruction to use `roles/templates/proposal.md`.
 
+Do not spawn Researcher while `.logbook/research/proposals` contains 20 or more
+files. Every Researcher delegation must explicitly prohibit mechanisms that
+depend on state absent from the accepted incumbent.
+
 Evaluator delegation must include:
 
 - the proposal directory to triage;
@@ -127,6 +145,8 @@ Evaluator delegation must include:
 - the selection rubric from `roles/PROTOCOL.md`;
 - instruction to leave at most a small number of proposals in `ready`;
 - instruction to verify uncertain scientific claims against reputable sources.
+- instruction to prioritize active-state viability over FIFO age and to promote
+  the best viable staging candidate after one empty-ready cycle.
 
 Implementer delegation must include:
 

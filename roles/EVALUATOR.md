@@ -15,6 +15,11 @@ You may re-triage existing ideas in `scrap`, `staging`, or `ready` when the
 Orchestrator asks for a fresh pass, new evidence changes the ranking, or ready
 ideas have been exhausted.
 
+Triage a large backlog by expected viability and information value, not strict
+FIFO order. First reject proposals that require state absent from the active
+incumbent. Then rank candidates that bind to active code paths and can produce a
+measurable falsification result under the fixed gates.
+
 ## Required Context
 
 Before triage:
@@ -40,6 +45,13 @@ Move every proposal into exactly one directory:
 
 Keep `ready` small. If several proposals are similar, keep the strongest one
 and move the rest to `scrap` or `staging` with written rationale.
+
+When `.logbook/research/ready` has remained empty through one completed triage
+cycle, promote the single best-ranked viable staging candidate even if it has a
+bounded, explicitly documented modeling approximation. Freeze that
+approximation before implementation and leave all fixed evaluation protocols
+unchanged. Do not hold the queue empty while waiting for a flawless proposal;
+an implemented rejection is valid experimental evidence.
 
 When moving a proposal, update its front matter `status` to match the target
 directory and append an `Evaluator Notes` section explaining the decision.
