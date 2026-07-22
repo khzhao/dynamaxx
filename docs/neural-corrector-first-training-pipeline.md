@@ -20,8 +20,9 @@ The first model should be a minimal NeuralGCM-style hybrid:
   latent, with no intermediate state target or loss;
 - use exact six-hour backpropagation through time (BPTT) for the first
   supervised rollout;
-- expose the network to its own forecast states using stopped-gradient prefixes
-  that end on observed six-hour boundaries;
+- progressively extend the differentiable rollout to 12, 24, 48, 96, 192, and
+  360 hours, retaining all previous lead losses and adding exactly one new loss
+  at each promotion;
 - use spectral accuracy, spectrum, and bias losses so that long-horizon
   training does not reward smoothing.
 
@@ -353,9 +354,11 @@ error and would not estimate the intended local tendency.
 The valid compute-saving choices are therefore:
 
 1. use exact six-hour BPTT with activation rematerialization;
-2. stop gradients only across prefixes that end at six-hour observation
-   boundaries, while keeping the final six-hour interval differentiable;
-3. create a separate hourly dataset if exact one-hour objectives are later
+2. progressively increase the exact BPTT horizon only after the preceding
+   horizon is stable;
+3. optionally stop gradients across prefixes that end at observed boundaries
+   as a separate truncated-credit experiment;
+4. create a separate hourly dataset if exact one-hour objectives are later
    required.
 
 None of these choices adds supervision to an inner dycore state. Every neural
@@ -437,50 +440,47 @@ Start with ERA5 truth starts only. Rematerialize correction blocks to control
 memory, use the smallest stable per-device batch, and use gradient accumulation
 for the desired effective batch size.
 
-### 4.3 Phase B: model-state exposure with stopped prefixes
+### 4.3 Phase B: logarithmic rollout curriculum
 
-After truth-start training is stable, expose the corrector to model-generated
-states. Sample an integer prefix length $p\geq1$ in units of the observation
-interval and compute
+After six-hour training is stable, promote the fully differentiable rollout
+through the following fixed horizons:
 
-$$
-\widetilde S_{t+p\Delta t_{\mathrm{obs}}}
-=
-\operatorname{stopgrad}
-\left(
-\Phi_{\theta,p\Delta t_{\mathrm{obs}}}(E(X^*_t))
-\right).
-$$
+| Stage | Rollout horizon | Supervised lead times |
+| --- | ---: | --- |
+| A | 6 h | 6 h |
+| B | 12 h | 6, 12 h |
+| C | 24 h | 6, 12, 24 h |
+| D | 48 h | 6, 12, 24, 48 h |
+| E | 96 h / 4 d | 6, 12, 24, 48, 96 h |
+| F | 192 h / 8 d | 6, 12, 24, 48, 96, 192 h |
+| G | 360 h / 15 d | 6, 12, 24, 48, 96, 192, 360 h |
 
-Run this prefix without retaining activations. Then differentiate through one
-complete observed interval:
+The final promotion ends at the required 15-day forecast horizon rather than
+continuing the doubling sequence to 384 hours. Each stage retains every loss
+from the preceding stage and adds exactly one new lead-time loss. This anchors
+short-range accuracy while extending temporal credit assignment to the new
+horizon.
 
-$$
-\widehat S_{t+(p+1)\Delta t_{\mathrm{obs}}}
-=
-\Phi_{\theta,\Delta t_{\mathrm{obs}}}
-\left(\widetilde S_{t+p\Delta t_{\mathrm{obs}}}\right),
-$$
+Promote to the next stage only after the current stage has finite gradients,
+bounded correction norms, stable free rollouts through its horizon, and a
+validation loss that has stopped improving materially. Promotion changes the
+static rollout and loss schedule, so each stage has its own compiled training
+step. Unless a separate truncated-credit experiment is explicitly enabled,
+the backward pass spans the complete current rollout.
 
-Decode the endpoint and compare only with the real WeatherBench2 target at
-$t+(p+1)\Delta t_{\mathrm{obs}}$. The forecast state remains numerically
-continuous at the boundary; only its gradient history is cut. The detached
-prefix and differentiable suffix contain no internal-state targets.
+At every stage, the recurrent state remains continuous. The model is never
+teacher-forced, decoded and re-encoded, or replaced at a supervised lead. A
+decoded loss observes that state without modifying it, and all dycore and
+neural states between the listed lead times remain latent.
 
-The prefix adds forward cost but the backward graph remains six hours. Begin
-with $p=1$ and introduce longer prefixes only when correction norms and free
-forecasts remain stable. Because the final interval inherits prefix error, keep
-truth-start batches as the dominant source of clean temporal credit.
+### 4.4 Optional stopped-prefix exposure
 
-### 4.4 Phase C: optional longer credit assignment
-
-Only after the six-hour model has converged should the project test full
-12-hour BPTT. Decode at six and 12 hours and compare both forecasts with their
-corresponding real WeatherBench2 states. Those are two observed lead-time
-losses on one continuous rollout; the states between them remain latent. This
-experiment answers whether credit across an observation boundary is worth the
-additional memory and compute. Full-day or multi-day BPTT is not required for
-the first baseline.
+Stopped-gradient prefixes are not part of the primary logarithmic curriculum.
+They remain an optional compute-versus-credit-assignment experiment for
+exposing the corrector to model-generated states without retaining the entire
+prefix graph. Any prefix must end at one of the observed lead times above, and
+the forecast state must remain numerically continuous across the detached
+boundary.
 
 If an hourly ERA5 training product is created later, exact one-hour truth-start
 and stopped-prefix suffixes become valid options. They should be treated as a
@@ -493,13 +493,23 @@ Pure, unfiltered long-horizon grid-space MSE should not be the objective. It
 rewards averaging over uncertain small-scale structures and therefore produces
 smooth forecasts.
 
-Let $\mathcal T_{\mathrm{obs}}$ be the real WeatherBench2 lead times decoded in
-the current rollout. Use the total loss
+Let $\mathcal T_{\mathrm{obs}}(T)$ be the logarithmically spaced WeatherBench2
+lead times decoded for a rollout horizon $T$. The curriculum defines
+
+$$
+\mathcal T_{\mathrm{obs}}(T)
+=
+\left\{6,12,24,48,96,192\right\}
+\cap (0,T]
+$$
+
+in hours, with 360 hours appended when $T=360\ \mathrm{hours}$. Use the total
+loss
 
 $$
 \mathcal L_{\mathrm{WB2}}
 =
-\sum_{\tau\in\mathcal T_{\mathrm{obs}}}
+\sum_{\tau\in\mathcal T_{\mathrm{obs}}(T)}
 \alpha_\tau
 \left[
 \mathcal L_{\mathrm{state}}(\tau)
@@ -508,10 +518,18 @@ $$
 \right].
 $$
 
-For the initial pipeline,
-$\mathcal T_{\mathrm{obs}}=\{6\ \mathrm{hours}\}$. Every term is computed from
-a decoded forecast and its corresponding real WeatherBench2 state. All terms
-should be area-weighted and normalized by variable and level.
+The lead weights must satisfy
+
+$$
+\sum_{\tau\in\mathcal T_{\mathrm{obs}}(T)}\alpha_\tau=1,
+$$
+
+so adding a lead time does not increase the total loss merely by adding another
+term. Use uniform lead weights
+$\alpha_\tau=1/|\mathcal T_{\mathrm{obs}}(T)|$ for the baseline. Initially
+$\mathcal T_{\mathrm{obs}}(6\ \mathrm{h})=\{6\ \mathrm{h}\}$. Every term is
+computed from a decoded forecast and its corresponding real WeatherBench2
+state. All terms should be area-weighted and normalized by variable and level.
 
 ### 5.1 Lead-dependent spectral state loss
 
@@ -606,16 +624,19 @@ This distinguishes persistent model drift from unpredictable trajectory error.
 
 ### 5.4 Credit assignment through latent states
 
-There is deliberately no data loss on $S_{t_k}$ or $Q_k$. For an observed
-endpoint $T$, each neural evaluation receives gradient through the chain
+There is deliberately no data loss on $S_{t_k}$ or $Q_k$. With losses at the
+selected leads, each neural evaluation receives gradients from every later
+supervised endpoint through the chain
 
 $$
 \frac{d\mathcal L_{\mathrm{WB2}}}{d\theta}
 =
-\sum_k
-\frac{\partial\mathcal L_{\mathrm{WB2}}}{\partial\widehat X_T}
-\frac{\partial\widehat X_T}{\partial S_T}
-\frac{\partial S_T}{\partial Q_k}
+\sum_{\tau\in\mathcal T_{\mathrm{obs}}(T)}
+\alpha_\tau
+\sum_{k:t_k<\tau}
+\frac{\partial\mathcal L_\tau}{\partial\widehat X_\tau}
+\frac{\partial\widehat X_\tau}{\partial S_\tau}
+\frac{\partial S_\tau}{\partial Q_k}
 \frac{\partial Q_k}{\partial\theta}.
 $$
 
@@ -656,13 +677,12 @@ For eight H100 GPUs:
 - begin with one training example per GPU;
 - use gradient accumulation to reach an effective batch size of at least 16
   when required by the batch-bias loss;
-- compile the exact six-hour endpoint update once and compile the optional
-  12-hour update separately;
+- compile one static training step for each curriculum horizon and reuse it for
+  every update within that stage;
 - execute stopped prefixes without retaining activations and apply
-  `stop_gradient` before the differentiable suffix;
-- reuse the exact six-hour compiled update after a stopped prefix;
-- rematerialize each neural-correction block during six-hour BPTT when memory
-  requires it;
+  `stop_gradient` before the differentiable suffix only in the optional
+  stopped-prefix experiment;
+- rematerialize neural-correction blocks during BPTT when memory requires it;
 - use BF16 for neural-network matrix operations where stable;
 - keep the Dinosaur state, SIL3 integration, reductions, and spherical-harmonic
   transforms in FP32 initially.
@@ -671,8 +691,15 @@ Freezing Dinosaur parameters removes their optimizer state and parameter
 gradients, but the dycore remains in the BPTT graph for every differentiated
 window. It is absent from the backward graph only for an explicitly stopped
 prefix. Rematerialization trades additional forward computation for lower
-activation memory; it does not make six-hour BPTT computationally cheap. With
-the current data there is no exact sub-six-hour loss that removes this cost.
+activation memory; its cost grows substantially as the curriculum reaches
+multi-day horizons. With the current data there is no exact sub-six-hour loss
+that removes the initial six-hour gradient path.
+
+At the configured 30-minute correction cadence and 15-minute dycore cadence,
+the final 360-hour stage contains 720 neural evaluations and 1,440 completed
+dycore steps per example. Treat memory, throughput, and gradient finiteness at
+each promotion as measured gates rather than assuming the final full-horizon
+BPTT graph will fit merely because the preceding stage did.
 
 Checkpoints should contain:
 
@@ -724,9 +751,9 @@ After the baseline completes, change one design choice at a time:
 
 1. neural coupling cadence: 15, 30, and 60 minutes, subject to the integer
    inner-step constraint;
-2. truth-start-only training versus adding stopped six-hour prefixes;
-3. six-hour-only loss versus full 12-hour BPTT with losses at both real
-   endpoints;
+2. full-horizon BPTT versus stopped-prefix or truncated-credit training;
+3. retaining all logarithmic lead losses versus supervising only the newest
+   lead at each curriculum stage;
 4. column-network width: 128 and 256;
 5. with and without horizontal-gradient inputs;
 6. with and without spectrum and bias losses;
@@ -758,13 +785,13 @@ proposed pipeline preserves those useful inductive biases while keeping the
 optimized Dinosaur backbone and its encoder/decoder fixed.
 
 The verified six-hour data cadence makes six hours the shortest supervised
-rollout. Exact training therefore uses a decoded WeatherBench2 endpoint loss
-and a six-hour gradient path. The intervening dycore states are latent and are
-allowed to take whatever values best support accurate observed forecasts.
-Stopped prefixes provide exposure to model-generated states without extending
-the backward path; they cannot shorten it below six hours with the current
-targets. Longer than six-hour BPTT is promoted only by controlled 2019
-validation evidence.
+rollout. Training begins with that exact decoded endpoint loss, then doubles
+the rollout horizon while retaining earlier logarithmic lead losses and adding
+one new loss at 12, 24, 48, 96, and 192 hours before the final 360-hour lead.
+The intervening dycore states are latent and are allowed to take whatever values
+best support accurate observed forecasts. Stopped prefixes remain a separate
+experiment; they are not substituted silently for full credit assignment in
+the primary curriculum.
 
 Primary reference:
 
