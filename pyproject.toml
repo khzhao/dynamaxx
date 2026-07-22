@@ -17,6 +17,7 @@ dependencies = [
     "s3fs>=2026.4.0",
     "scikit-learn>=1.9.0",
     "tree-math>=0.2.1",
+    "wandb>=0.28.1",
     "xarray>=2026.4.0",
     "zarr>=2.18.7,<3",
 ]
