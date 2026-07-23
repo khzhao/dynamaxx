@@ -30,9 +30,7 @@ class _LinearCore:
     def advance_one_inner_step(self, state, additive_tendency):
         return {
             "value": state["value"] + 1.0 + additive_tendency,
-            "elapsed_seconds": (
-                state["elapsed_seconds"] + self.inner_step_seconds
-            ),
+            "elapsed_seconds": (state["elapsed_seconds"] + self.inner_step_seconds),
         }
 
     def decode(self, state):
@@ -121,21 +119,33 @@ def test_decode_delegates_to_the_prepared_core():
     np.testing.assert_allclose(decoded.values, jnp.asarray([[[3.0]]]))
 
 
-def test_prepare_builds_a_grid_specific_model():
+def test_public_model_initializes_and_advances_with_simple_api(monkeypatch):
+    from dynamaxx.hybrid import dinosaur as hybrid_dinosaur
+
+    monkeypatch.setattr(
+        hybrid_dinosaur,
+        "DinosaurHybridCoreFactory",
+        lambda dycore_name: _LinearCoreFactory(),
+    )
     model = HybridModel(
-        name="linear_hybrid",
-        core_factory=_LinearCoreFactory(),
-        corrector=_corrector,
+        neural_model=_corrector,
+        dycore_name="linear",
     )
-
-    prepared = model.prepare(
-        longitude=np.asarray([0.0]),
-        latitude=np.asarray([45.0]),
-        input_variables=("x",),
+    state = model.initialize(
+        _state(),
+        np.datetime64("2020-01-01"),
     )
+    state = model.step({"scale": jnp.asarray(0.0)}, state)
+    state = model.advance(
+        {"scale": jnp.asarray(0.0)},
+        state,
+        duration_seconds=1800.0,
+    )
+    forecast = model.decode(state)
 
-    assert isinstance(prepared, PreparedHybridModel)
-    assert prepared.step_seconds == 1800.0
+    assert model.name == "hybrid_linear"
+    assert model.step_seconds == 1800.0
+    np.testing.assert_allclose(forecast.values, jnp.asarray([[[6.0]]]))
 
 
 @pytest.mark.parametrize("correction_interval_seconds", [0.0, np.inf, np.nan])
@@ -157,4 +167,3 @@ def test_model_rejects_correction_interval_not_divisible_by_inner_step():
             corrector=_corrector,
             correction_interval_seconds=1350.0,
         )
-

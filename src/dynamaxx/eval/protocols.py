@@ -11,6 +11,7 @@ FAST_PROTOCOL = "fast"
 ITERATION_PROTOCOL = "iteration"
 VALIDATION_PROTOCOL = "validation"
 GOLDEN_PROTOCOL = "golden"
+WEATHERBENCH2_PROTOCOL = "weatherbench2"
 DEFAULT_VARIABLES = (
     WeatherVariable("2m_temperature", title="2 m temperature", unit="K"),
     WeatherVariable(
@@ -55,7 +56,52 @@ PROTOCOL_CHUNK_INITIAL_TIMES = {
     ITERATION_PROTOCOL: 8,
     VALIDATION_PROTOCOL: 8,
     GOLDEN_PROTOCOL: 8,
+    WEATHERBENCH2_PROTOCOL: 8,
 }
+
+WEATHERBENCH2_HEADLINE_VARIABLES = (
+    WeatherVariable("2m_temperature", title="2 m temperature", unit="K"),
+    WeatherVariable(
+        "mean_sea_level_pressure",
+        title="Mean sea level pressure",
+        unit="Pa",
+    ),
+    WeatherVariable(
+        "geopotential",
+        level=500,
+        title="500 hPa geopotential",
+        unit="m2 s-2",
+    ),
+    WeatherVariable("temperature", level=850, title="850 hPa temperature", unit="K"),
+    WeatherVariable(
+        "specific_humidity",
+        level=700,
+        title="700 hPa specific humidity",
+        unit="kg kg-1",
+    ),
+    WeatherVariable(
+        "u_component_of_wind",
+        level=850,
+        title="850 hPa zonal wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "v_component_of_wind",
+        level=850,
+        title="850 hPa meridional wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "10m_u_component_of_wind",
+        title="10 m zonal wind",
+        unit="m s-1",
+    ),
+    WeatherVariable(
+        "10m_v_component_of_wind",
+        title="10 m meridional wind",
+        unit="m s-1",
+    ),
+)
 
 ProtocolFactory = Callable[[], EvalCase]
 
@@ -91,6 +137,13 @@ def cycled_daily_initial_times(start_date: str, end_date: str) -> np.ndarray:
         np.arange(days.size) % (HOURS_PER_DAY // DEFAULT_STEP_HOURS)
     ) * DEFAULT_STEP_HOURS
     return days + hour_offsets.astype("timedelta64[h]")
+
+
+def twice_daily_initial_times(start_date: str, end_date: str) -> np.ndarray:
+    """Return 00 and 12 UTC starts for every day in an inclusive range."""
+    days = daily_initial_times(start_date, end_date).astype("datetime64[ns]")
+    hour_offsets = np.asarray([0, 12], dtype="timedelta64[h]")
+    return (days[:, np.newaxis] + hour_offsets[np.newaxis, :]).reshape(-1)
 
 
 def fixed_case(
@@ -149,11 +202,21 @@ def golden_case() -> EvalCase:
     )
 
 
+def weatherbench2_case() -> EvalCase:
+    """Return the public WeatherBench2 2020 deterministic forecast protocol."""
+    return fixed_case(
+        WEATHERBENCH2_PROTOCOL,
+        twice_daily_initial_times("2020-01-01", "2020-12-31"),
+        target_variables=WEATHERBENCH2_HEADLINE_VARIABLES,
+    )
+
+
 PROTOCOL_FACTORIES: dict[str, ProtocolFactory] = {
     FAST_PROTOCOL: fast_case,
     ITERATION_PROTOCOL: iteration_case,
     VALIDATION_PROTOCOL: validation_case,
     GOLDEN_PROTOCOL: golden_case,
+    WEATHERBENCH2_PROTOCOL: weatherbench2_case,
 }
 
 

@@ -13,6 +13,7 @@ dependencies = [
     "jax[cuda13]>=0.10.1",
     "matplotlib>=3.11.0",
     "numpy>=2.4.6",
+    "optax>=0.2.7",
     "pint>=0.25.3",
     "s3fs>=2026.4.0",
     "scikit-learn>=1.9.0",
@@ -24,6 +25,8 @@ dependencies = [
 
 [project.scripts]
 dynamaxx-eval = "dynamaxx.cli:main"
+dynamaxx-train-hybrid = "dynamaxx.training.cli:main"
+dynamaxx-train-hybrid-curriculum = "dynamaxx.training.curriculum:main"
 
 [dependency-groups]
 dev = [

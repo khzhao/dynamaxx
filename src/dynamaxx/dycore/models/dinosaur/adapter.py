@@ -41,6 +41,36 @@ from dynamaxx.dycore.models.dinosaur.channels import (
 from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
 from dynamaxx.weather import ForecastInput, WeatherState
 
+
+@jax.custom_jvp
+def _sqrt_nonnegative_with_finite_gradient(value: jax.Array) -> jax.Array:
+    """Return ``sqrt(max(value, 0))`` with a finite derivative at zero.
+
+    Physical vector magnitudes are exactly zero at calm grid points.  The
+    ordinary square-root derivative is singular there, which can turn a zero
+    cotangent into a NaN during reverse-mode differentiation.  The forward
+    value remains unchanged while the derivative at nonpositive inputs is
+    defined as zero, matching the limiting gradient of a vector norm at the
+    origin used by these closures.
+    """
+    return jnp.sqrt(jnp.maximum(value, 0.0))
+
+
+@_sqrt_nonnegative_with_finite_gradient.defjvp
+def _sqrt_nonnegative_with_finite_gradient_jvp(
+    primals: tuple[jax.Array],
+    tangents: tuple[jax.Array],
+) -> tuple[jax.Array, jax.Array]:
+    """Propagate finite tangents through a nonnegative square root."""
+    (value,) = primals
+    (value_tangent,) = tangents
+    result = _sqrt_nonnegative_with_finite_gradient(value)
+    positive = value > 0.0
+    safe_result = jnp.where(positive, result, jnp.ones_like(result))
+    derivative = jnp.where(positive, 0.5 / safe_result, 0.0)
+    return result, derivative * value_tangent
+
+
 DEFAULT_INNER_STEP_SECONDS = 900.0
 DEFAULT_SPECTRAL_WAVENUMBERS = 80
 DEFAULT_WEAK_HELD_SUAREZ_KF_PER_DAY = 0.0
@@ -1419,8 +1449,8 @@ def _ekman_coupled_surface_step_filter(
         )
         lowest_u_wind_si = safe_lowest_u_wind / wind_unit_factor
         lowest_v_wind_si = safe_lowest_v_wind / wind_unit_factor
-        wind_speed_si = jnp.sqrt(
-            jnp.maximum(lowest_u_wind_si**2 + lowest_v_wind_si**2, 0.0)
+        wind_speed_si = _sqrt_nonnegative_with_finite_gradient(
+            lowest_u_wind_si**2 + lowest_v_wind_si**2
         )
         stress_u = (
             safe_density
@@ -1614,8 +1644,8 @@ def _ekman_coupled_surface_step_filter(
         raw_log_pressure_increment = -step_seconds * horizontal_grid.to_nodal(
             ekman_transport_divergence
         )
-        applied_wind_increment = jnp.sqrt(
-            jnp.maximum(u_increment[-1] ** 2 + v_increment[-1] ** 2, 0.0)
+        applied_wind_increment = _sqrt_nonnegative_with_finite_gradient(
+            u_increment[-1] ** 2 + v_increment[-1] ** 2
         )
         coupled_pressure_cap = jnp.minimum(
             pressure_increment_cap,
@@ -1876,9 +1906,8 @@ def _radiative_land_skin_initial_time_offset(
     physics_specs: Any,
 ) -> jax.Array:
     """Return a finite nondimensional offset or NaN for exact fallback."""
-    invalid_offset = jnp.asarray(jnp.nan, dtype=jnp.float32)
     if reference_time is None:
-        return invalid_offset
+        return jnp.asarray(jnp.nan, dtype=jnp.float32)
     try:
         initial_time = np.asarray(initial_time, dtype="datetime64[ns]")
         reference_time = np.asarray(reference_time, dtype="datetime64[ns]")
@@ -1888,7 +1917,7 @@ def _radiative_land_skin_initial_time_offset(
             or np.isnat(initial_time)
             or np.isnat(reference_time)
         ):
-            return invalid_offset
+            return jnp.asarray(jnp.nan, dtype=jnp.float32)
         time_offset = np.float32(
             radiation.datetime_to_time(
                 initial_time[()],
@@ -1897,9 +1926,9 @@ def _radiative_land_skin_initial_time_offset(
             )
         )
     except (OverflowError, TypeError, ValueError):
-        return invalid_offset
+        return jnp.asarray(jnp.nan, dtype=jnp.float32)
     if not np.isfinite(time_offset):
-        return invalid_offset
+        return jnp.asarray(jnp.nan, dtype=jnp.float32)
     return jnp.asarray(time_offset, dtype=jnp.float32)
 
 
@@ -1918,11 +1947,14 @@ def _land_skin_reservoir_initial_skin(
     temperature_is_valid = jnp.all(jnp.isfinite(lowest_temperature)) & jnp.all(
         lowest_temperature > 0.0
     )
-    invalid_temperature = jnp.full_like(lowest_temperature, jnp.nan)
+    fallback_temperature = jnp.full_like(
+        lowest_temperature,
+        jnp.asarray(reference_temperature)[-1],
+    )
     skin_temperature = jnp.where(
         temperature_is_valid,
         lowest_temperature,
-        invalid_temperature,
+        fallback_temperature,
     )
     return skin_temperature, skin_temperature
 
@@ -1943,16 +1975,34 @@ def _land_skin_reservoir_step(
     def land_skin_step(carry: tuple[Any, tuple[jax.Array, jax.Array]]):
         state, skin = carry
         next_state = step_fn(state)
-        return _apply_land_skin_reservoir_step(
-            next_state,
-            skin,
-            coords=coords,
-            physics_specs=physics_specs,
-            reference_temperature=reference_temperature,
-            land_weight=land_weight,
-            step_seconds_si=step_seconds_si,
-            solar_radiation_model=solar_radiation_model,
-            radiation_time_offset=radiation_time_offset,
+        if next_state.sim_time is None:
+            return next_state, skin
+        coupling_weight = _land_skin_reservoir_forecast_time_ramp(
+            next_state.sim_time,
+            physics_specs,
+        )
+
+        def apply_reservoir(
+            active_carry: tuple[Any, tuple[jax.Array, jax.Array]],
+        ) -> tuple[Any, tuple[jax.Array, jax.Array]]:
+            active_state, active_skin = active_carry
+            return _apply_land_skin_reservoir_step(
+                active_state,
+                active_skin,
+                coords=coords,
+                physics_specs=physics_specs,
+                reference_temperature=reference_temperature,
+                land_weight=land_weight,
+                step_seconds_si=step_seconds_si,
+                solar_radiation_model=solar_radiation_model,
+                radiation_time_offset=radiation_time_offset,
+            )
+
+        return jax.lax.cond(
+            coupling_weight > 0.0,
+            apply_reservoir,
+            lambda inactive_carry: inactive_carry,
+            (next_state, skin),
         )
 
     return land_skin_step
@@ -2016,16 +2066,18 @@ def _apply_land_skin_reservoir_step(
         deep_restore_days=deep_restore_days,
     )
 
-    nodal_temperature_increment = jnp.zeros(
-        (coords.vertical.layers, *horizontal_grid.nodal_shape),
-        dtype=state.temperature_variation.dtype,
-    ).at[-1].set(air_increment)
-    modal_temperature_increment = horizontal_grid.to_modal(
-        nodal_temperature_increment
+    nodal_temperature_increment = (
+        jnp.zeros(
+            (coords.vertical.layers, *horizontal_grid.nodal_shape),
+            dtype=state.temperature_variation.dtype,
+        )
+        .at[-1]
+        .set(air_increment)
     )
-    projected_lowest_increment = horizontal_grid.to_nodal(
-        modal_temperature_increment
-    )[-1]
+    modal_temperature_increment = horizontal_grid.to_modal(nodal_temperature_increment)
+    projected_lowest_increment = horizontal_grid.to_nodal(modal_temperature_increment)[
+        -1
+    ]
     increment_cap = _land_skin_temperature_increment_cap(physics_specs)
     projection_scale = jnp.minimum(
         1.0,
@@ -2033,9 +2085,9 @@ def _apply_land_skin_reservoir_step(
         / jnp.maximum(jnp.max(jnp.abs(projected_lowest_increment)), 1.0e-30),
     )
     modal_temperature_increment = modal_temperature_increment * projection_scale
-    projected_lowest_increment = horizontal_grid.to_nodal(
-        modal_temperature_increment
-    )[-1]
+    projected_lowest_increment = horizontal_grid.to_nodal(modal_temperature_increment)[
+        -1
+    ]
     corrected_temperature_variation = (
         state.temperature_variation + modal_temperature_increment
     )
@@ -2122,9 +2174,8 @@ def _land_skin_reservoir_local_increments(
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Return conservative air/skin exchange and deep-restore increments."""
     coupling_weight = jnp.asarray(coupling_weight, dtype=air_temperature.dtype)
-    active_land_weight = (
-        _active_land_skin_weight(land_weight)
-        * jnp.clip(coupling_weight, 0.0, 1.0)
+    active_land_weight = _active_land_skin_weight(land_weight) * jnp.clip(
+        coupling_weight, 0.0, 1.0
     )
     exchange_fraction = _land_skin_reservoir_exchange_fraction(
         lowest_u_wind=lowest_u_wind,
@@ -2143,9 +2194,7 @@ def _land_skin_reservoir_local_increments(
         -increment_cap,
         increment_cap,
     )
-    skin_exchange_increment = (
-        -_LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO * air_increment
-    )
+    skin_exchange_increment = -_LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO * air_increment
     skin_restore_increment = (
         jnp.clip(coupling_weight, 0.0, 1.0)
         * restore_fraction
@@ -2468,8 +2517,8 @@ def _land_skin_reservoir_exchange_fraction(
     wind_unit_factor = _unit_factor(physics_specs, "meter / second")
     lowest_u_wind_si = lowest_u_wind / wind_unit_factor
     lowest_v_wind_si = lowest_v_wind / wind_unit_factor
-    wind_speed_si = jnp.sqrt(
-        jnp.maximum(lowest_u_wind_si**2 + lowest_v_wind_si**2, 0.0)
+    wind_speed_si = _sqrt_nonnegative_with_finite_gradient(
+        lowest_u_wind_si**2 + lowest_v_wind_si**2
     )
     wind_exchange_fraction = (
         _LAND_SKIN_RESERVOIR_TRANSFER_COEFFICIENT
@@ -2612,8 +2661,8 @@ def _orographic_lift_theta_tendency_step_filter(
         else:
             effective_u_wind = lowest_u_wind
             effective_v_wind = lowest_v_wind
-        wind_speed = jnp.sqrt(
-            jnp.maximum(effective_u_wind**2 + effective_v_wind**2, 0.0)
+        wind_speed = _sqrt_nonnegative_with_finite_gradient(
+            effective_u_wind**2 + effective_v_wind**2
         )
         weak_flow_taper = jnp.clip(
             wind_speed
@@ -2855,8 +2904,8 @@ def _terrain_work_form_drag_heating_step_filter(
                 sigma_envelope=sigma_envelope,
             )
         )
-        wind_speed = jnp.sqrt(
-            jnp.maximum(effective_u_wind**2 + effective_v_wind**2, 0.0)
+        wind_speed = _sqrt_nonnegative_with_finite_gradient(
+            effective_u_wind**2 + effective_v_wind**2
         )
         weak_flow_taper = _smooth_unit_ramp(
             wind_speed
@@ -2867,8 +2916,8 @@ def _terrain_work_form_drag_heating_step_filter(
             + effective_v_wind * terrain_gradient[1]
         )
         w_terrain = w_terrain * latitude_envelope * weak_flow_taper * ramp
-        slope_magnitude = jnp.sqrt(
-            jnp.maximum(terrain_gradient[0] ** 2 + terrain_gradient[1] ** 2, 0.0)
+        slope_magnitude = _sqrt_nonnegative_with_finite_gradient(
+            terrain_gradient[0] ** 2 + terrain_gradient[1] ** 2
         )
         slope_taper = _smooth_unit_ramp(
             slope_magnitude / _TERRAIN_WORK_FORM_DRAG_SLOPE_FULL
@@ -3825,10 +3874,7 @@ def late_ramped_land_skin_reservoir_dinosaur_dycore_model() -> (
     """Return the incumbent with late-ramped prognostic land skin memory."""
     return replace(
         pressure_thickness_ri2m_temperature_dinosaur_dycore_model(),
-        name=(
-            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-            "pthick_ri2m_lateskin"
-        ),
+        name=("dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"),
         apply_land_skin_reservoir=True,
     )
 
@@ -3840,8 +3886,7 @@ def prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model() -> (
     return replace(
         late_ramped_land_skin_reservoir_dinosaur_dycore_model(),
         name=(
-            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-            "pthick_ri2m_lateskin_skri"
+            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri"
         ),
         use_prognostic_skin_ri2m_lower_boundary=True,
     )
@@ -4322,12 +4367,8 @@ def _prognostic_skin_ri2m_temperature(
         return incumbent_temperature
 
     valid_skin = jnp.isfinite(skin_temperature) & (skin_temperature > 0.0)
-    valid_land = (
-        jnp.isfinite(land_weight) & (land_weight >= 0.0) & (land_weight <= 1.0)
-    )
-    valid_pressure = jnp.isfinite(surface_pressure_hpa) & (
-        surface_pressure_hpa > 0.0
-    )
+    valid_land = jnp.isfinite(land_weight) & (land_weight >= 0.0) & (land_weight <= 1.0)
+    valid_pressure = jnp.isfinite(surface_pressure_hpa) & (surface_pressure_hpa > 0.0)
     valid_lower_temperature = jnp.isfinite(references.lower_temperature) & (
         references.lower_temperature > 0.0
     )
@@ -4364,9 +4405,7 @@ def _prognostic_skin_ri2m_temperature(
     )
     mean_theta = jnp.maximum(0.5 * (skin_theta + lower_theta), 1.0)
     lower_height_meters = (
-        _DRY_AIR_GAS_CONSTANT_SI
-        * safe_lower_temperature
-        / _GRAVITY_ACCELERATION_SI
+        _DRY_AIR_GAS_CONSTANT_SI * safe_lower_temperature / _GRAVITY_ACCELERATION_SI
     ) * jnp.log(1.0 / max(lower_sigma, 1.0e-6))
     lower_height_meters = jnp.maximum(
         lower_height_meters,
@@ -5527,7 +5566,7 @@ def _lower_column_stability_score(
         low_v_wind = _selected_channel(selected_values, variables, low_v_channel)
         upper_v_wind = _selected_channel(selected_values, variables, upper_v_channel)
         squared_shear = squared_shear + (upper_v_wind - low_v_wind) ** 2
-    shear = jnp.sqrt(jnp.maximum(squared_shear, 0.0))
+    shear = _sqrt_nonnegative_with_finite_gradient(squared_shear)
     stability_index = static_stability_kelvin / (
         _STABILITY_AWARE_SHEAR_FLOOR_METERS_PER_SECOND + shear
     )
@@ -5982,7 +6021,9 @@ class _OceanBulkSensibleHeatFluxForcingSigma(time_integration.ExplicitODE):
         )
         lowest_u_wind = u_wind[-1]
         lowest_v_wind = v_wind[-1]
-        wind_speed = jnp.sqrt(jnp.maximum(lowest_u_wind**2 + lowest_v_wind**2, 0.0))
+        wind_speed = _sqrt_nonnegative_with_finite_gradient(
+            lowest_u_wind**2 + lowest_v_wind**2
+        )
         wind_speed_meters_per_second = wind_speed / self.wind_unit_factor
         exchange_rate_per_second = (
             _OCEAN_BULK_SHF_TRANSFER_COEFFICIENT

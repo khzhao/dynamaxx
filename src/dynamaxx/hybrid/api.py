@@ -88,7 +88,7 @@ class PreparedHybridCore(
 
     @property
     def inner_step_seconds(self) -> float:
-        """Return the duration of one completed inner dycore step."""
+        """Duration of one completed inner dycore step."""
 
     def initialize(
         self,
@@ -123,7 +123,7 @@ class HybridStepper(Protocol[Parameters, CoreState, NodalTendency]):
 
     @property
     def step_seconds(self) -> float:
-        """Return the duration of one public neural-coupling step."""
+        """Duration of one public neural-coupling step."""
 
     def step(
         self,

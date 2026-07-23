@@ -71,6 +71,45 @@ Registered models live in `src/dynamaxx/dycore/registry.py`. List them with:
 uv run python -c "from dynamaxx.dycore.registry import dycore_model_names; print('\n'.join(dycore_model_names()))"
 ```
 
+## Hybrid training
+
+The production frozen-Dinosaur neural-corrector pipeline is described in
+[`docs/neural-corrector-first-training-pipeline.md`](docs/neural-corrector-first-training-pipeline.md).
+The production default is a 20.69M-parameter, 800-wide learned-physics
+corrector with eight residual blocks. Run one static curriculum stage with:
+
+```bash
+uv run dynamaxx-train-hybrid \
+  --hidden-size 800 \
+  --residual-blocks 8 \
+  --horizon-hours 6 \
+  --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h
+```
+
+Checkpoints and training statistics remain in the local output directory. W&B
+is used only for scalar training and validation statistics; the trainer does
+not create or upload W&B artifacts. Deterministic initialized-state and modal-
+target performance caches remain local beside a filesystem-backed dataset and
+are reused across compatible curriculum stages.
+
+Run the horizon-weighted 6-hour through 15-day curriculum within the bounded
+production compute plan with:
+
+```bash
+uv run dynamaxx-train-hybrid-curriculum \
+  --output-root /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m \
+  --reference-6h-steps 20000 \
+  --bptt-window-hours 24 \
+  --wandb-project dynamaxx
+```
+
+The stage maxima are 20,000, 10,000, 5,000, 2,500, 1,250, 625, and 334
+updates. BPTT is exact through the 24-hour stage; longer numerical rollouts stay
+continuous while the recurrent state is detached every 24 hours. Existing
+local stages resume automatically, and W&B still receives scalars only.
+Validation scalars include WeatherBench2-compatible global RMSE and bias for
+headline forecast channels in physical units.
+
 ## Development
 
 Common local checks:

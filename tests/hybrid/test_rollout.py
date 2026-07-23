@@ -1,3 +1,7 @@
+# Copyright 2026 dynamaxx
+
+"""Tests for scan-based hybrid-model rollout helpers."""
+
 from dataclasses import dataclass
 
 import jax
@@ -6,7 +10,13 @@ import numpy as np
 import pytest
 
 from dynamaxx.hybrid.model import PreparedHybridModel
-from dynamaxx.hybrid.rollout import advance, rollout
+from dynamaxx.hybrid.rollout import (
+    advance,
+    advance_duration,
+    rollout,
+    rollout_at_durations,
+    rollout_at_durations_with_tendency_statistics,
+)
 from dynamaxx.weather import WeatherState
 
 
@@ -54,6 +64,7 @@ def _model_and_state():
 
 
 def test_advance_returns_only_the_final_recurrent_state():
+    """Advance discards intermediate states and returns the last carry."""
     model, state = _model_and_state()
 
     final_state = advance(
@@ -67,6 +78,7 @@ def test_advance_returns_only_the_final_recurrent_state():
 
 
 def test_rollout_observes_only_requested_coupling_boundaries():
+    """Rollout decodes only the requested public coupling boundaries."""
     model, state = _model_and_state()
 
     final_state, trajectory = rollout(
@@ -88,6 +100,7 @@ def test_rollout_observes_only_requested_coupling_boundaries():
 
 
 def test_rollout_supports_bptt_through_public_steps():
+    """The ordinary advance path preserves exact temporal gradients."""
     model, state = _model_and_state()
 
     def terminal_value(correction):
@@ -104,6 +117,89 @@ def test_rollout_supports_bptt_through_public_steps():
     np.testing.assert_allclose(derivative, 8.0)
 
 
+def test_physical_duration_advance_and_irregular_observation_schedule():
+    """Duration rollouts support increasing, irregular observation times."""
+    model, state = _model_and_state()
+    parameters = {"correction": jnp.asarray(0.0)}
+
+    intermediate = advance_duration(
+        model,
+        parameters,
+        state,
+        duration_seconds=3600.0,
+    )
+    final_state, observations = rollout_at_durations(
+        model,
+        parameters,
+        state,
+        durations_seconds=(1800.0, 3600.0, 7200.0),
+    )
+
+    np.testing.assert_allclose(intermediate.core, 5.0)
+    np.testing.assert_allclose(final_state.core, 9.0)
+    np.testing.assert_allclose(
+        observations.values[:, 0, 0, 0],
+        jnp.asarray([3.0, 5.0, 9.0]),
+    )
+
+
+def test_stopped_gradient_rollout_preserves_forecast_and_bounds_bptt():
+    """Detaching recurrent state changes credit assignment, not the forecast."""
+    model, state = _model_and_state()
+
+    def terminal_value(correction, maximum_gradient_duration_seconds):
+        _, observations, _ = rollout_at_durations_with_tendency_statistics(
+            model,
+            {"correction": correction},
+            state,
+            durations_seconds=(7200.0,),
+            rematerialize=False,
+            collect_tendency_statistics=False,
+            maximum_gradient_duration_seconds=maximum_gradient_duration_seconds,
+        )
+        return observations.values[-1, 0, 0, 0]
+
+    correction = jnp.asarray(0.0)
+    full_bptt_value, full_bptt_gradient = jax.value_and_grad(
+        lambda value: terminal_value(value, None)
+    )(correction)
+    stopped_value, stopped_gradient = jax.value_and_grad(
+        lambda value: terminal_value(value, 1800.0)
+    )(correction)
+
+    np.testing.assert_allclose(full_bptt_value, 9.0)
+    np.testing.assert_allclose(stopped_value, full_bptt_value)
+    np.testing.assert_allclose(full_bptt_gradient, 8.0)
+    np.testing.assert_allclose(stopped_gradient, 2.0)
+
+
+def test_stopped_gradient_window_must_end_on_correction_boundary():
+    """A detach event cannot split one public neural-correction step."""
+    model, state = _model_and_state()
+
+    with pytest.raises(ValueError, match="neural-correction boundary"):
+        rollout_at_durations_with_tendency_statistics(
+            model,
+            {"correction": jnp.asarray(0.0)},
+            state,
+            durations_seconds=(7200.0,),
+            maximum_gradient_duration_seconds=2700.0,
+        )
+
+
+def test_physical_duration_rejects_partial_correction_interval():
+    """Physical durations must contain a whole number of public steps."""
+    model, state = _model_and_state()
+
+    with pytest.raises(ValueError, match="integer multiple"):
+        advance_duration(
+            model,
+            {"correction": jnp.asarray(0.0)},
+            state,
+            duration_seconds=2700.0,
+        )
+
+
 @pytest.mark.parametrize(
     ("steps", "save_every", "error_type", "message"),
     [
@@ -118,6 +214,7 @@ def test_rollout_rejects_invalid_static_lengths(
     error_type,
     message,
 ):
+    """Static scan lengths must be positive integers with exact grouping."""
     model, state = _model_and_state()
 
     with pytest.raises(error_type, match=message):

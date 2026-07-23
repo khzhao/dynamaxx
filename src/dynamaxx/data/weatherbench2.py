@@ -1,6 +1,7 @@
 # Copyright 2026 dynamaxx
 
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any
@@ -122,6 +123,24 @@ class WeatherBench2Source:
         for year in years:
             self._year_time_axis(int(year))
 
+    def available_times(self, start: Any, end: Any) -> np.ndarray:
+        """Return all stored timestamps in the inclusive requested interval."""
+        start = np.datetime64(start, "ns")
+        end = np.datetime64(end, "ns")
+        if end < start:
+            raise ValueError("end must not precede start")
+        if not self._is_collection:
+            time_axis = self._single_store_time_axis
+            return time_axis[(time_axis >= start) & (time_axis <= end)]
+
+        first_year = int(start.astype("datetime64[Y]").astype(np.int64) + 1970)
+        final_year = int(end.astype("datetime64[Y]").astype(np.int64) + 1970)
+        time_axes = [
+            self._year_time_axis(year) for year in range(first_year, final_year + 1)
+        ]
+        time_axis = time_axes[0] if len(time_axes) == 1 else np.concatenate(time_axes)
+        return time_axis[(time_axis >= start) & (time_axis <= end)]
+
     def _open_zarr(self, path: str) -> xr.Dataset:
         options: dict[str, Any] = {
             "chunks": self.chunks,
@@ -138,7 +157,7 @@ class WeatherBench2Source:
         *,
         channels: Sequence[str] | None = None,
         dtype: Any = jnp.float32,
-    ) -> jax.Array:
+    ) -> np.ndarray:
         """Read one packed state as (channel, longitude, latitude)."""
         return self.read_state_times([time], channels=channels, dtype=dtype)[0]
 
@@ -148,11 +167,16 @@ class WeatherBench2Source:
         *,
         channels: Sequence[str] | None = None,
         dtype: Any = jnp.float32,
-    ) -> jax.Array:
+        parallel_workers: int = 1,
+    ) -> np.ndarray:
         """Read exact times as (time, channel, longitude, latitude)."""
         times = np.asarray(times, dtype="datetime64[ns]")
         assert times.ndim == 1
         assert times.size
+        if isinstance(parallel_workers, bool) or not isinstance(parallel_workers, int):
+            raise TypeError("parallel_workers must be an integer")
+        if parallel_workers < 1:
+            raise ValueError("parallel_workers must be positive")
 
         read_order = np.argsort(times, kind="stable")
         return_order = np.empty_like(read_order)
@@ -172,24 +196,40 @@ class WeatherBench2Source:
             return state_values if already_sorted else state_values[return_order]
 
         years = sorted_times.astype("datetime64[Y]").astype(np.int64) + 1970
-        arrays = []
+        requests = []
         for year in dict.fromkeys(years.tolist()):
             year_times = sorted_times[years == year]
             indices = self._time_indices(self._year_time_axis(year), year_times)
             channel_indices = (
                 self._channel_indices(channels, year=int(year)) if channels else None
             )
-            arrays.append(
-                self._read_state_indices(
-                    self._open_year(year),
+            requests.append(
+                (
+                    self._open_year(int(year)),
                     indices,
-                    channel_indices=channel_indices,
-                    dtype=dtype,
+                    channel_indices,
                 )
             )
-        state_values = (
-            arrays[0] if len(arrays) == 1 else jnp.concatenate(arrays, axis=0)
-        )
+
+        def read_request(request):
+            dataset, indices, channel_indices = request
+            return self._read_state_indices(
+                dataset,
+                indices,
+                channel_indices=channel_indices,
+                dtype=dtype,
+            )
+
+        if parallel_workers == 1 or len(requests) == 1:
+            arrays = [read_request(request) for request in requests]
+        else:
+            worker_count = min(parallel_workers, len(requests))
+            with ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="weatherbench2-read",
+            ) as executor:
+                arrays = list(executor.map(read_request, requests))
+        state_values = arrays[0] if len(arrays) == 1 else np.concatenate(arrays, axis=0)
         return state_values if already_sorted else state_values[return_order]
 
     def state_channel_names(
@@ -299,12 +339,25 @@ class WeatherBench2Source:
 
         longitude, latitude = self.spatial_coordinates(time=time, year=year)
         longitude_weight = 2 * np.pi / longitude.size
-        sin_latitude = np.sin(np.deg2rad(latitude))
-        latitude_edges = np.empty(latitude.size + 1, dtype=np.float64)
-        latitude_edges[0] = sin_latitude[0]
-        latitude_edges[-1] = sin_latitude[-1]
-        latitude_edges[1:-1] = 0.5 * (sin_latitude[:-1] + sin_latitude[1:])
-        latitude_weights = np.abs(np.diff(latitude_edges))
+        latitude_radians = np.deg2rad(latitude)
+        differences = np.diff(latitude_radians)
+        if not (np.all(differences > 0.0) or np.all(differences < 0.0)):
+            raise ValueError("latitude coordinates must be strictly monotonic")
+        ascending_latitude = (
+            latitude_radians
+            if differences[0] > 0.0
+            else latitude_radians[::-1]
+        )
+        latitude_bounds = np.concatenate(
+            (
+                np.asarray([-np.pi / 2], dtype=np.float64),
+                (ascending_latitude[:-1] + ascending_latitude[1:]) / 2.0,
+                np.asarray([np.pi / 2], dtype=np.float64),
+            )
+        )
+        latitude_weights = np.diff(np.sin(latitude_bounds))
+        if differences[0] < 0.0:
+            latitude_weights = latitude_weights[::-1]
         area_weights = np.broadcast_to(
             longitude_weight * latitude_weights[np.newaxis, :],
             (longitude.size, latitude.size),
@@ -393,7 +446,7 @@ class WeatherBench2Source:
         *,
         channel_indices: np.ndarray | None = None,
         dtype: Any,
-    ) -> jax.Array:
+    ) -> np.ndarray:
         state_values = dataset[STATE_VARIABLE].isel({TIME_COORDINATE: indices})
         if channel_indices is not None:
             state_values = state_values.isel({CHANNEL_COORDINATE: channel_indices})
@@ -415,7 +468,7 @@ class WeatherBench2Source:
         )
         if state_values.dims != expected_dimensions:
             state_values = state_values.transpose(*expected_dimensions)
-        return jnp.asarray(state_values.to_numpy(), dtype=dtype)
+        return np.asarray(state_values.to_numpy(), dtype=np.dtype(dtype))
 
     def _time_indices(self, time_axis: np.ndarray, times: np.ndarray) -> np.ndarray:
         indices = np.searchsorted(time_axis, times)

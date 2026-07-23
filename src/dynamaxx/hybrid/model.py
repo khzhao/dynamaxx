@@ -2,8 +2,8 @@
 
 """Preparation and stepping for additive neural-tendency hybrid models."""
 
-from dataclasses import dataclass
-from typing import Generic, Protocol, TypeVar
+from dataclasses import dataclass, field
+from typing import Any, Generic, Protocol, TypeVar
 
 import jax
 import numpy as np
@@ -107,17 +107,17 @@ class PreparedHybridModel(
 
     @property
     def step_seconds(self) -> float:
-        """Return the duration of one public neural-coupling step."""
+        """Duration of one public neural-coupling step."""
         return self.correction_interval_seconds
 
     @property
     def inner_step_seconds(self) -> float:
-        """Return the duration of one completed dycore step."""
+        """Duration of one completed dycore step."""
         return float(self.core.inner_step_seconds)
 
     @property
     def inner_steps_per_step(self) -> int:
-        """Return the number of inner dycore steps in one public step."""
+        """Number of inner dycore steps in one public step."""
         return int(round(self.step_seconds / self.inner_step_seconds))
 
     def initialize(
@@ -165,74 +165,145 @@ class PreparedHybridModel(
         """Decode a hybrid state without changing its recurrent carry."""
         return self.core.decode(state.core)
 
+    def advance(
+        self,
+        parameters: Parameters,
+        state: HybridState[CoreState],
+        *,
+        duration_seconds: float,
+    ) -> HybridState[CoreState]:
+        """Advance an exact physical duration without retaining intermediates."""
+        from dynamaxx.hybrid.rollout import advance_duration
 
-@dataclass(frozen=True)
-class HybridModel(
-    Generic[
-        Parameters,
-        CoreState,
-        CorrectorInputs,
-        NodalTendency,
-        NativeTendency,
-    ]
-):
-    """Unprepared hybrid model that binds a core factory and corrector."""
+        return advance_duration(
+            self,
+            parameters,
+            state,
+            duration_seconds=duration_seconds,
+        )
 
-    name: str
-    core_factory: HybridCoreFactory[
-        CoreState,
-        CorrectorInputs,
-        NodalTendency,
-        NativeTendency,
-    ]
-    corrector: NeuralTendency[Parameters, CorrectorInputs, NodalTendency]
+
+@dataclass
+class HybridModel:
+    """Simple public hybrid model that prepares its named core on first use."""
+
+    neural_model: Any
+    dycore_name: str = "dino_rskin_apv"
     correction_interval_seconds: float = 1800.0
+    _prepared: PreparedHybridModel[Any, Any, Any, Any, Any] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _input_variables: tuple[str, ...] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _spatial_shape: tuple[int, int] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self):
-        if not self.name.strip():
-            raise ValueError("name must not be empty")
+        if not callable(self.neural_model):
+            raise TypeError("neural_model must be callable")
+        if not self.dycore_name.strip():
+            raise ValueError("dycore_name must not be empty")
         correction_interval_seconds = _positive_finite_seconds(
             self.correction_interval_seconds,
             name="correction_interval_seconds",
         )
-        object.__setattr__(self, "name", self.name.strip())
-        object.__setattr__(
-            self,
-            "correction_interval_seconds",
-            correction_interval_seconds,
+        self.dycore_name = self.dycore_name.strip()
+        self.correction_interval_seconds = correction_interval_seconds
+
+    @property
+    def name(self) -> str:
+        """Stable forecast-model name."""
+        return f"hybrid_{self.dycore_name}"
+
+    @property
+    def step_seconds(self) -> float:
+        """Duration of one neural-correction interval."""
+        return self.correction_interval_seconds
+
+    def _prepare(self, weather_state: WeatherState) -> None:
+        """Infer the regular input grid and construct hidden core machinery."""
+        if self._prepared is not None:
+            if weather_state.variables != self._input_variables:
+                raise ValueError("weather_state variables changed after initialization")
+            if weather_state.spatial_shape != self._spatial_shape:
+                raise ValueError("weather_state grid changed after initialization")
+            return
+        from dynamaxx.hybrid.dinosaur import DinosaurHybridCoreFactory
+
+        longitude_count, latitude_count = weather_state.spatial_shape
+        longitude = np.linspace(
+            0.0,
+            360.0,
+            longitude_count,
+            endpoint=False,
+            dtype=np.float64,
         )
-
-    def prepare(
-        self,
-        *,
-        longitude: np.ndarray,
-        latitude: np.ndarray,
-        input_variables: tuple[str, ...],
-    ) -> PreparedHybridModel[
-        Parameters,
-        CoreState,
-        CorrectorInputs,
-        NodalTendency,
-        NativeTendency,
-    ]:
-        """Build the static grid-specific machinery used by training and inference."""
-        longitude = np.asarray(longitude, dtype=np.float64)
-        latitude = np.asarray(latitude, dtype=np.float64)
-        input_variables = tuple(str(variable) for variable in input_variables)
-        if longitude.ndim != 1 or longitude.size == 0:
-            raise ValueError("longitude must be a non-empty one-dimensional array")
-        if latitude.ndim != 1 or latitude.size == 0:
-            raise ValueError("latitude must be a non-empty one-dimensional array")
-        if not input_variables:
-            raise ValueError("input_variables must not be empty")
-
-        core = self.core_factory(
+        latitude = np.linspace(
+            -90.0,
+            90.0,
+            latitude_count,
+            dtype=np.float64,
+        )
+        core = DinosaurHybridCoreFactory(self.dycore_name)(
             longitude=longitude,
             latitude=latitude,
-            input_variables=input_variables,
+            input_variables=weather_state.variables,
         )
-        return PreparedHybridModel(
+        self._prepared = PreparedHybridModel(
             core=core,
-            corrector=self.corrector,
+            corrector=self.neural_model,
             correction_interval_seconds=self.correction_interval_seconds,
         )
+        self._input_variables = weather_state.variables
+        self._spatial_shape = weather_state.spatial_shape
+
+    def initialize(
+        self,
+        weather_state: WeatherState,
+        initial_time: np.datetime64,
+    ) -> HybridState[Any]:
+        """Initialize the recurrent state from one weather analysis."""
+        self._prepare(weather_state)
+        assert self._prepared is not None
+        return self._prepared.initialize(weather_state, initial_time)
+
+    def step(
+        self,
+        parameters: Any,
+        state: HybridState[Any],
+    ) -> HybridState[Any]:
+        """Advance one configured neural-correction interval."""
+        if self._prepared is None:
+            raise RuntimeError("initialize must be called before step")
+        next_state, _ = self._prepared.step(parameters, state)
+        return next_state
+
+    def advance(
+        self,
+        parameters: Any,
+        state: HybridState[Any],
+        *,
+        duration_seconds: float,
+    ) -> HybridState[Any]:
+        """Advance an exact physical duration."""
+        if self._prepared is None:
+            raise RuntimeError("initialize must be called before advance")
+        return self._prepared.advance(
+            parameters,
+            state,
+            duration_seconds=duration_seconds,
+        )
+
+    def decode(self, state: HybridState[Any]) -> WeatherState:
+        """Decode forecast observables from the current recurrent state."""
+        if self._prepared is None:
+            raise RuntimeError("initialize must be called before decode")
+        return self._prepared.decode(state)

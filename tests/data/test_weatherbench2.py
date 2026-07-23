@@ -6,6 +6,7 @@ from dynamaxx.data.weatherbench2 import (
     PROCESSED_ERA5_1P5DEG_6H_PATH,
     WeatherBench2Source,
 )
+from dynamaxx.training.data import WeatherBench2TrajectorySampler
 
 
 def _write_test_state_dataset(path):
@@ -157,6 +158,31 @@ def test_read_state_can_select_channels(tmp_path):
     np.testing.assert_allclose(state_values[1, 2, 0], 270.0)
 
 
+def test_trajectory_sampler_keeps_targets_inside_the_requested_split(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_test_state_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+    sampler = WeatherBench2TrajectorySampler(
+        source,
+        start="2020-01-01T00:00:00",
+        end="2020-01-01T06:00:00",
+        lead_hours=(6,),
+        input_channels=("2m_temperature", "geopotential_500"),
+        target_channels=("2m_temperature",),
+        seed=0,
+    )
+
+    sampled = sampler.sample(3)
+
+    assert sampler.candidate_count == 1
+    np.testing.assert_array_equal(
+        sampled.initial_times,
+        np.full(3, np.datetime64("2020-01-01T00:00:00", "ns")),
+    )
+    assert sampled.initial_state.values.shape == (3, 2, 4, 3)
+    assert sampled.targets.values.shape == (3, 1, 1, 4, 3)
+
+
 def test_state_channel_names_return_source_order(tmp_path):
     store_path = tmp_path / "weatherbench2.zarr"
     _write_test_state_dataset(store_path)
@@ -271,6 +297,19 @@ def test_area_weights_match_grid_shape_and_sphere_area(tmp_path):
 
     assert area_weights.shape == (4, 3)
     np.testing.assert_allclose(np.sum(area_weights), 4.0 * np.pi)
+
+
+def test_area_weights_use_weatherbench2_latitude_cell_bounds(tmp_path):
+    store_path = tmp_path / "weatherbench2.zarr"
+    _write_test_state_dataset(store_path)
+    source = WeatherBench2Source(path=str(store_path))
+
+    area_weights = source.area_weights()
+    latitude_bounds = np.deg2rad(np.array([-90.0, -45.0, 45.0, 90.0]))
+    expected_latitude_weights = np.diff(np.sin(latitude_bounds))[::-1]
+    actual_latitude_weights = area_weights[0] / (2.0 * np.pi / 4.0)
+
+    np.testing.assert_allclose(actual_latitude_weights, expected_latitude_weights)
 
 
 def test_metadata_helpers_reuse_cached_arrays(tmp_path):

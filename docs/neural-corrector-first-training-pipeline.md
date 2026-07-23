@@ -1,6 +1,6 @@
 # First Training Pipeline for a Dinosaur Neural Corrector
 
-Status: proposed initial experiment
+Status: production-scale deterministic training implemented; production run active
 
 ## Decision
 
@@ -18,11 +18,14 @@ The first model should be a minimal NeuralGCM-style hybrid:
   six-hour observation times;
 - treat every dycore state and neural evaluation between observed lead times as
   latent, with no intermediate state target or loss;
-- use exact six-hour backpropagation through time (BPTT) for the first
-  supervised rollout;
-- progressively extend the differentiable rollout to 12, 24, 48, 96, 192, and
-  360 hours, retaining all previous lead losses and adding exactly one new loss
-  at each promotion;
+- use exact backpropagation through time (BPTT) through the 6-, 12-, and 24-hour
+  stages;
+- beyond 24 hours, keep the numerical rollout continuous but stop gradients at
+  fixed 24-hour boundaries, retaining all previous lead losses and adding
+  exactly one new loss at each promotion to 48, 96, 192, and 360 hours;
+- use 2014–2018 for the first pipeline and stability pilot, while computing
+  frozen statistics from 1979–2018 and expanding production training to that
+  full period before the expensive multi-day stages;
 - use spectral accuracy, spectrum, and bias losses so that long-horizon
   training does not reward smoothing.
 
@@ -179,7 +182,7 @@ Use a shared vertical-column residual MLP. The same network is applied at every
 horizontal grid point, while all vertical levels in a column are presented
 together.
 
-The initial configuration should use:
+The controlled pilot configuration used:
 
 - four residual MLP blocks;
 - hidden width 256;
@@ -187,6 +190,22 @@ The initial configuration should use:
 - normalization of input features using training-set statistics;
 - a zero-initialized output projection;
 - fixed, per-output tendency scales.
+
+That pilot has exactly 1,111,605 trainable parameters for the active 172 input
+and 53 tendency channels. The first production control uses width 384 and eight
+residual blocks, for exactly 4,820,789 trainable parameters. This is close to
+the 5,088,287 parameters in the learned-physics portion of the published
+deterministic NeuralGCM-1.4 checkpoint. That checkpoint has 18,343,580 learned
+parameters in total: 9,019,390 in its learned encoder, 4,235,903 in its learned
+decoder, and 5,088,287 in learned physics.
+
+The larger production candidate uses width 800 and eight residual blocks, for
+exactly 20,692,853 trainable parameters. Width 800 remains aligned for BF16
+matrix multiplication on H100 tensor cores. Dynamaxx still freezes its encoder
+and decoder, so this count belongs entirely to the learned corrector. The
+4.82M run remains the capacity control; throughput and forecast skill for the
+20.69M candidate must be measured separately rather than inferred from the
+smaller run.
 
 The zero output initialization makes the initial hybrid forecast exactly the
 frozen Dinosaur forecast. It also makes degradation or instability introduced
@@ -250,6 +269,15 @@ magnitudes, then validate them through end-to-end WeatherBench2 forecast loss.
 The correction norm should be monitored by variable and vertical level, but it
 is not itself a supervised label.
 
+The implemented zero-start baseline currently uses SI scales of
+$10^{-10}\ \mathrm{s}^{-2}$ for vorticity and divergence, $10^{-5}\
+\mathrm{K\,s}^{-1}$ for temperature variation, $10^{-9}\ \mathrm{s}^{-1}$
+for specific humidity, and $10^{-7}\ \mathrm{s}^{-1}$ for log surface
+pressure before conversion to Dinosaur units. These are conservative project
+starting values, not published NeuralGCM constants. The zero output projection
+makes them inactive at initialization; frozen-backbone tendency statistics and
+the logged correction norms must validate them before production training.
+
 ## 3. Data and Sampling
 
 ### 3.1 Verified local data cadence
@@ -295,18 +323,22 @@ jointly from the next observed endpoint.
 
 ### 3.2 Chronological split
 
-Use the standard chronological split requested for the neural model:
+Use this initial pilot and final chronological split:
 
-- training: 1979–2018 inclusive;
+- pipeline/stability pilot: 2014–2018 inclusive;
+- production training: 1979–2018 inclusive;
 - validation and checkpoint selection: 2019;
 - untouched final test: 2020.
 
-The repository's existing `iteration` protocol covers 2014–2018, so it overlaps
-the neural training set under this split. Its dates and implementation do not
-need to change, but its score is now an in-distribution training diagnostic for
-the hybrid model, not held-out evidence. The existing `validation` protocol on
-2019 and locked `golden` protocol on 2020 align with the validation and final
-test split above. Do not inspect or tune against 2020 until final reporting.
+The repository's existing `iteration` protocol covers the pilot period exactly.
+It is therefore an in-distribution training diagnostic for the hybrid model,
+not held-out evidence. Use the pilot to complete the fixed-set overfit and the
+6-, 12-, and at most 24-hour stages. Before spending the multi-day curriculum
+budget, restart or deliberately warm-start a production run sampled across
+1979–2018. A warm start must be recorded because it initially overweights the
+recent pilot years. The existing `validation` protocol on 2019 and locked
+`golden` protocol on 2020 align with the validation and final test split above.
+Do not inspect or tune against 2020 until final reporting.
 
 The earlier 1959–1978 and later 2021–2023 data can be considered only in a
 separate data-split experiment.
@@ -316,10 +348,13 @@ split. For example, the final training start must be early enough that its
 target does not cross into 2019, and a validation rollout must not use a target
 from 2020.
 
-Compute all normalization, climatology, and spectral statistics from the
-training split only. Sample initial times uniformly enough to cover seasons and
-times of day. Batch sampling should not disproportionately favor long,
-contiguous periods from a small number of years.
+Compute all normalization, climatology, and spectral statistics from the full
+1979–2018 production-training split and freeze them, including during the
+2014–2018 pilot. The implementation estimates these statistics from a
+reproducible uniform sample and caches them locally; production runs should use
+a sample count large enough to cover seasons and synoptic times. Batch sampling
+should not disproportionately favor long, contiguous periods from a small
+number of years.
 
 Each truth-start forecast is initialized by encoding the real WeatherBench2
 state:
@@ -351,15 +386,23 @@ there is no target at that boundary. Moving all six-hour error onto a final
 one-hour suffix would train that suffix to repair five hours of detached model
 error and would not estimate the intended local tendency.
 
-The valid compute-saving choices are therefore:
+The primary recipe therefore uses exact BPTT through 24 hours. At longer
+horizons, it advances one continuous on-policy trajectory and detaches the
+recurrent state after every 24-hour block. If a boundary is also supervised,
+the model decodes and records that loss before detaching the state. Forecast
+values, clocks, and latent state values are unchanged by the detach.
 
-1. use exact six-hour BPTT with activation rematerialization;
-2. progressively increase the exact BPTT horizon only after the preceding
-   horizon is stable;
-3. optionally stop gradients across prefixes that end at observed boundaries
-   as a separate truncated-credit experiment;
-4. create a separate hourly dataset if exact one-hour objectives are later
-   required.
+For example, the 48-hour loss differentiates through hours 24--48, while the
+6-, 12-, and 24-hour losses retain their exact gradients within hours 0--24.
+The 96-hour loss differentiates through hours 72--96. An intervening block with
+no selected endpoint loss still supplies the on-policy state seen by the next
+block, but receives no direct temporal gradient on that update. Because the
+same corrector parameters are used in every block, all scored blocks update the
+same network.
+
+Full-horizon BPTT remains a controlled credit-assignment ablation. A separate
+hourly dataset would be required if exact one-hour objectives are later needed;
+the stopped-gradient boundaries do not invent new supervision.
 
 None of these choices adds supervision to an inner dycore state. Every neural
 evaluation within a differentiable interval receives credit only through its
@@ -442,50 +485,51 @@ for the desired effective batch size.
 
 ### 4.3 Phase B: logarithmic rollout curriculum
 
-After six-hour training is stable, promote the fully differentiable rollout
-through the following fixed horizons:
+After six-hour training is stable, promote the continuous rollout through the
+following fixed horizons:
 
-| Stage | Rollout horizon | Supervised lead times |
-| --- | ---: | --- |
-| A | 6 h | 6 h |
-| B | 12 h | 6, 12 h |
-| C | 24 h | 6, 12, 24 h |
-| D | 48 h | 6, 12, 24, 48 h |
-| E | 96 h / 4 d | 6, 12, 24, 48, 96 h |
-| F | 192 h / 8 d | 6, 12, 24, 48, 96, 192 h |
-| G | 360 h / 15 d | 6, 12, 24, 48, 96, 192, 360 h |
+| Stage | Rollout horizon | Supervised lead times | Maximum gradient history |
+| --- | ---: | --- | ---: |
+| A | 6 h | 6 h | 6 h |
+| B | 12 h | 6, 12 h | 12 h |
+| C | 24 h | 6, 12, 24 h | 24 h |
+| D | 48 h | 6, 12, 24, 48 h | 24 h |
+| E | 96 h / 4 d | 6, 12, 24, 48, 96 h | 24 h |
+| F | 192 h / 8 d | 6, 12, 24, 48, 96, 192 h | 24 h |
+| G | 360 h / 15 d | 6, 12, 24, 48, 96, 192, 360 h | 24 h |
 
 The final promotion ends at the required 15-day forecast horizon rather than
 continuing the doubling sequence to 384 hours. Each stage retains every loss
 from the preceding stage and adds exactly one new lead-time loss. This anchors
-short-range accuracy while extending temporal credit assignment to the new
-horizon.
+short-range accuracy while exposing the corrector to progressively later
+on-policy states.
 
 Promote to the next stage only after the current stage has finite gradients,
 bounded correction norms, stable free rollouts through its horizon, and a
 validation loss that has stopped improving materially. Promotion changes the
 static rollout and loss schedule, so each stage has its own compiled training
-step. Unless a separate truncated-credit experiment is explicitly enabled,
-the backward pass spans the complete current rollout.
+step. The backward pass is exact for horizons at or below 24 hours and bounded
+to one 24-hour block thereafter.
 
 At every stage, the recurrent state remains continuous. The model is never
 teacher-forced, decoded and re-encoded, or replaced at a supervised lead. A
 decoded loss observes that state without modifying it, and all dycore and
 neural states between the listed lead times remain latent.
 
-### 4.4 Optional stopped-prefix exposure
+### 4.4 Bounded BPTT on a continuous trajectory
 
-Stopped-gradient prefixes are not part of the primary logarithmic curriculum.
-They remain an optional compute-versus-credit-assignment experiment for
-exposing the corrector to model-generated states without retaining the entire
-prefix graph. Any prefix must end at one of the observed lead times above, and
-the forecast state must remain numerically continuous across the detached
-boundary.
+The primary curriculum uses a configurable 24-hour BPTT window. Rollout events
+are the union of supervised lead times and fixed 24-hour detach boundaries. At
+each event, the dycore first reaches the exact boundary; the trainer records a
+forecast if that lead is supervised, then applies `stop_gradient` to the
+complete recurrent hybrid state when the event is a detach boundary. It never
+teacher-forces, re-encodes ERA5, or changes the numerical state.
 
-If an hourly ERA5 training product is created later, exact one-hour truth-start
-and stopped-prefix suffixes become valid options. They should be treated as a
-separate data-and-training ablation, not silently substituted into this
-six-hour pipeline.
+This bounds activation history and reverse-mode dycore work independently of
+the 15-day forward exposure. It also deliberately changes temporal credit
+assignment, so full-horizon BPTT is retained as an ablation rather than treated
+as mathematically equivalent. The window is exposed as
+`--bptt-window-hours`; its production default is 24.
 
 ## 5. Loss Function
 
@@ -556,15 +600,21 @@ $M_{\tau\ell}$ is a smooth, lead-dependent spectral taper:
   wavenumbers at longer lead times;
 - do not remove those wavenumbers from the forecast itself.
 
+The implemented starting parameterization keeps full resolution through 24
+hours, moves the fully weighted cutoff logarithmically to 25% of the resolved
+wavenumber range by 360 hours, and uses a cosine transition spanning 15% of the
+range. These three values are explicit project starting choices, not values
+reported by NeuralGCM, and must be treated as controlled hyperparameters.
+
 This avoids penalizing a realistic small-scale feature twice merely because it
 is slightly displaced.
 
 For the initial truth-start updates,
-$\tau=\Delta t_{\mathrm{obs}}=6\ \mathrm{hours}$. For a stopped-prefix update,
-$\tau=(p+1)\Delta t_{\mathrm{obs}}$ is the absolute lead from the original ERA5
-initial condition, not merely the length of the differentiable suffix. This
-allows the loss to become less pointwise at later prefix times while the
-spectrum and bias terms continue to constrain realism.
+$\tau=\Delta t_{\mathrm{obs}}=6\ \mathrm{hours}$. Under bounded BPTT, $\tau$
+remains the absolute lead from the original ERA5 initial condition, not the
+length of the differentiable block containing that loss. This allows the loss
+to become less pointwise at later forecast times while the spectrum and bias
+terms continue to constrain realism.
 
 Compute this loss only for decoded channels with corresponding real
 WeatherBench2 targets. Do not add a parallel loss on Dinosaur's native
@@ -621,29 +671,38 @@ $$
 $$
 
 This distinguishes persistent model drift from unpredictable trajectory error.
+The memory-safe implementation forms this expectation across the eight devices
+for each device-local microbatch, then averages the two accumulated bias losses.
+It does not run a separate forecast merely to form a sixteen-example bias
+reference. State and spectrum gradients are still accumulated over all sixteen
+examples. A single exact sixteen-example bias expectation can be used when two
+examples per device fit simultaneously; that execution variant must first pass
+the OOM gate.
 
 ### 5.4 Credit assignment through latent states
 
-There is deliberately no data loss on $S_{t_k}$ or $Q_k$. With losses at the
-selected leads, each neural evaluation receives gradients from every later
-supervised endpoint through the chain
+There is deliberately no data loss on $S_{t_k}$ or $Q_k$. Let $b(\tau)$ be the
+start of the 24-hour gradient block containing the supervised endpoint
+$\tau$, with an endpoint on a detach boundary assigned to the block that ends
+there. Bounded BPTT computes
 
 $$
 \frac{d\mathcal L_{\mathrm{WB2}}}{d\theta}
 =
 \sum_{\tau\in\mathcal T_{\mathrm{obs}}(T)}
 \alpha_\tau
-\sum_{k:t_k<\tau}
+\sum_{k:b(\tau)\leq t_k<\tau}
 \frac{\partial\mathcal L_\tau}{\partial\widehat X_\tau}
 \frac{\partial\widehat X_\tau}{\partial S_\tau}
 \frac{\partial S_\tau}{\partial Q_k}
 \frac{\partial Q_k}{\partial\theta}.
 $$
 
-This is why the inner states must remain in the differentiable graph even
-though their numerical accuracy is never scored. Correction norms, internal
-state norms, and conservation diagnostics should be logged as stability
-diagnostics, not added as supervised targets in the first baseline.
+Inner states within that block remain in the differentiable graph even though
+their numerical accuracy is never scored. States in earlier blocks remain in
+the forward trajectory but are detached from that endpoint loss. Correction
+norms, internal state norms, and conservation diagnostics should be logged as
+stability diagnostics, not added as supervised targets in the first baseline.
 
 Initial normalized loss weights should be:
 
@@ -672,34 +731,32 @@ Use the following initial optimizer configuration:
 
 For eight H100 GPUs:
 
-- use data parallelism over independent truth-start windows or stopped-prefix
-  trajectories;
+- use data parallelism over independent truth-start trajectories;
 - begin with one training example per GPU;
 - use gradient accumulation to reach an effective batch size of at least 16
   when required by the batch-bias loss;
 - compile one static training step for each curriculum horizon and reuse it for
   every update within that stage;
-- execute stopped prefixes without retaining activations and apply
-  `stop_gradient` before the differentiable suffix only in the optional
-  stopped-prefix experiment;
+- apply `stop_gradient` to the complete recurrent state every 24 forecast
+  hours, after decoding any loss at the shared boundary;
 - rematerialize neural-correction blocks during BPTT when memory requires it;
 - use BF16 for neural-network matrix operations where stable;
 - keep the Dinosaur state, SIL3 integration, reductions, and spherical-harmonic
   transforms in FP32 initially.
 
 Freezing Dinosaur parameters removes their optimizer state and parameter
-gradients, but the dycore remains in the BPTT graph for every differentiated
-window. It is absent from the backward graph only for an explicitly stopped
-prefix. Rematerialization trades additional forward computation for lower
-activation memory; its cost grows substantially as the curriculum reaches
-multi-day horizons. With the current data there is no exact sub-six-hour loss
-that removes the initial six-hour gradient path.
+gradients, but the dycore remains in the BPTT graph inside each 24-hour gradient
+window. Earlier blocks are absent from the backward graph after their recurrent
+state is detached. Rematerialization trades additional forward computation for
+lower activation memory inside a block. With the current data there is no exact
+sub-six-hour loss that removes the initial six-hour gradient path.
 
 At the configured 30-minute correction cadence and 15-minute dycore cadence,
 the final 360-hour stage contains 720 neural evaluations and 1,440 completed
-dycore steps per example. Treat memory, throughput, and gradient finiteness at
-each promotion as measured gates rather than assuming the final full-horizon
-BPTT graph will fit merely because the preceding stage did.
+dycore steps per example. Its backward activation history is nevertheless
+bounded to 48 neural evaluations and 96 dycore steps by the 24-hour BPTT
+window. Treat memory, throughput, and gradient finiteness at each promotion as
+measured gates.
 
 Checkpoints should contain:
 
@@ -710,6 +767,160 @@ Checkpoints should contain:
 - random-number state;
 - exact model and dataset configuration.
 
+Checkpoints, training statistics, and run configuration are written only under
+the configured local output directory. W&B receives scalar training and
+validation statistics only. The logger disables code capture, Git metadata,
+console capture, environment metadata, system monitoring, and requirement
+capture; it never calls the W&B artifact API.
+The local `best.json` manifest tracks the lowest finite 2019 validation loss
+within a stage; scientific acceptance still requires the realism gates below,
+so that manifest is a candidate selector rather than automatic acceptance.
+
+Two deterministic performance caches are also stored locally. They are not
+checkpoints and are never sent to W&B:
+
+- the initialized-state cache stores the fixed
+  WeatherBench-to-Dinosaur initialization for each timestamp, before any
+  neural correction is evaluated;
+- the modal-target cache stores the spherical-harmonic transform of each fixed
+  ERA5 truth target used by the loss.
+
+Both caches are fingerprinted by the dataset, variables, cache format, and
+dycore configuration. The neural parameters are absent from both mappings, so
+the caches remain valid while the corrector is trained and across curriculum
+stages that use the same dycore and data. For a local dataset, the default cache
+root is `dynamaxx-training-cache` beside the dataset. The 2014–2019 pilot cache
+occupies roughly 42 GiB for initialized states and 29 GiB for modal targets.
+The trainer preloads both into host memory, uses parallel host reads while
+building them, prefetches one deterministic batch, and transfers already
+sharded batches directly to the eight devices.
+
+### 6.1 Running one stage
+
+The executable trains one static horizon at a time. Its defaults use all local
+JAX devices, one example per device, two accumulated microbatches, the
+2014–2018 pilot interval, 2019 validation, and locally cached 1979–2018
+statistics:
+
+```bash
+dynamaxx-train-hybrid \
+  --dataset /mnt/data/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative \
+  --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h \
+  --hidden-size 800 \
+  --residual-blocks 8 \
+  --horizon-hours 6 \
+  --bptt-window-hours 24
+```
+
+The first launch builds the deterministic caches automatically. They can be
+built separately before opening a W&B run:
+
+```bash
+dynamaxx-train-hybrid \
+  --dataset /mnt/data/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative \
+  --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h \
+  --horizon-hours 6 \
+  --state-cache-only \
+  --data-loader-workers 8 \
+  --state-cache-workers 8 \
+  --no-wandb
+```
+
+`--bptt-window-hours 24` is the default. It produces exact BPTT for the 6-,
+12-, and 24-hour stages and fixed 24-hour gradient blocks for longer stages.
+`--no-state-cache`, `--no-target-cache`, and `--no-prefetch` are diagnostic
+fallbacks. `--per-device-batch-size` and `--gradient-accumulation-steps` allow
+an equivalent global batch to be benchmarked with different device-local
+execution, while `--no-rollout-rematerialization` is an explicit memory-for-
+compute experiment that must pass an OOM smoke test before production use.
+`--pack-gradient-accumulation` places the two configured microbatches in one
+device-local execution. Their two eight-example bias groups, global batch,
+averaged gradient, optimizer update, and checkpoint configuration remain
+unchanged. For the 4.82M-parameter control model on eight H100s, sequential
+accumulation takes approximately 2.55 seconds per six-hour update; packing the
+same global batch of 16 takes approximately 2.06 seconds and sustains 7.66
+examples per second. The packed update and its physical-metric validation both
+complete without OOM. The curriculum runner tries packing first and falls back
+to sequential accumulation if a longer horizon exceeds memory. These timings
+do not yet describe the 20.69M candidate; it requires its own packed and
+sequential OOM/throughput smoke tests.
+
+Validation logs WeatherBench2-compatible physical metrics in addition to the
+training objective. The scalar names are
+`validation/weatherbench2/rmse/<channel>/<lead>h` and
+`validation/weatherbench2/bias/<channel>/<lead>h`. RMSE uses physical units,
+WeatherBench2 latitude-cell area weights, and the benchmark ordering of
+averaging squared error across the globe and examples before taking the square
+root. Headline channels are T2m, MSLP, Z500, T850, Q700, U850, V850, U10, and
+V10. These random 2019 validation samples track training progress; final SOTA
+reporting uses the fixed `weatherbench2` protocol with all 732 00/12 UTC starts
+in 2020 and daily leads through day 15.
+
+`WANDB_API_KEY` and, optionally, `WANDB_PROJECT` are read by W&B from the
+environment. `--wandb-project` can set the project explicitly. Use `--no-wandb`
+for a local-only run. `--resume` resumes the exact latest local checkpoint with
+the same configuration and W&B run. `--stop-at-step N` bounds a run at an
+absolute optimizer step while leaving the configured schedule and checkpoint
+compatible with a later `--resume`. After promotion criteria are met, start the
+next static horizon from the selected previous EMA without carrying optimizer
+state:
+
+```bash
+dynamaxx-train-hybrid \
+  --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/12h \
+  --horizon-hours 12 \
+  --initialize-from /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h/step_000100000.pkl
+```
+
+### 6.2 One-week full-curriculum budget
+
+A flat optimizer-step count at every horizon is not viable: rollout work grows
+approximately in proportion to horizon. The bounded production runner instead
+holds simulated forecast-hours approximately constant across stages:
+
+| Horizon | Maximum updates | Six-hour-equivalent updates |
+| ---: | ---: | ---: |
+| 6 h | 20,000 | 20,000 |
+| 12 h | 10,000 | 20,000 |
+| 24 h | 5,000 | 20,000 |
+| 48 h | 2,500 | 20,000 |
+| 96 h | 1,250 | 20,000 |
+| 192 h | 625 | 20,000 |
+| 360 h | 334 | 20,040 |
+
+This is 39,709 optimizer updates across the complete curriculum. For context,
+published NeuralGCM models used 25,000 updates at 0.7°, 26,000 at 1.4°,
+38,000 at 2.8°, and 43,000 for the 1.4° stochastic ensemble. Those are total
+training updates, not per-stage counts. The deterministic NeuralGCM curricula
+ended at 60–72-hour unrolls and the ensemble curriculum ended at 120 hours;
+their 15-day forecast evaluations did not use a 15-day training stage. See
+[Supplementary Tables G4–G5](https://arxiv.org/pdf/2311.07222).
+
+At the measured 4.82M control's packed six-hour rate of 2.06 seconds per update,
+the linear rollout projection is 80.1 wall-clock compute-hours, or 3.3 days on the
+same eight H100s. A factor-of-two allowance for longer-horizon inefficiency,
+validation, and compilation keeps the plan within one week. These are stage
+maxima, not evidence that every stage needs the same number of parameter
+updates.
+
+Run or resume the complete sequence with:
+
+```bash
+uv run dynamaxx-train-hybrid-curriculum \
+  --output-root /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m \
+  --reference-6h-steps 20000 \
+  --bptt-window-hours 24 \
+  --wandb-project dynamaxx
+```
+
+The runner uses the existing configuration when a local stage checkpoint is
+present, stops that stage at its horizon-weighted maximum, selects its local
+best-validation EMA checkpoint, and starts the next horizon in a fresh JAX
+process. It logs scalar statistics to a separate W&B run per horizon. Packed
+accumulation is attempted first; a device-memory failure automatically retries
+the same global batch with sequential accumulation. Any other failure stops
+the sequence and leaves the latest local checkpoint resumable.
+
 ## 7. Validation and Model Selection
 
 Every candidate must be compared with the frozen `dino_rskin_apv` backbone
@@ -717,7 +928,7 @@ using identical initial conditions. Use 2019 for validation and checkpoint
 selection. Run the locked 2020 `golden` protocol only for final reporting. The
 existing 2014–2018 `iteration` protocol can still provide a fast
 in-distribution diagnostic, but it is not a held-out score because those years
-are now part of training.
+are part of both the pilot and final production training periods.
 
 Track at least:
 
@@ -751,7 +962,7 @@ After the baseline completes, change one design choice at a time:
 
 1. neural coupling cadence: 15, 30, and 60 minutes, subject to the integer
    inner-step constraint;
-2. full-horizon BPTT versus stopped-prefix or truncated-credit training;
+2. 24-hour bounded BPTT versus full-horizon temporal credit assignment;
 3. retaining all logarithmic lead losses versus supervising only the newest
    lead at each curriculum stage;
 4. column-network width: 128 and 256;
@@ -776,7 +987,7 @@ NeuralGCM demonstrated three choices that are directly applicable here:
   dynamical core handles resolved transport;
 - learned tendencies can be held for approximately 30 minutes to avoid neural
   evaluation at every ODE step;
-- a curriculum from short to longer differentiable rollouts is important for
+- a curriculum from short to longer on-policy rollouts is important for
   accuracy and stability.
 
 It also used separate spectral accuracy, spectrum, and bias objectives to avoid
@@ -789,9 +1000,9 @@ rollout. Training begins with that exact decoded endpoint loss, then doubles
 the rollout horizon while retaining earlier logarithmic lead losses and adding
 one new loss at 12, 24, 48, 96, and 192 hours before the final 360-hour lead.
 The intervening dycore states are latent and are allowed to take whatever values
-best support accurate observed forecasts. Stopped prefixes remain a separate
-experiment; they are not substituted silently for full credit assignment in
-the primary curriculum.
+best support accurate observed forecasts. Exact temporal credit is retained
+through 24 hours; later stages use fixed 24-hour gradient blocks while keeping
+the full numerical trajectory continuous.
 
 Primary reference:
 
@@ -799,9 +1010,9 @@ Primary reference:
   climate](https://www.nature.com/articles/s41586-024-07744-y), *Nature* 632,
   1060–1066 (2024).
 
-The stopped-prefix phase additionally separates two benefits of recurrent
-training: exposure to model-generated states and long-range temporal gradients.
-That distinction is studied directly in:
+The bounded-BPTT ablation separates two benefits of recurrent training:
+exposure to model-generated states and long-range temporal gradients. That
+distinction is studied directly in:
 
 - Bjoern List et al., [Differentiability in Unrolled Training of Neural Physics
   Simulators on Transient Dynamics](https://arxiv.org/abs/2402.12971) (2024).

@@ -16,7 +16,9 @@ from dynamaxx.eval.protocols import (
     golden_case,
     iteration_case,
     lead_days_to_steps,
+    twice_daily_initial_times,
     validation_case,
+    weatherbench2_case,
 )
 
 
@@ -42,6 +44,7 @@ def test_fixed_protocols_use_default_daily_leads():
     assert iteration_case().lead_steps == expected_steps
     assert validation_case().lead_steps == expected_steps
     assert golden_case().lead_steps == expected_steps
+    assert weatherbench2_case().lead_steps == expected_steps
 
 
 def test_fixed_protocols_match_iteration_validation_golden_split():
@@ -88,8 +91,32 @@ def test_protocol_registry_contains_only_fixed_eval_protocols():
         "iteration",
         "validation",
         "golden",
+        "weatherbench2",
     )
     assert create_case("validation").name == "validation"
+
+
+def test_weatherbench2_protocol_matches_public_2020_initializations():
+    case = weatherbench2_case()
+
+    assert case.initial_times.size == 732
+    assert case.initial_times[0] == np.datetime64("2020-01-01T00:00:00")
+    assert case.initial_times[-1] == np.datetime64("2020-12-31T12:00:00")
+    np.testing.assert_array_equal(
+        _initial_hours(case.initial_times[:6]),
+        np.array([0, 12, 0, 12, 0, 12]),
+    )
+    assert tuple(variable.channel_name for variable in case.target_variables) == (
+        "2m_temperature",
+        "mean_sea_level_pressure",
+        "geopotential_500",
+        "temperature_850",
+        "specific_humidity_700",
+        "u_component_of_wind_850",
+        "v_component_of_wind_850",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+    )
 
 
 def test_daily_initial_times_returns_inclusive_range():
@@ -121,6 +148,15 @@ def test_cycled_daily_initial_times_uses_repeating_hour_cycle():
     np.testing.assert_array_equal(
         _initial_hours(times),
         np.array([0, 6, 12, 18, 0, 6]),
+    )
+
+
+def test_twice_daily_initial_times_uses_00_and_12_utc():
+    times = twice_daily_initial_times("2020-01-01", "2020-01-03")
+
+    np.testing.assert_array_equal(
+        _initial_hours(times),
+        np.array([0, 12, 0, 12, 0, 12]),
     )
 
 

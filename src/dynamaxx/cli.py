@@ -10,7 +10,7 @@ from dynamaxx.utils.consts import WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 
 logger = logging.getLogger("dynamaxx.cli")
 OUTPUT_DIR = Path("outputs/eval")
-PROTOCOL_NAMES = ("fast", "iteration", "validation", "golden")
+PROTOCOL_NAMES = ("fast", "iteration", "validation", "golden", "weatherbench2")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
