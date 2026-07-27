@@ -9,6 +9,23 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from dynamaxx.dycore.models.dinosaur.channels import (
+    MEAN_SEA_LEVEL_PRESSURE_VARIABLE,
+    SURFACE_PRESSURE_VARIABLE,
+    TEN_METER_U_WIND_VARIABLE,
+    TEN_METER_V_WIND_VARIABLE,
+    TWO_METER_TEMPERATURE_VARIABLE,
+    split_pressure_level_channel,
+)
+
+_SURFACE_CHANNEL_WEIGHTS = {
+    TWO_METER_TEMPERATURE_VARIABLE: 1.0,
+    TEN_METER_U_WIND_VARIABLE: 0.1,
+    TEN_METER_V_WIND_VARIABLE: 0.1,
+    MEAN_SEA_LEVEL_PRESSURE_VARIABLE: 0.1,
+    SURFACE_PRESSURE_VARIABLE: 0.1,
+}
+
 
 @dataclass(frozen=True)
 class SpectralLossStatistics:
@@ -51,6 +68,53 @@ class SpectralLossStatistics:
         object.__setattr__(self, "coefficient_variance", coefficient_variance)
         object.__setattr__(self, "climatological_power", climatological_power)
         object.__setattr__(self, "channel_weights", channel_weights)
+
+
+def weatherbench_channel_weights(
+    channel_names: tuple[str, ...],
+) -> jax.Array:
+    """Return pressure-proportional atmospheric and standard surface weights.
+
+    Each atmospheric variable receives unit total weight, distributed among
+    its pressure levels in proportion to pressure. Surface weights follow the
+    GraphCast and Stormer convention. Unsupported unlevelled channels are
+    rejected so additions to the model output cannot silently alter the loss.
+    """
+    names = tuple(map(str, channel_names))
+    if len(set(names)) != len(names):
+        raise ValueError("channel_names must be unique")
+
+    parsed_channels = [split_pressure_level_channel(name) for name in names]
+    pressure_sums: dict[str, float] = {}
+    unsupported_channels = []
+    for name, (variable_name, pressure_level) in zip(
+        names,
+        parsed_channels,
+        strict=True,
+    ):
+        if pressure_level is not None:
+            pressure_sums[variable_name] = (
+                pressure_sums.get(variable_name, 0.0) + pressure_level
+            )
+        elif name not in _SURFACE_CHANNEL_WEIGHTS:
+            unsupported_channels.append(name)
+    if unsupported_channels:
+        raise ValueError(
+            "no published surface loss weight for channels "
+            f"{sorted(unsupported_channels)}"
+        )
+
+    weights = []
+    for name, (variable_name, pressure_level) in zip(
+        names,
+        parsed_channels,
+        strict=True,
+    ):
+        if pressure_level is None:
+            weights.append(_SURFACE_CHANNEL_WEIGHTS[name])
+        else:
+            weights.append(pressure_level / pressure_sums[variable_name])
+    return jnp.asarray(weights, dtype=jnp.float32)
 
 
 def _power_by_total_wavenumber(

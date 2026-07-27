@@ -15,6 +15,7 @@ DEFAULT_TRAINING_OUTPUT_DIRECTORY = (
 )
 PRODUCTION_HIDDEN_SIZE = 800
 PRODUCTION_RESIDUAL_BLOCKS = 8
+LOSS_CHANNEL_WEIGHTING = "pressure_proportional_with_standard_surface_weights"
 
 
 def supervised_lead_hours(horizon_hours: int) -> tuple[int, ...]:
@@ -72,6 +73,7 @@ class TrainingConfig:
     decoder_residual_blocks: int = 2
     decoder_use_raw_observation: bool = False
     decoder_only: bool = False
+    freeze_corrector: bool = False
     interface_loss_weight: float = 0.1
     newest_lead_loss_weight: float = 0.5
     log_every_steps: int = 10
@@ -112,6 +114,8 @@ class TrainingConfig:
             raise ValueError("decoder_hidden_size must be a nonnegative integer")
         if self.decoder_only and not self.uses_interface_decoder:
             raise ValueError("decoder_only requires an enabled interface decoder")
+        if self.freeze_corrector and not self.uses_interface_decoder:
+            raise ValueError("freeze_corrector requires an enabled interface decoder")
         if self.warmup_steps < 0 or self.warmup_steps >= self.training_steps:
             raise ValueError("warmup_steps must be in [0, training_steps)")
         positive_values = {
@@ -219,4 +223,5 @@ class TrainingConfig:
         values["lead_hours"] = list(self.lead_hours)
         values["loss_lead_hours"] = list(self.loss_lead_hours)
         values["lead_loss_weights"] = list(self.lead_loss_weights)
+        values["loss_channel_weighting"] = LOSS_CHANNEL_WEIGHTING
         return values

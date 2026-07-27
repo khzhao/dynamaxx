@@ -194,6 +194,82 @@ def test_compiled_training_update_backpropagates_through_six_hour_rollout():
     assert float(metrics["correction/rms"][0]) == 0.0
 
 
+def test_frozen_corrector_update_trains_decoder_at_six_hours():
+    """A decoder-only rollout preserves corrector weights and advances the core."""
+    config = TrainingConfig(
+        training_steps=2,
+        warmup_steps=0,
+        per_device_batch_size=1,
+        gradient_accumulation_steps=1,
+        freeze_corrector=True,
+        interface_loss_weight=0.0,
+    )
+    model = PreparedHybridModel(
+        core=_TrainingCore(),
+        corrector=_corrector,
+        decoder=_decoder,
+    )
+    loss = HybridForecastLoss(
+        to_modal=lambda values: values,
+        total_wavenumber=jnp.zeros((1, 1), dtype=jnp.int32),
+        modal_mask=jnp.ones((1, 1)),
+        statistics=SpectralLossStatistics(
+            coefficient_variance=jnp.ones((1, 1)),
+            climatological_power=jnp.ones((1, 1)),
+            channel_weights=jnp.ones((1,)),
+        ),
+        bias_axis_name="devices",
+    )
+    parameters = {
+        "corrector": {
+            "output": {
+                "kernel": jnp.asarray([0.0]),
+                "bias": jnp.asarray([0.0]),
+            }
+        },
+        "decoder": {"offset": jnp.asarray(0.0)},
+    }
+    optimizer, learning_rate = build_optimizer(parameters, config)
+    state = initialize_training_state(
+        parameters,
+        optimizer,
+        random_key=jax.random.key(0),
+    )
+    trainer = HybridTrainer(
+        model=model,
+        loss=loss,
+        optimizer=optimizer,
+        learning_rate=learning_rate,
+        config=config,
+        devices=[jax.local_devices()[0]],
+    )
+    sampled = SampledTrajectory(
+        initial_times=np.asarray(["2018-01-01"], dtype="datetime64[ns]"),
+        initial_state=WeatherState(
+            values=jnp.zeros((1, 1, 1, 1)),
+            variables=("x",),
+        ),
+        targets=WeatherState(
+            values=jnp.asarray([0.0, 1.0]).reshape(1, 2, 1, 1, 1),
+            variables=("x",),
+        ),
+        lead_hours=(0, 6),
+    )
+    replicated_state = jax.tree_util.tree_map(
+        lambda value: jnp.stack([jnp.asarray(value)]),
+        state,
+    )
+
+    updated_state, metrics = trainer._update(
+        replicated_state,
+        trainer.prepare(sampled),
+    )
+
+    assert float(updated_state.parameters["corrector"]["output"]["kernel"][0, 0]) == 0.0
+    assert float(updated_state.parameters["decoder"]["offset"][0]) != 0.0
+    assert bool(jnp.isfinite(metrics["loss"][0]))
+
+
 def test_rejected_nonfinite_update_stops_training():
     """A guarded no-op update cannot masquerade as training progress."""
     replicated_metrics = {

@@ -674,6 +674,21 @@ d_v^2\sum_x a_x
 }.
 $$
 
+Use a fixed GraphCast/Stormer-style channel weighting rather than selecting
+headline evaluation fields. For every pressure-level atmospheric variable
+$q$ with available levels $\mathcal P_q$, define
+
+$$
+w_{q,p}=\frac{p}{\sum_{p'\in\mathcal P_q}p'}.
+$$
+
+Thus every atmospheric variable receives unit total weight, distributed toward
+the denser lower atmosphere in proportion to pressure. Use surface weights 1.0
+for 2-metre temperature and 0.1 each for 10-metre zonal wind, 10-metre
+meridional wind, and mean sea-level pressure. These weights are part of the
+fixed training protocol. Headline WeatherBench2 variables are evaluation-only
+and must never receive additional training weight.
+
 This is a true latitude-area-weighted error in the decoded physical fields. It
 keeps the global mean and low wavenumbers visible and uses a forecast-relevant
 scale instead of climatological coefficient variance. In the 24-hour gate,

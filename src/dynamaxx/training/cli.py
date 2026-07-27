@@ -5,6 +5,7 @@
 import argparse
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,10 @@ from dynamaxx.training.initialization_cache import (
     initialized_state_cache_fingerprint,
 )
 from dynamaxx.training.logging import WandbMetricsLogger
-from dynamaxx.training.losses import HybridForecastLoss
+from dynamaxx.training.losses import (
+    HybridForecastLoss,
+    weatherbench_channel_weights,
+)
 from dynamaxx.training.state import build_optimizer, initialize_training_state
 from dynamaxx.training.statistics import (
     TrainingStatistics,
@@ -124,6 +128,14 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Calibrate only the lead-zero interface decoder, without a dycore "
             "rollout or corrector updates."
+        ),
+    )
+    parser.add_argument(
+        "--freeze-corrector",
+        action="store_true",
+        help=(
+            "Train only the observation decoder while retaining positive-lead "
+            "rollouts and forecast losses."
         ),
     )
     parser.add_argument(
@@ -416,6 +428,7 @@ def _build_config(arguments: argparse.Namespace) -> TrainingConfig:
         decoder_residual_blocks=arguments.decoder_residual_blocks,
         decoder_use_raw_observation=arguments.decoder_use_raw_observation,
         decoder_only=arguments.decoder_only,
+        freeze_corrector=arguments.freeze_corrector,
         interface_loss_weight=arguments.interface_loss_weight,
         newest_lead_loss_weight=arguments.newest_lead_loss_weight,
         train_start=arguments.train_start,
@@ -732,11 +745,19 @@ def main(argv: list[str] | None = None) -> int:
             ),
         )
 
+    loss_statistics = replace(
+        statistics.spectral,
+        channel_weights=weatherbench_channel_weights(statistics.target_variables),
+    )
+    logger.info(
+        "using pressure-proportional atmospheric loss weights and standard "
+        "surface-variable weights",
+    )
     loss = HybridForecastLoss(
         to_modal=core.coords.horizontal.to_modal,
         total_wavenumber=core.coords.horizontal.modal_mesh[1],
         modal_mask=core.coords.horizontal.mask,
-        statistics=statistics.spectral,
+        statistics=loss_statistics,
         spectral_weight=config.spectral_loss_weight,
         bias_weight=config.bias_loss_weight,
         bias_axis_name="devices",
@@ -754,7 +775,13 @@ def main(argv: list[str] | None = None) -> int:
         "bptt_window=%dh devices=%d "
         "global_update_batch=%d",
         config.horizon_hours,
-        "decoder-only" if config.decoder_only else "joint",
+        (
+            "decoder-only-interface"
+            if config.decoder_only
+            else "decoder-only-rollout"
+            if config.freeze_corrector
+            else "joint"
+        ),
         config.loss_lead_hours,
         config.lead_loss_weights,
         config.effective_bptt_window_hours,
@@ -796,6 +823,16 @@ def main(argv: list[str] | None = None) -> int:
                 "config": config.asdict(),
                 "parameter_count": parameter_count,
                 "statistics": statistics,
+                "loss_channel_weights": dict(
+                    zip(
+                        statistics.target_variables,
+                        map(
+                            float,
+                            np.asarray(jax.device_get(loss_statistics.channel_weights)),
+                        ),
+                        strict=True,
+                    )
+                ),
                 "wandb_run_id": metrics_logger.run_id,
                 "initialized_from": (
                     None

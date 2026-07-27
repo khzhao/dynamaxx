@@ -289,10 +289,19 @@ class HybridTrainer:
                 "correction/rms": zero,
                 "correction/max_abs": zero,
             }
+        rollout_parameters = parameters
+        if self.config.freeze_corrector:
+            rollout_parameters = {
+                "corrector": jax.tree_util.tree_map(
+                    jax.lax.stop_gradient,
+                    parameters["corrector"],
+                ),
+                "decoder": parameters["decoder"],
+            }
         _, positive_forecasts, tendency_statistics = (
             rollout_at_durations_with_tendency_statistics(
                 self.model,
-                parameters,
+                rollout_parameters,
                 initial_state,
                 durations_seconds=tuple(
                     float(lead_hours * 3600) for lead_hours in self.config.lead_hours

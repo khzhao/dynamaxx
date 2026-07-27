@@ -47,6 +47,8 @@ def test_training_config_defaults_to_full_training_period():
     assert config.effective_bptt_window_hours == 6
     assert config.normalized_tendency_limit == 4.0
     assert not config.decoder_use_raw_observation
+    assert not config.freeze_corrector
+    assert config.asdict()["loss_channel_weighting"].startswith("pressure_proportional")
     assert config.loss_lead_hours == (0, 6)
     assert config.lead_loss_weights == pytest.approx((0.1, 0.9))
 
@@ -78,6 +80,12 @@ def test_decoder_only_stage_requires_decoder_parameters():
     """A disabled decoder cannot be selected as the only trainable component."""
     with pytest.raises(ValueError, match="decoder_only"):
         TrainingConfig(decoder_hidden_size=0, decoder_only=True)
+
+
+def test_frozen_corrector_stage_requires_decoder_parameters():
+    """A rollout needs a trainable decoder when the corrector is frozen."""
+    with pytest.raises(ValueError, match="freeze_corrector"):
+        TrainingConfig(decoder_hidden_size=0, freeze_corrector=True)
 
 
 def test_long_rollouts_use_bounded_bptt_by_default():

@@ -76,7 +76,7 @@ def build_optimizer(
             mask=hidden_weight_decay_mask(parameters),
         ),
     ]
-    if config.decoder_only:
+    if config.decoder_only or config.freeze_corrector:
         frozen_corrector_mask = {
             "corrector": jax.tree_util.tree_map(
                 lambda _: True, parameters["corrector"]

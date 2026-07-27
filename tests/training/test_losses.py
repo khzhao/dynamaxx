@@ -9,7 +9,36 @@ from dynamaxx.training.losses import (
     SpectralLossStatistics,
     estimate_spectral_loss_statistics,
     lead_time_spectral_taper,
+    weatherbench_channel_weights,
 )
+
+
+def test_weatherbench_channel_weights_use_pressure_and_surface_conventions():
+    """Atmospheric stacks and surface fields follow published loss weights."""
+    channel_names = (
+        "geopotential_500",
+        "geopotential_1000",
+        "temperature_500",
+        "temperature_1000",
+        "2m_temperature",
+        "10m_u_component_of_wind",
+        "10m_v_component_of_wind",
+        "mean_sea_level_pressure",
+    )
+    weights = weatherbench_channel_weights(channel_names)
+
+    np.testing.assert_allclose(
+        weights,
+        jnp.asarray([1 / 3, 2 / 3, 1 / 3, 2 / 3, 1.0, 0.1, 0.1, 0.1]),
+    )
+    np.testing.assert_allclose(weights[:2].sum(), 1.0)
+    np.testing.assert_allclose(weights[2:4].sum(), 1.0)
+
+
+def test_weatherbench_channel_weights_reject_unknown_surface_variables():
+    """New surface outputs require an explicit reproducible loss weight."""
+    with np.testing.assert_raises_regex(ValueError, "no published surface"):
+        weatherbench_channel_weights(("geopotential_500", "unknown_surface"))
 
 
 def _loss():
