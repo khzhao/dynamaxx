@@ -2,6 +2,11 @@
 
 Status: production-scale deterministic training implemented; interface and joint gates active
 
+Scope: this document describes the existing fixed-backbone diagnostic pipeline.
+It is not a faithful NeuralGCM reproduction. The parity-first replacement and
+controlled optimized-dycore experiment are specified in
+[NeuralGCM parity and optimized-dycore ablation plan](neuralgcm-parity-and-dycore-ablation-plan.md).
+
 ## Decision
 
 The first model should be a minimal NeuralGCM-style hybrid:
