@@ -55,7 +55,7 @@ class ForecastDiagnostics:
 
     @property
     def failed(self) -> bool:
-        """Return whether any diagnostic issue rejects the forecast."""
+        """Whether any diagnostic issue rejects the forecast."""
         return any(issue.severity == "error" for issue in self.issues)
 
     def asdict(self) -> dict[str, Any]:

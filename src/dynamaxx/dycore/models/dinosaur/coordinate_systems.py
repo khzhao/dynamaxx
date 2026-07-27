@@ -176,22 +176,22 @@ class CoordinateSystem:
 
     @property
     def nodal_shape(self) -> tuple[int, int, int]:
-        """Returns 3d nodal grid shape, vertical.shape + horizontal.shape."""
+        """The 3D nodal shape: vertical shape plus horizontal shape."""
         return (self.vertical.layers,) + self.horizontal.nodal_shape
 
     @property
     def modal_shape(self) -> tuple[int, int, int]:
-        """Returns 3d modal grid shape, vertical.shape + horizontal.shape."""
+        """The 3D modal shape: vertical shape plus horizontal shape."""
         return (self.vertical.layers,) + self.horizontal.modal_shape
 
     @property
     def surface_nodal_shape(self) -> tuple[int, int, int]:
-        """Returns surface nodal grid shape, (1,) + horizontal.shape."""
+        """The surface nodal shape: ``(1,)`` plus horizontal shape."""
         return (1,) + self.horizontal.nodal_shape
 
     @property
     def surface_modal_shape(self) -> tuple[int, int, int]:
-        """Returns surface modal grid shape, (1,) + horizontal.shape."""
+        """The surface modal shape: ``(1,)`` plus horizontal shape."""
         return (1,) + self.horizontal.modal_shape
 
 

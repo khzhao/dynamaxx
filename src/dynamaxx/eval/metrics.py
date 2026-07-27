@@ -53,7 +53,7 @@ class MetricTotals:
 
     @property
     def key(self) -> tuple[str, str, int]:
-        """Return the identity used to combine chunked totals."""
+        """The identity used to combine chunked totals."""
         return self.model_name, self.channel_name, self.lead_hours
 
     def combine(self, other: "MetricTotals") -> "MetricTotals":

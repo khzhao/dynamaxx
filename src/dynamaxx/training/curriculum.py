@@ -18,8 +18,7 @@ from typing import Any
 from dynamaxx.training.config import (
     CURRICULUM_HORIZONS_HOURS,
     DEFAULT_TRAINING_OUTPUT_DIRECTORY,
-    PRODUCTION_HIDDEN_SIZE,
-    PRODUCTION_RESIDUAL_BLOCKS,
+    TrainingConfig,
 )
 from dynamaxx.utils.consts import WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 
@@ -99,7 +98,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--reference-6h-steps", type=int, default=20_000)
     parser.add_argument("--bptt-window-hours", type=int, default=24)
+    parser.add_argument("--normalized-tendency-limit", type=float, default=4.0)
+    parser.add_argument("--learning-rate", type=float, default=2.0e-4)
+    parser.add_argument("--minimum-learning-rate-ratio", type=float, default=0.05)
+    parser.add_argument("--weight-decay", type=float, default=1.0e-5)
+    parser.add_argument("--gradient-clip-norm", type=float, default=1.0)
+    parser.add_argument("--ema-decay", type=float, default=0.999)
     parser.add_argument("--validation-batches", type=int, default=4)
+    parser.add_argument(
+        "--statistics-samples",
+        type=int,
+        default=512,
+        help=(
+            "Uniform full-period samples used once for the shared frozen "
+            "statistics archive."
+        ),
+    )
     parser.add_argument("--data-loader-workers", type=int, default=8)
     parser.add_argument("--state-cache-workers", type=int, default=8)
     parser.add_argument("--wandb-project", default="dynamaxx")
@@ -119,8 +133,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--seconds-per-6h-update",
         type=float,
-        default=2.06,
-        help="Measured packed-update time used only for the printed projection.",
+        default=None,
+        help="Optional measured update time used to print a compute projection.",
     )
     parser.add_argument("--no-wandb", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -160,31 +174,36 @@ def _fresh_stage_config(
     stage_directory: Path,
 ) -> dict[str, Any]:
     """Return CLI-relevant configuration for a newly promoted stage."""
-    per_device_batch_size = 1
-    gradient_accumulation_steps = 2
-    return {
-        "dataset_path": arguments.dataset,
-        "output_directory": str(stage_directory),
-        "horizon_hours": stage.horizon_hours,
-        "bptt_window_hours": arguments.bptt_window_hours,
-        "training_steps": stage.training_steps,
-        "warmup_steps": stage.warmup_steps,
-        "seed": 0,
-        "hidden_size": PRODUCTION_HIDDEN_SIZE,
-        "residual_blocks": PRODUCTION_RESIDUAL_BLOCKS,
-        "correction_interval_seconds": 1800.0,
-        "statistics_samples": 32,
-        "per_device_batch_size": per_device_batch_size,
-        "gradient_accumulation_steps": gradient_accumulation_steps,
-        "checkpoint_every_steps": stage.validation_interval_steps,
-        "validate_every_steps": stage.validation_interval_steps,
-        "log_every_steps": 10,
-        "validation_batches": arguments.validation_batches,
-        "wandb_project": arguments.wandb_project,
-        "wandb_run_name": (
-            f"{arguments.wandb_run_prefix}-{stage.horizon_hours}h-2014-2018"
+    return TrainingConfig(
+        dataset_path=arguments.dataset,
+        output_directory=str(stage_directory),
+        horizon_hours=stage.horizon_hours,
+        bptt_window_hours=arguments.bptt_window_hours,
+        training_steps=stage.training_steps,
+        warmup_steps=stage.warmup_steps,
+        normalized_tendency_limit=arguments.normalized_tendency_limit,
+        learning_rate=getattr(arguments, "learning_rate", 2.0e-4),
+        minimum_learning_rate_ratio=getattr(
+            arguments,
+            "minimum_learning_rate_ratio",
+            0.05,
         ),
-    }
+        weight_decay=getattr(arguments, "weight_decay", 1.0e-5),
+        gradient_clip_norm=getattr(arguments, "gradient_clip_norm", 1.0),
+        ema_decay=getattr(arguments, "ema_decay", 0.999),
+        checkpoint_every_steps=stage.validation_interval_steps,
+        validate_every_steps=stage.validation_interval_steps,
+        validation_batches=arguments.validation_batches,
+        statistics_samples=getattr(arguments, "statistics_samples", 512),
+        statistics_path=str(
+            (stage_directory.parent / "training_statistics.npz").resolve()
+        ),
+        train_start="1979-01-01T00:00:00",
+        wandb_project=arguments.wandb_project,
+        wandb_run_name=(
+            f"{arguments.wandb_run_prefix}-{stage.horizon_hours}h-1979-2018"
+        ),
+    ).asdict()
 
 
 def _stage_config(
@@ -218,7 +237,6 @@ def _stage_config(
 def _training_command(
     config: dict[str, Any],
     *,
-    stop_at_step: int,
     arguments: argparse.Namespace,
     resume: bool,
     initialize_from: Path | None,
@@ -241,6 +259,16 @@ def _training_command(
         str(config["training_steps"]),
         "--warmup-steps",
         str(config["warmup_steps"]),
+        "--learning-rate",
+        str(config.get("learning_rate", 2.0e-4)),
+        "--minimum-learning-rate-ratio",
+        str(config.get("minimum_learning_rate_ratio", 0.05)),
+        "--weight-decay",
+        str(config.get("weight_decay", 1.0e-5)),
+        "--gradient-clip-norm",
+        str(config.get("gradient_clip_norm", 1.0)),
+        "--ema-decay",
+        str(config.get("ema_decay", 0.999)),
         "--seed",
         str(config["seed"]),
         "--hidden-size",
@@ -249,6 +277,24 @@ def _training_command(
         str(config["residual_blocks"]),
         "--correction-interval-seconds",
         str(config["correction_interval_seconds"]),
+        "--normalized-tendency-limit",
+        str(config.get("normalized_tendency_limit", 4.0)),
+        "--decoder-hidden-size",
+        str(config.get("decoder_hidden_size", 0)),
+        "--decoder-residual-blocks",
+        str(config.get("decoder_residual_blocks", 2)),
+        "--interface-loss-weight",
+        str(config.get("interface_loss_weight", 0.1)),
+        "--newest-lead-loss-weight",
+        str(config.get("newest_lead_loss_weight", 0.5)),
+        "--train-start",
+        str(config.get("train_start", "2014-01-01T00:00:00")),
+        "--train-end",
+        str(config.get("train_end", "2018-12-31T18:00:00")),
+        "--validation-start",
+        str(config.get("validation_start", "2019-01-01T00:00:00")),
+        "--validation-end",
+        str(config.get("validation_end", "2019-12-31T18:00:00")),
         "--statistics-samples",
         str(config["statistics_samples"]),
         "--per-device-batch-size",
@@ -263,14 +309,14 @@ def _training_command(
         str(config["log_every_steps"]),
         "--validation-batches",
         str(config["validation_batches"]),
-        "--stop-at-step",
-        str(stop_at_step),
         "--data-loader-workers",
         str(arguments.data_loader_workers),
         "--state-cache-workers",
         str(arguments.state_cache_workers),
         "--mmap-caches",
     ]
+    if config.get("statistics_path") is not None:
+        command.extend(("--statistics-file", str(config["statistics_path"])))
     if config.get("wandb_project") is not None:
         command.extend(("--wandb-project", str(config["wandb_project"])))
     if config.get("wandb_run_name") is not None:
@@ -290,11 +336,13 @@ def _run_and_tee(command: list[str], *, log_path: Path) -> tuple[int, str]:
     """Run one isolated JAX stage while retaining a local combined log."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     environment = dict(os.environ)
-    environment["NCCL_NET"] = "Socket"
     environment.setdefault(
         "JAX_COMPILATION_CACHE_DIR",
         str((log_path.parents[2] / "jax-compilation-cache").resolve()),
     )
+    if environment.get("NCCL_NET") == "gIB":
+        # This runner is one local JAX process; avoid a broken multi-node plugin.
+        environment["NCCL_NET"] = "Socket"
     recent_lines: deque[str] = deque(maxlen=200)
     with log_path.open("a", encoding="utf-8") as log_file:
         process = subprocess.Popen(
@@ -331,14 +379,15 @@ def main(argv: list[str] | None = None) -> int:
         for stage in curriculum_stages(arguments.reference_6h_steps)
         if stage.horizon_hours >= arguments.start_horizon_hours
     )
-    projected_hours = estimated_compute_hours(
-        stages,
-        seconds_per_six_hour_update=arguments.seconds_per_6h_update,
-    )
-    print(
-        f"curriculum projection: {projected_hours:.1f} ideal compute-hours "
-        f"across {len(stages)} stages"
-    )
+    if arguments.seconds_per_6h_update is not None:
+        projected_hours = estimated_compute_hours(
+            stages,
+            seconds_per_six_hour_update=arguments.seconds_per_6h_update,
+        )
+        print(
+            f"curriculum projection: {projected_hours:.1f} ideal compute-hours "
+            f"across {len(stages)} stages"
+        )
     pipeline_start = time.monotonic()
     previous_checkpoint = arguments.initialize_from
     if previous_checkpoint is None and arguments.start_horizon_hours != 6:
@@ -373,7 +422,6 @@ def main(argv: list[str] | None = None) -> int:
             )
         command = _training_command(
             config,
-            stop_at_step=stage.training_steps,
             arguments=arguments,
             resume=resume,
             initialize_from=None if resume else previous_checkpoint,
@@ -402,7 +450,6 @@ def main(argv: list[str] | None = None) -> int:
             resume_after_failure = _latest_step(stage_directory) is not None
             command = _training_command(
                 config,
-                stop_at_step=stage.training_steps,
                 arguments=arguments,
                 resume=resume_after_failure,
                 initialize_from=(None if resume_after_failure else previous_checkpoint),

@@ -1,3 +1,5 @@
+# Copyright 2026 dynamaxx
+
 from types import SimpleNamespace
 
 import jax.numpy as jnp
@@ -14,6 +16,7 @@ from dynamaxx.weather import WeatherState
 
 class _StatisticsCore:
     input_feature_count = 2
+    output_variables = ("x",)
     coords = SimpleNamespace(
         horizontal=SimpleNamespace(
             to_modal=lambda values: values,
@@ -29,6 +32,10 @@ class _StatisticsCore:
     def corrector_inputs(self, state):
         field = state[0]
         return jnp.stack((field, 2.0 * field), axis=-1)
+
+    def decode(self, state):
+        """Return a deliberately biased reconstruction for scale estimation."""
+        return WeatherState(values=state + 0.5, variables=("x",))
 
 
 class _StatisticsSampler:
@@ -55,6 +62,7 @@ class _StatisticsSampler:
 
 
 def test_training_statistics_estimation_and_local_archive_round_trip(tmp_path):
+    """All neural and decoder normalizers must survive local persistence."""
     statistics = estimate_training_statistics(
         _StatisticsCore(),
         _StatisticsSampler(),
@@ -72,5 +80,24 @@ def test_training_statistics_estimation_and_local_archive_round_trip(tmp_path):
         restored.spectral.coefficient_variance,
         statistics.spectral.coefficient_variance,
     )
+    np.testing.assert_allclose(
+        restored.decoder_output_scale,
+        statistics.decoder_output_scale,
+    )
+    np.testing.assert_allclose(
+        restored.forecast_channel_scale,
+        statistics.forecast_channel_scale,
+    )
+    np.testing.assert_allclose(
+        restored.decoder_input_mean,
+        statistics.decoder_input_mean,
+    )
+    np.testing.assert_allclose(
+        restored.decoder_input_standard_deviation,
+        statistics.decoder_input_standard_deviation,
+    )
+    assert statistics.decoder_input_mean.shape == (3,)
+    assert float(statistics.decoder_output_scale[0]) >= 0.5
+    assert float(statistics.forecast_channel_scale[0]) > 0.0
     assert restored.input_variables == ("x",)
     assert restored.target_variables == ("x",)

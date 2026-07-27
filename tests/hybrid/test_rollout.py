@@ -173,6 +173,68 @@ def test_stopped_gradient_rollout_preserves_forecast_and_bounds_bptt():
     np.testing.assert_allclose(stopped_gradient, 2.0)
 
 
+def test_uniform_truncated_suffix_preserves_requested_leads_and_gradients():
+    """A reusable truncated window scan preserves log-spaced lead semantics."""
+    model, state = _model_and_state()
+    durations_seconds = (1800.0, 3600.0, 7200.0, 14_400.0)
+
+    def forecast_sum(correction):
+        final_state, observations, statistics = (
+            rollout_at_durations_with_tendency_statistics(
+                model,
+                {"correction": correction},
+                state,
+                durations_seconds=durations_seconds,
+                rematerialize=False,
+                collect_tendency_statistics=True,
+                maximum_gradient_duration_seconds=3600.0,
+            )
+        )
+        return (
+            jnp.sum(observations.values),
+            (final_state, observations, statistics),
+        )
+
+    (forecast_total, auxiliary), gradient = jax.value_and_grad(
+        forecast_sum,
+        has_aux=True,
+    )(jnp.asarray(0.0))
+    final_state, observations, statistics = auxiliary
+
+    np.testing.assert_allclose(final_state.core, 17.0)
+    np.testing.assert_allclose(
+        observations.values[:, 0, 0, 0],
+        jnp.asarray([3.0, 5.0, 9.0, 17.0]),
+    )
+    np.testing.assert_allclose(forecast_total, 34.0)
+    # Each lead receives credit through at most its local two-step window.
+    np.testing.assert_allclose(gradient, 14.0)
+    np.testing.assert_allclose(statistics["correction/rms"], 0.0)
+    np.testing.assert_allclose(statistics["correction/max_abs"], 0.0)
+
+
+def test_unaligned_truncated_lead_uses_general_segmented_path():
+    """Irregular requested leads retain the general stop-gradient behavior."""
+    model, state = _model_and_state()
+
+    def forecast_sum(correction):
+        _, observations, _ = rollout_at_durations_with_tendency_statistics(
+            model,
+            {"correction": correction},
+            state,
+            durations_seconds=(3600.0, 5400.0, 7200.0),
+            rematerialize=False,
+            collect_tendency_statistics=False,
+            maximum_gradient_duration_seconds=3600.0,
+        )
+        return jnp.sum(observations.values)
+
+    forecast_total, gradient = jax.value_and_grad(forecast_sum)(jnp.asarray(0.0))
+
+    np.testing.assert_allclose(forecast_total, 21.0)
+    np.testing.assert_allclose(gradient, 10.0)
+
+
 def test_stopped_gradient_window_must_end_on_correction_boundary():
     """A detach event cannot split one public neural-correction step."""
     model, state = _model_and_state()

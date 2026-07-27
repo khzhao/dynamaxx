@@ -51,7 +51,9 @@ def test_fresh_six_hour_stage_uses_measured_packed_batch16_configuration():
     arguments = Namespace(
         dataset="dataset",
         bptt_window_hours=24,
+        normalized_tendency_limit=4.0,
         validation_batches=8,
+        statistics_samples=512,
         wandb_project="dynamaxx",
         wandb_run_prefix="hybrid",
     )
@@ -67,3 +69,10 @@ def test_fresh_six_hour_stage_uses_measured_packed_batch16_configuration():
     assert config["hidden_size"] == PRODUCTION_HIDDEN_SIZE
     assert config["residual_blocks"] == PRODUCTION_RESIDUAL_BLOCKS
     assert config["bptt_window_hours"] == 24
+    assert config["normalized_tendency_limit"] == 4.0
+    assert config["decoder_hidden_size"] == 256
+    assert config["train_start"].startswith("1979-")
+    assert config["statistics_samples"] == 512
+    assert config["statistics_path"].endswith(
+        "checkpoints/hybrid-optimized/training_statistics.npz"
+    )

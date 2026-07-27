@@ -28,7 +28,7 @@ from dynamaxx.dycore.models.dinosaur.channels import (
     supported_output_variables,
 )
 from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
-from dynamaxx.dycore.registry import DYCORE_MODEL_FACTORIES
+from dynamaxx.dycore.registry import create_dycore_model
 from dynamaxx.training.corrector import ColumnResidualMLP
 from dynamaxx.utils.consts import WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 from dynamaxx.weather import WeatherState
@@ -152,6 +152,47 @@ class DinosaurNeuralCorrector:
 
 
 @dataclass(frozen=True)
+class DinosaurNeuralDecoder:
+    """Apply a learned nodal column residual to pressure-level observables."""
+
+    network: ColumnResidualMLP
+    output_variables: tuple[str, ...]
+    include_raw_observation: bool = False
+
+    def __post_init__(self):
+        output_variables = tuple(map(str, self.output_variables))
+        if self.network.output_size != len(output_variables):
+            raise ValueError(
+                "decoder output size must match the number of output variables"
+            )
+        object.__setattr__(self, "output_variables", output_variables)
+
+    def __call__(
+        self,
+        parameters: Any,
+        inputs: jax.Array,
+        raw_observation: WeatherState,
+    ) -> WeatherState:
+        """Add one bounded learned residual independently at every column."""
+        if raw_observation.variables != self.output_variables:
+            raise ValueError("decoder variables do not match raw observation")
+        decoder_inputs = inputs
+        if self.include_raw_observation:
+            raw_column_values = jnp.moveaxis(raw_observation.values, 0, -1)
+            if raw_column_values.shape[:-1] != inputs.shape[:-1]:
+                raise ValueError(
+                    "raw observation grid must match the decoder input grid"
+                )
+            decoder_inputs = jnp.concatenate(
+                (inputs, raw_column_values),
+                axis=-1,
+            )
+        column_residual = self.network(parameters, decoder_inputs)
+        residual = jnp.moveaxis(column_residual, -1, 0)
+        return raw_observation.with_values(raw_observation.values + residual)
+
+
+@dataclass(frozen=True)
 class DinosaurHybridCore:
     """Prepared differentiable core matching one frozen Dinosaur model."""
 
@@ -160,6 +201,7 @@ class DinosaurHybridCore:
     latitude: np.ndarray
     input_variables: tuple[str, ...]
     data_path: str = WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
+    fallback_to_centered_sil3_on_nonfinite: bool = True
     _atmosphere_initializer: Any = field(
         init=False,
         repr=False,
@@ -339,7 +381,7 @@ class DinosaurHybridCore:
         ocean_temperature_anchor: jax.Array | None,
         use_anticipated_pv_flux: bool,
     ) -> Any:
-        """Build the incumbent explicit/implicit equation configuration."""
+        """Build the production explicit/implicit equation configuration."""
         _, sin_latitude = self.coords.horizontal.nodal_mesh
         coriolis_parameter = 2.0 * self.physics_specs.angular_velocity * sin_latitude
         step = dinosaur_adapter._nondimensionalize_seconds(
@@ -409,7 +451,7 @@ class DinosaurHybridCore:
         return equation
 
     def _horizontal_filter(self, physics_specs: Any) -> Any:
-        """Build the incumbent scale-aware horizontal diffusion filter."""
+        """Build the production scale-aware horizontal diffusion filter."""
         return dinosaur_adapter._horizontal_diffusion_step_filter(
             coords=self.coords,
             physics_specs=physics_specs,
@@ -659,7 +701,7 @@ class DinosaurHybridCore:
         state: DinosaurHybridCoreState,
         additive_tendency: Any,
     ) -> Any:
-        """Build one incumbent SIL3 step with a fixed neural explicit term."""
+        """Build one production SIL3 step with a fixed neural explicit term."""
         rollout_physics_specs = replace(self.physics_specs, angular_velocity=0.0)
         equation = self._base_equation(
             physics_specs=rollout_physics_specs,
@@ -675,7 +717,11 @@ class DinosaurHybridCore:
             rollout_physics_specs,
             self.inner_step_seconds,
         )
-        step_function = self.model._ode_solver()(equation, time_step=step)
+        step_function = self.model._ode_solver(
+            fallback_to_centered_on_nonfinite=(
+                self.fallback_to_centered_sil3_on_nonfinite
+            )
+        )(equation, time_step=step)
         filters = [self._horizontal_filter(rollout_physics_specs)]
         filters.extend(
             (
@@ -736,7 +782,7 @@ class DinosaurHybridCore:
         state: DinosaurHybridCoreState,
         additive_tendency: Any,
     ) -> DinosaurHybridCoreState:
-        """Advance one full incumbent inner step with the neural tendency."""
+        """Advance one full dycore step with the neural tendency."""
         step_function = self._step_function(state, additive_tendency)
         atmosphere, skin = step_function((state.atmosphere, state.skin))
         return replace(
@@ -820,6 +866,7 @@ class DinosaurHybridCoreFactory:
 
     dycore_name: str
     data_path: str = WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
+    fallback_to_centered_sil3_on_nonfinite: bool = True
 
     def __call__(
         self,
@@ -829,10 +876,7 @@ class DinosaurHybridCoreFactory:
         input_variables: tuple[str, ...],
     ) -> DinosaurHybridCore:
         """Prepare the selected frozen Dinosaur configuration."""
-        try:
-            model = DYCORE_MODEL_FACTORIES[self.dycore_name]()
-        except KeyError as error:
-            raise ValueError(f"unknown dycore_name {self.dycore_name!r}") from error
+        model = create_dycore_model(self.dycore_name)
         if not isinstance(model, DinosaurPrimitiveEquationsDycoreModel):
             raise ValueError(
                 f"dycore {self.dycore_name!r} is not a Dinosaur primitive-equation model"
@@ -843,6 +887,9 @@ class DinosaurHybridCoreFactory:
             latitude=latitude,
             input_variables=input_variables,
             data_path=self.data_path,
+            fallback_to_centered_sil3_on_nonfinite=(
+                self.fallback_to_centered_sil3_on_nonfinite
+            ),
         )
 
 
@@ -853,11 +900,13 @@ def make_dinosaur_hybrid_core(
     latitude: np.ndarray,
     input_variables: tuple[str, ...],
     data_path: str = WEATHERBENCH2_ERA5_1P5DEG_6H_PATH,
+    fallback_to_centered_sil3_on_nonfinite: bool = True,
 ) -> DinosaurHybridCore:
     """Construct the internal prepared core used by training and public models."""
     return DinosaurHybridCoreFactory(
         dycore_name=dycore_name,
         data_path=data_path,
+        fallback_to_centered_sil3_on_nonfinite=(fallback_to_centered_sil3_on_nonfinite),
     )(
         longitude=longitude,
         latitude=latitude,

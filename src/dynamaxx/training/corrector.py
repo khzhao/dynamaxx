@@ -7,6 +7,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 ParameterTree = dict[str, Any]
 
@@ -74,6 +75,7 @@ class ColumnResidualMLP:
     residual_blocks: int = 4
     matrix_dtype: jnp.dtype = jnp.bfloat16
     layer_norm_epsilon: float = 1.0e-5
+    normalized_tendency_limit: float = 4.0
 
     def __post_init__(self):
         input_mean = jnp.asarray(self.input_mean, dtype=jnp.float32)
@@ -103,6 +105,11 @@ class ColumnResidualMLP:
             raise ValueError("output_scale must be nonnegative and finite")
         if self.hidden_size < 1 or self.residual_blocks < 1:
             raise ValueError("hidden_size and residual_blocks must be positive")
+        if (
+            not np.isfinite(self.normalized_tendency_limit)
+            or self.normalized_tendency_limit <= 0.0
+        ):
+            raise ValueError("normalized_tendency_limit must be positive and finite")
         object.__setattr__(self, "input_mean", input_mean)
         object.__setattr__(
             self,
@@ -221,12 +228,14 @@ class ColumnResidualMLP:
                 matrix_dtype=self.matrix_dtype,
             )
             hidden = residual_input + hidden
-        output = _dense(
+        normalized_output = _dense(
             hidden,
             parameters["output"],
             matrix_dtype=self.matrix_dtype,
         )
-        return output * self.output_scale
+        limit = jnp.asarray(self.normalized_tendency_limit, dtype=jnp.float32)
+        bounded_output = limit * jnp.tanh(normalized_output / limit)
+        return bounded_output * self.output_scale
 
 
 def hidden_weight_decay_mask(parameters: ParameterTree) -> ParameterTree:

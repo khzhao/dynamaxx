@@ -68,14 +68,23 @@ def build_optimizer(
 ) -> tuple[optax.GradientTransformation, optax.Schedule]:
     """Build clipped AdamW with decay restricted to hidden kernels."""
     schedule = learning_rate_schedule(config)
-    optimizer = optax.chain(
+    transformations: list[optax.GradientTransformation] = [
         optax.clip_by_global_norm(config.gradient_clip_norm),
         optax.adamw(
             learning_rate=schedule,
             weight_decay=config.weight_decay,
             mask=hidden_weight_decay_mask(parameters),
         ),
-    )
+    ]
+    if config.decoder_only:
+        frozen_corrector_mask = {
+            "corrector": jax.tree_util.tree_map(
+                lambda _: True, parameters["corrector"]
+            ),
+            "decoder": jax.tree_util.tree_map(lambda _: False, parameters["decoder"]),
+        }
+        transformations.append(optax.masked(optax.set_to_zero(), frozen_corrector_mask))
+    optimizer = optax.chain(*transformations)
     return optimizer, schedule
 
 

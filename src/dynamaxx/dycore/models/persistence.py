@@ -13,8 +13,7 @@ from dynamaxx.weather import ForecastInput, WeatherState
 def tendency(state: jax.Array, time: TimeValue) -> jax.Array:
     """Return the persistence dX/dt.
 
-    This is the intended minimal dynamics surface for agent experiments. The
-    default zero tendency makes the model a persistence forecast.
+    The default zero tendency makes the model a persistence forecast.
     """
     del time
     return jnp.zeros_like(state)
@@ -30,7 +29,7 @@ class PersistenceDycoreModel:
 
     @cached_property
     def simulate(self):
-        """Return the reusable rollout callable."""
+        """The reusable rollout callable."""
         if not self.jit_forecast:
             return self._simulate
         return jax.jit(

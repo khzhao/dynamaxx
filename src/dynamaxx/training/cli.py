@@ -1,6 +1,6 @@
 # Copyright 2026 dynamaxx
 
-"""Command-line entry point for the first Dinosaur hybrid training stage."""
+"""Command-line entry point for one production hybrid curriculum stage."""
 
 import argparse
 import json
@@ -14,6 +14,7 @@ import numpy as np
 from dynamaxx.data.weatherbench2 import WeatherBench2Source
 from dynamaxx.hybrid.dinosaur import (
     DinosaurNeuralCorrector,
+    DinosaurNeuralDecoder,
     make_dinosaur_hybrid_core,
 )
 from dynamaxx.hybrid.model import PreparedHybridModel
@@ -55,48 +56,6 @@ from dynamaxx.utils.consts import WEATHERBENCH2_ERA5_1P5DEG_6H_PATH
 
 logger = logging.getLogger("dynamaxx.training.cli")
 
-_CONTINUATION_CONFIG_CHANGES = frozenset(
-    {
-        "gradient_accumulation_steps",
-        "output_directory",
-        "per_device_batch_size",
-        "wandb_run_name",
-    }
-)
-
-
-def _normalized_config_for_comparison(config: dict[str, Any]) -> dict[str, Any]:
-    """Normalize effective BPTT semantics across pre-window checkpoints."""
-    normalized = dict(config)
-    horizon_hours = int(normalized["horizon_hours"])
-    configured_window = int(normalized.get("bptt_window_hours", horizon_hours))
-    normalized["bptt_window_hours"] = min(horizon_hours, configured_window)
-    return normalized
-
-
-def _validate_continuation_config(
-    checkpoint_metadata: dict[str, Any],
-    config: TrainingConfig,
-) -> None:
-    """Require model, objective, optimizer, data, and schedule compatibility."""
-    source_config = checkpoint_metadata.get("config")
-    if not isinstance(source_config, dict):
-        raise ValueError("continued checkpoint is missing its training configuration")
-    source_config = _normalized_config_for_comparison(source_config)
-    destination_config = _normalized_config_for_comparison(config.asdict())
-    incompatible_keys = sorted(
-        key
-        for key in source_config.keys() | destination_config.keys()
-        if key not in _CONTINUATION_CONFIG_CHANGES
-        and source_config.get(key) != destination_config.get(key)
-    )
-    if incompatible_keys:
-        joined_keys = ", ".join(incompatible_keys)
-        raise ValueError(
-            "continued training can only change execution/batch settings; "
-            f"incompatible fields: {joined_keys}"
-        )
-
 
 def _parser() -> argparse.ArgumentParser:
     """Build the hybrid-training argument parser."""
@@ -120,17 +79,13 @@ def _parser() -> argparse.ArgumentParser:
         default=6,
     )
     parser.add_argument("--steps", type=int, default=100_000)
-    parser.add_argument(
-        "--stop-at-step",
-        type=int,
-        default=None,
-        help=(
-            "Stop cleanly at this absolute step without changing the stored "
-            "training schedule; useful for bounded, resumable production runs."
-        ),
-    )
     parser.add_argument("--warmup-steps", type=int, default=2_000)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--learning-rate", type=float, default=2.0e-4)
+    parser.add_argument("--minimum-learning-rate-ratio", type=float, default=0.05)
+    parser.add_argument("--weight-decay", type=float, default=1.0e-5)
+    parser.add_argument("--gradient-clip-norm", type=float, default=1.0)
+    parser.add_argument("--ema-decay", type=float, default=0.999)
     parser.add_argument(
         "--hidden-size",
         type=int,
@@ -144,10 +99,56 @@ def _parser() -> argparse.ArgumentParser:
         help="Residual blocks; the default gives about 20.69M learned parameters.",
     )
     parser.add_argument(
+        "--decoder-hidden-size",
+        type=int,
+        default=256,
+        help="Width of the learned pressure-level interface decoder; zero disables it.",
+    )
+    parser.add_argument(
+        "--decoder-residual-blocks",
+        type=int,
+        default=2,
+        help="Residual blocks in the learned interface decoder.",
+    )
+    parser.add_argument(
+        "--decoder-use-raw-observation",
+        action="store_true",
+        help=(
+            "Condition the output residual on the raw pressure-level dycore "
+            "observation in addition to the corrector features."
+        ),
+    )
+    parser.add_argument(
+        "--decoder-only",
+        action="store_true",
+        help=(
+            "Calibrate only the lead-zero interface decoder, without a dycore "
+            "rollout or corrector updates."
+        ),
+    )
+    parser.add_argument(
+        "--interface-loss-weight",
+        type=float,
+        default=0.1,
+        help="Objective weight assigned to lead-zero reconstruction.",
+    )
+    parser.add_argument(
+        "--newest-lead-loss-weight",
+        type=float,
+        default=0.5,
+        help="Objective weight assigned to the newly introduced positive lead.",
+    )
+    parser.add_argument(
         "--correction-interval-seconds",
         type=float,
         default=1800.0,
         help="Seconds between neural-corrector evaluations.",
+    )
+    parser.add_argument(
+        "--normalized-tendency-limit",
+        type=float,
+        default=4.0,
+        help=("Smooth symmetric limit applied before fixed physical tendency scales."),
     )
     parser.add_argument(
         "--bptt-window-hours",
@@ -159,6 +160,19 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--statistics-samples", type=int, default=32)
+    parser.add_argument(
+        "--statistics-file",
+        type=Path,
+        default=None,
+        help=(
+            "Shared local archive of frozen training statistics. By default, "
+            "each output directory owns its archive."
+        ),
+    )
+    parser.add_argument("--train-start", default="1979-01-01T00:00:00")
+    parser.add_argument("--train-end", default="2018-12-31T18:00:00")
+    parser.add_argument("--validation-start", default="2019-01-01T00:00:00")
+    parser.add_argument("--validation-end", default="2019-12-31T18:00:00")
     parser.add_argument("--checkpoint-every", type=int, default=500)
     parser.add_argument("--validate-every", type=int, default=500)
     parser.add_argument("--log-every", type=int, default=10)
@@ -252,15 +266,6 @@ def _parser() -> argparse.ArgumentParser:
         help="Start a new curriculum stage from a prior local checkpoint EMA.",
     )
     parser.add_argument(
-        "--continue-from",
-        type=Path,
-        default=None,
-        help=(
-            "Continue full optimizer, EMA, RNG, and sampler state in a new output "
-            "directory while changing only approved execution/batch settings."
-        ),
-    )
-    parser.add_argument(
         "--statistics-only",
         action="store_true",
         help="Estimate/cache statistics and exit before training.",
@@ -306,7 +311,11 @@ def _statistics(
     parallel_workers: int,
 ) -> tuple[TrainingStatistics, Path]:
     """Load frozen training statistics or estimate them once locally."""
-    statistics_path = config.checkpoint_directory / "training_statistics.npz"
+    statistics_path = (
+        config.checkpoint_directory / "training_statistics.npz"
+        if config.statistics_path is None
+        else Path(config.statistics_path).expanduser().resolve()
+    )
     if statistics_path.exists():
         statistics = load_training_statistics(statistics_path)
     else:
@@ -339,6 +348,24 @@ def _statistics(
         raise ValueError("cached target-variable statistics do not match the dycore")
     if statistics.input_mean.shape != (core.input_feature_count,):
         raise ValueError("cached input statistics do not match the hybrid features")
+    if statistics.forecast_channel_scale is None:
+        raise ValueError(
+            "cached statistics predate physical forecast normalization; "
+            "use a fresh output directory to regenerate them"
+        )
+    if config.decoder_use_raw_observation:
+        expected_decoder_input_size = core.input_feature_count + len(target_variables)
+        if (
+            statistics.decoder_input_mean is None
+            or statistics.decoder_input_standard_deviation is None
+            or statistics.decoder_input_mean.shape != (expected_decoder_input_size,)
+            or statistics.decoder_input_standard_deviation.shape
+            != (expected_decoder_input_size,)
+        ):
+            raise ValueError(
+                "cached statistics do not contain raw-observation decoder "
+                "normalization; use a fresh output directory to regenerate them"
+            )
     return statistics, statistics_path
 
 
@@ -352,6 +379,20 @@ def _write_local_run_config(config: TrainingConfig) -> None:
     )
 
 
+def _parameter_shapes_match(left: Any, right: Any) -> bool:
+    """Return whether two parameter trees have identical structure and shapes."""
+    if jax.tree_util.tree_structure(left) != jax.tree_util.tree_structure(right):
+        return False
+    return all(
+        np.shape(left_leaf) == np.shape(right_leaf)
+        for left_leaf, right_leaf in zip(
+            jax.tree_util.tree_leaves(left),
+            jax.tree_util.tree_leaves(right),
+            strict=True,
+        )
+    )
+
+
 def _build_config(arguments: argparse.Namespace) -> TrainingConfig:
     """Translate parsed arguments into the validated immutable configuration."""
     return TrainingConfig(
@@ -361,11 +402,32 @@ def _build_config(arguments: argparse.Namespace) -> TrainingConfig:
         bptt_window_hours=arguments.bptt_window_hours,
         training_steps=arguments.steps,
         warmup_steps=arguments.warmup_steps,
+        learning_rate=arguments.learning_rate,
+        minimum_learning_rate_ratio=arguments.minimum_learning_rate_ratio,
+        weight_decay=arguments.weight_decay,
+        gradient_clip_norm=arguments.gradient_clip_norm,
+        ema_decay=arguments.ema_decay,
         seed=arguments.seed,
         hidden_size=arguments.hidden_size,
         residual_blocks=arguments.residual_blocks,
         correction_interval_seconds=arguments.correction_interval_seconds,
+        normalized_tendency_limit=arguments.normalized_tendency_limit,
+        decoder_hidden_size=arguments.decoder_hidden_size,
+        decoder_residual_blocks=arguments.decoder_residual_blocks,
+        decoder_use_raw_observation=arguments.decoder_use_raw_observation,
+        decoder_only=arguments.decoder_only,
+        interface_loss_weight=arguments.interface_loss_weight,
+        newest_lead_loss_weight=arguments.newest_lead_loss_weight,
+        train_start=arguments.train_start,
+        train_end=arguments.train_end,
+        validation_start=arguments.validation_start,
+        validation_end=arguments.validation_end,
         statistics_samples=arguments.statistics_samples,
+        statistics_path=(
+            None
+            if arguments.statistics_file is None
+            else str(arguments.statistics_file.expanduser().resolve())
+        ),
         per_device_batch_size=arguments.per_device_batch_size,
         gradient_accumulation_steps=arguments.gradient_accumulation_steps,
         checkpoint_every_steps=arguments.checkpoint_every,
@@ -384,13 +446,10 @@ def main(argv: list[str] | None = None) -> int:
         (
             bool(arguments.resume),
             arguments.initialize_from is not None,
-            arguments.continue_from is not None,
         )
     )
     if checkpoint_modes > 1:
-        raise ValueError(
-            "--resume, --initialize-from, and --continue-from are mutually exclusive"
-        )
+        raise ValueError("--resume and --initialize-from are mutually exclusive")
     if (
         arguments.state_cache_only
         and arguments.no_state_cache
@@ -407,6 +466,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     jax.config.update("jax_default_matmul_precision", "high")
     config = _build_config(arguments)
+    compilation_cache_directory = (
+        config.checkpoint_directory.parent / "jax-compilation-cache"
+    )
+    compilation_cache_directory.mkdir(parents=True, exist_ok=True)
+    jax.config.update(
+        "jax_compilation_cache_dir",
+        str(compilation_cache_directory),
+    )
+    logger.info("using persistent JAX cache %s", compilation_cache_directory)
     _write_local_run_config(config)
     source = WeatherBench2Source(path=config.dataset_path)
     input_variables = source.state_channel_names(year=2018)
@@ -417,7 +485,9 @@ def main(argv: list[str] | None = None) -> int:
         latitude=latitude,
         input_variables=input_variables,
         data_path=config.dataset_path,
+        fallback_to_centered_sil3_on_nonfinite=False,
     )
+    logger.info("non-finite SIL3 states propagate to the fatal training guard")
     target_variables = core.output_variables
     statistics, statistics_path = _statistics(
         config,
@@ -437,11 +507,45 @@ def main(argv: list[str] | None = None) -> int:
         output_scale=core.conservative_output_scale,
         hidden_size=config.hidden_size,
         residual_blocks=config.residual_blocks,
+        normalized_tendency_limit=config.normalized_tendency_limit,
     )
     corrector = DinosaurNeuralCorrector(network, layer_count=core.layer_count)
+    decoder_network = None
+    decoder = None
+    if config.uses_interface_decoder:
+        if statistics.decoder_output_scale is None:
+            raise ValueError(
+                "training statistics do not contain interface decoder scales"
+            )
+        decoder_input_mean = (
+            statistics.decoder_input_mean
+            if config.decoder_use_raw_observation
+            else statistics.input_mean
+        )
+        decoder_input_standard_deviation = (
+            statistics.decoder_input_standard_deviation
+            if config.decoder_use_raw_observation
+            else statistics.input_standard_deviation
+        )
+        assert decoder_input_mean is not None
+        assert decoder_input_standard_deviation is not None
+        decoder_network = ColumnResidualMLP(
+            input_mean=decoder_input_mean,
+            input_standard_deviation=decoder_input_standard_deviation,
+            output_scale=statistics.decoder_output_scale,
+            hidden_size=config.decoder_hidden_size,
+            residual_blocks=config.decoder_residual_blocks,
+            normalized_tendency_limit=config.normalized_tendency_limit,
+        )
+        decoder = DinosaurNeuralDecoder(
+            decoder_network,
+            output_variables=core.output_variables,
+            include_raw_observation=config.decoder_use_raw_observation,
+        )
     model = PreparedHybridModel(
         core=core,
         corrector=corrector,
+        decoder=decoder,
         correction_interval_seconds=config.correction_interval_seconds,
     )
     cache_times = source.available_times(
@@ -462,6 +566,7 @@ def main(argv: list[str] | None = None) -> int:
             else default_initialized_state_cache_directory(
                 config.dataset_path,
                 cache_fingerprint,
+                times=cache_times,
             )
         )
         initialized_state_cache = build_initialized_state_cache(
@@ -493,6 +598,7 @@ def main(argv: list[str] | None = None) -> int:
             else default_modal_target_cache_directory(
                 config.dataset_path,
                 target_cache_fingerprint,
+                times=cache_times,
             )
         )
         modal_target_cache = build_modal_target_cache(
@@ -513,7 +619,14 @@ def main(argv: list[str] | None = None) -> int:
         )
     if arguments.state_cache_only:
         return 0
-    parameters = network.initialize(jax.random.key(config.seed))
+    if decoder_network is None:
+        parameters = network.initialize(jax.random.key(config.seed))
+    else:
+        corrector_key, decoder_key = jax.random.split(jax.random.key(config.seed))
+        parameters = {
+            "corrector": network.initialize(corrector_key),
+            "decoder": decoder_network.initialize(decoder_key),
+        }
     parameter_count = sum(
         int(parameter.size) for parameter in jax.tree_util.tree_leaves(parameters)
     )
@@ -532,7 +645,7 @@ def main(argv: list[str] | None = None) -> int:
         source,
         start=config.train_start,
         end=config.train_end,
-        lead_hours=config.lead_hours,
+        lead_hours=config.loss_lead_hours,
         input_variables=input_variables,
         target_variables=target_variables,
         seed=config.seed,
@@ -544,7 +657,7 @@ def main(argv: list[str] | None = None) -> int:
         source,
         start=config.validation_start,
         end=config.validation_end,
-        lead_hours=config.lead_hours,
+        lead_hours=config.loss_lead_hours,
         input_variables=input_variables,
         target_variables=target_variables,
         seed=config.seed + 1,
@@ -562,8 +675,7 @@ def main(argv: list[str] | None = None) -> int:
         restored = restore_checkpoint(checkpoint_path)
         checkpoint_config = restored.metadata.get("config")
         if not isinstance(checkpoint_config, dict) or (
-            _normalized_config_for_comparison(checkpoint_config)
-            != _normalized_config_for_comparison(config.asdict())
+            checkpoint_config != config.asdict()
         ):
             raise ValueError(
                 "exact resume requires the same configuration as the checkpoint"
@@ -574,8 +686,27 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("resumed local checkpoint %s", checkpoint_path)
     elif arguments.initialize_from is not None:
         restored = restore_checkpoint(arguments.initialize_from)
+        restored_parameters = restored.training_state.ema_parameters
+        if config.uses_interface_decoder:
+            if "corrector" not in restored_parameters:
+                restored_parameters = {
+                    "corrector": restored_parameters,
+                    "decoder": parameters["decoder"],
+                }
+            elif not _parameter_shapes_match(
+                restored_parameters["decoder"],
+                parameters["decoder"],
+            ):
+                restored_parameters = {
+                    "corrector": restored_parameters["corrector"],
+                    "decoder": parameters["decoder"],
+                }
+                logger.info(
+                    "reinitialized decoder because checkpoint shapes do not "
+                    "match the requested decoder architecture"
+                )
         training_state = initialize_training_state(
-            restored.training_state.ema_parameters,
+            restored_parameters,
             optimizer,
             random_key=jax.random.key(config.seed + 1),
         )
@@ -583,17 +714,6 @@ def main(argv: list[str] | None = None) -> int:
             "initialized new curriculum stage from EMA in %s",
             arguments.initialize_from,
         )
-    elif arguments.continue_from is not None:
-        restored = restore_checkpoint(arguments.continue_from)
-        _validate_continuation_config(restored.metadata, config)
-        training_state = restored.training_state
-        training_sampler.load_state_dict(restored.sampler_state)
-        validation_sampler.load_state_dict(restored.validation_sampler_state)
-        logger.info(
-            "continued full training state from %s",
-            arguments.continue_from,
-        )
-
     if not arguments.no_prefetch:
         training_sampler = PrefetchingTrajectorySampler(
             training_sampler,
@@ -623,13 +743,20 @@ def main(argv: list[str] | None = None) -> int:
         full_resolution_hours=config.full_resolution_loss_hours,
         final_retained_fraction=config.final_retained_wavenumber_fraction,
         taper_width_fraction=config.spectral_taper_width_fraction,
+        interface_channel_scale=statistics.decoder_output_scale,
+        forecast_channel_scale=statistics.forecast_channel_scale,
+        to_nodal=core.coords.horizontal.to_nodal,
+        area_weights=source.area_weights(year=2018),
     )
     devices = list(jax.local_devices())
     logger.info(
-        "training horizon=%dh leads=%s bptt_window=%dh devices=%d "
+        "training horizon=%dh mode=%s loss_leads=%s lead_weights=%s "
+        "bptt_window=%dh devices=%d "
         "global_update_batch=%d",
         config.horizon_hours,
-        config.lead_hours,
+        "decoder-only" if config.decoder_only else "joint",
+        config.loss_lead_hours,
+        config.lead_loss_weights,
         config.effective_bptt_window_hours,
         len(devices),
         len(devices)
@@ -644,7 +771,6 @@ def main(argv: list[str] | None = None) -> int:
         config=config,
         devices=devices,
         rematerialize_rollout=not arguments.no_rollout_rematerialization,
-        stop_at_step=arguments.stop_at_step,
         pack_accumulation=arguments.pack_gradient_accumulation,
         rematerialization_policy=arguments.rematerialization_policy,
         weatherbench_metrics=WeatherBenchValidationMetrics(
@@ -675,11 +801,6 @@ def main(argv: list[str] | None = None) -> int:
                     None
                     if arguments.initialize_from is None
                     else str(arguments.initialize_from.expanduser().resolve())
-                ),
-                "continued_from": (
-                    None
-                    if arguments.continue_from is None
-                    else str(arguments.continue_from.expanduser().resolve())
                 ),
             }
             if restored is not None and arguments.resume:

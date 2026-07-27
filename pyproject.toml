@@ -25,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 dynamaxx-eval = "dynamaxx.cli:main"
+dynamaxx-diagnose-hybrid = "dynamaxx.training.hybrid_diagnostics:main"
 dynamaxx-train-hybrid = "dynamaxx.training.cli:main"
 dynamaxx-train-hybrid-curriculum = "dynamaxx.training.curriculum:main"
 

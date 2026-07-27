@@ -65,8 +65,8 @@ class SampledTrajectory:
         lead_hours = tuple(int(value) for value in self.lead_hours)
         if initial_times.ndim != 1 or initial_times.size == 0:
             raise ValueError("initial_times must be a non-empty vector")
-        if not lead_hours or any(value <= 0 for value in lead_hours):
-            raise ValueError("lead_hours must contain positive values")
+        if not lead_hours or any(value < 0 for value in lead_hours):
+            raise ValueError("lead_hours must contain nonnegative values")
         if tuple(sorted(set(lead_hours))) != lead_hours:
             raise ValueError("lead_hours must be unique and increasing")
         if (self.initial_state is None) == (self.initialized_states is None):
@@ -122,8 +122,8 @@ class WeatherBench2TrajectorySampler:
         self.parallel_workers = parallel_workers
         self.initialized_state_cache = initialized_state_cache
         self.modal_target_cache = modal_target_cache
-        if not self.lead_hours or any(value <= 0 for value in self.lead_hours):
-            raise ValueError("lead_hours must contain positive values")
+        if not self.lead_hours or any(value < 0 for value in self.lead_hours):
+            raise ValueError("lead_hours must contain nonnegative values")
         if tuple(sorted(set(self.lead_hours))) != self.lead_hours:
             raise ValueError("lead_hours must be unique and increasing")
         if not self.input_channels or not self.target_channels:

@@ -12,7 +12,7 @@ from dynamaxx.training.config import TrainingConfig
 from dynamaxx.training.data import SampledTrajectory
 from dynamaxx.training.losses import HybridForecastLoss, SpectralLossStatistics
 from dynamaxx.training.state import build_optimizer, initialize_training_state
-from dynamaxx.training.trainer import HybridTrainer
+from dynamaxx.training.trainer import HybridTrainer, _raise_for_rejected_update
 from dynamaxx.weather import WeatherState
 
 
@@ -43,6 +43,87 @@ def _corrector(parameters, inputs):
     return parameters["output"]["kernel"][0]
 
 
+def _decoder(parameters, inputs, raw_observation):
+    del inputs
+    return raw_observation.with_values(raw_observation.values + parameters["offset"])
+
+
+def test_decoder_only_update_freezes_corrector_and_skips_rollout():
+    """Interface calibration updates only the decoder from lead-zero truth."""
+    config = TrainingConfig(
+        horizon_hours=24,
+        decoder_only=True,
+        training_steps=2,
+        warmup_steps=0,
+        per_device_batch_size=1,
+        gradient_accumulation_steps=1,
+    )
+
+    def rollout_must_not_run(parameters, inputs):
+        del parameters, inputs
+        raise AssertionError("decoder-only training must not call the corrector")
+
+    model = PreparedHybridModel(
+        core=_TrainingCore(),
+        corrector=rollout_must_not_run,
+        decoder=_decoder,
+    )
+    loss = HybridForecastLoss(
+        to_modal=lambda values: values,
+        total_wavenumber=jnp.zeros((1, 1), dtype=jnp.int32),
+        modal_mask=jnp.ones((1, 1)),
+        statistics=SpectralLossStatistics(
+            coefficient_variance=jnp.ones((1, 1)),
+            climatological_power=jnp.ones((1, 1)),
+            channel_weights=jnp.ones((1,)),
+        ),
+        bias_axis_name="devices",
+    )
+    parameters = {
+        "corrector": {"unchanged": jnp.asarray(3.0)},
+        "decoder": {"offset": jnp.asarray(0.0)},
+    }
+    optimizer, learning_rate = build_optimizer(parameters, config)
+    state = initialize_training_state(
+        parameters,
+        optimizer,
+        random_key=jax.random.key(0),
+    )
+    trainer = HybridTrainer(
+        model=model,
+        loss=loss,
+        optimizer=optimizer,
+        learning_rate=learning_rate,
+        config=config,
+        devices=[jax.local_devices()[0]],
+    )
+    sampled = SampledTrajectory(
+        initial_times=np.asarray(["2018-01-01"], dtype="datetime64[ns]"),
+        initial_state=WeatherState(
+            values=jnp.zeros((1, 1, 1, 1)),
+            variables=("x",),
+        ),
+        targets=WeatherState(
+            values=jnp.ones((1, 1, 1, 1, 1)),
+            variables=("x",),
+        ),
+        lead_hours=(0,),
+    )
+    replicated_state = jax.tree_util.tree_map(
+        lambda value: jnp.stack([jnp.asarray(value)]),
+        state,
+    )
+
+    updated_state, metrics = trainer._update(
+        replicated_state,
+        trainer.prepare(sampled),
+    )
+
+    assert float(updated_state.parameters["corrector"]["unchanged"][0]) == 3.0
+    assert float(updated_state.parameters["decoder"]["offset"][0]) != 0.0
+    assert float(metrics["correction/rms"][0]) == 0.0
+
+
 def test_compiled_training_update_backpropagates_through_six_hour_rollout():
     """A compiled update differentiates through every correction step."""
     config = TrainingConfig(
@@ -50,6 +131,7 @@ def test_compiled_training_update_backpropagates_through_six_hour_rollout():
         warmup_steps=0,
         per_device_batch_size=1,
         gradient_accumulation_steps=1,
+        decoder_hidden_size=0,
     )
     model = PreparedHybridModel(core=_TrainingCore(), corrector=_corrector)
     loss = HybridForecastLoss(
@@ -112,34 +194,19 @@ def test_compiled_training_update_backpropagates_through_six_hour_rollout():
     assert float(metrics["correction/rms"][0]) == 0.0
 
 
-def test_trainer_rejects_negative_stop_step():
-    """A bounded run cannot target a nonsensical negative optimizer step."""
-    config = TrainingConfig(training_steps=2, warmup_steps=0)
-    parameters = {"kernel": jnp.asarray([0.0])}
-    optimizer, learning_rate = build_optimizer(parameters, config)
-    model = PreparedHybridModel(core=_TrainingCore(), corrector=_corrector)
-    loss = HybridForecastLoss(
-        to_modal=lambda values: values,
-        total_wavenumber=jnp.zeros((1, 1), dtype=jnp.int32),
-        modal_mask=jnp.ones((1, 1)),
-        statistics=SpectralLossStatistics(
-            coefficient_variance=jnp.ones((1, 1)),
-            climatological_power=jnp.ones((1, 1)),
-            channel_weights=jnp.ones((1,)),
-        ),
-        bias_axis_name="devices",
-    )
+def test_rejected_nonfinite_update_stops_training():
+    """A guarded no-op update cannot masquerade as training progress."""
+    replicated_metrics = {
+        "update/applied": jnp.asarray([0.0]),
+        "loss": jnp.asarray([jnp.nan]),
+        "gradient/global_norm": jnp.asarray([jnp.nan]),
+        "forecast/nonfinite_fraction": jnp.asarray([0.125]),
+        "correction/rms": jnp.asarray([2.0]),
+        "correction/max_abs": jnp.asarray([4.0]),
+    }
 
-    with pytest.raises(ValueError, match="stop_at_step must be non-negative"):
-        HybridTrainer(
-            model=model,
-            loss=loss,
-            optimizer=optimizer,
-            learning_rate=learning_rate,
-            config=config,
-            devices=[jax.local_devices()[0]],
-            stop_at_step=-1,
-        )
+    with pytest.raises(FloatingPointError, match="non-finite optimizer update"):
+        _raise_for_rejected_update(replicated_metrics, step=1)
 
 
 def test_packed_accumulation_matches_sequential_microbatches():
@@ -150,6 +217,7 @@ def test_packed_accumulation_matches_sequential_microbatches():
         per_device_batch_size=1,
         gradient_accumulation_steps=2,
         log_every_steps=1,
+        decoder_hidden_size=0,
     )
     model = PreparedHybridModel(core=_TrainingCore(), corrector=_corrector)
     loss = HybridForecastLoss(

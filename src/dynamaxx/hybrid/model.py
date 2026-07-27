@@ -11,6 +11,7 @@ import numpy as np
 from dynamaxx.hybrid.api import (
     HybridState,
     HybridStepDiagnostics,
+    NeuralDecoder,
     NeuralTendency,
     PreparedHybridCore,
 )
@@ -75,6 +76,7 @@ class PreparedHybridModel(
         NativeTendency,
     ]
     corrector: NeuralTendency[Parameters, CorrectorInputs, NodalTendency]
+    decoder: NeuralDecoder[Parameters, CorrectorInputs, WeatherState] | None = None
     correction_interval_seconds: float = 1800.0
 
     def __post_init__(self):
@@ -137,7 +139,10 @@ class PreparedHybridModel(
     ) -> tuple[HybridState[CoreState], HybridStepDiagnostics[NodalTendency]]:
         """Evaluate one correction and advance one complete coupling block."""
         corrector_inputs = self.core.corrector_inputs(state.core)
-        nodal_tendency = self.corrector(parameters, corrector_inputs)
+        corrector_parameters = (
+            parameters if self.decoder is None else parameters["corrector"]
+        )
+        nodal_tendency = self.corrector(corrector_parameters, corrector_inputs)
         native_tendency = self.core.to_native_tendency(
             state.core,
             nodal_tendency,
@@ -164,6 +169,22 @@ class PreparedHybridModel(
     def decode(self, state: HybridState[CoreState]) -> WeatherState:
         """Decode a hybrid state without changing its recurrent carry."""
         return self.core.decode(state.core)
+
+    def observe(
+        self,
+        parameters: Parameters,
+        state: HybridState[CoreState],
+    ) -> WeatherState:
+        """Decode a state and apply the learned observation residual if present."""
+        raw_observation = self.decode(state)
+        if self.decoder is None:
+            return raw_observation
+        decoder_inputs = self.core.corrector_inputs(state.core)
+        return self.decoder(
+            parameters["decoder"],
+            decoder_inputs,
+            raw_observation,
+        )
 
     def advance(
         self,

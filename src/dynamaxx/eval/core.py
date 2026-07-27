@@ -20,14 +20,14 @@ class WeatherVariable:
 
     @property
     def channel_name(self) -> str:
-        """Return the packed state channel name."""
+        """The packed state channel name."""
         if self.level is None:
             return self.variable
         return f"{self.variable}_{int(self.level)}"
 
     @property
     def label(self) -> str:
-        """Return a readable stable label for metric tables."""
+        """A readable, stable label for metric tables."""
         return self.title or self.channel_name
 
     def asdict(self) -> dict[str, Any]:
@@ -72,23 +72,23 @@ class EvalCase:
 
     @property
     def step_seconds(self) -> float:
-        """Return the model step size in seconds."""
+        """The model step size in seconds."""
         return float(self.step_hours * SECONDS_PER_HOUR)
 
     @property
     def lead_hours(self) -> tuple[int, ...]:
-        """Return lead times in hours."""
+        """Lead times in hours."""
         return tuple(lead_step * self.step_hours for lead_step in self.lead_steps)
 
     @property
     def valid_times(self) -> np.ndarray:
-        """Return verification times with shape (initial_time, lead)."""
+        """Verification times with shape ``(initial_time, lead)``."""
         lead_offsets = np.asarray(self.lead_hours, dtype="timedelta64[h]")
         return self.initial_times[:, np.newaxis] + lead_offsets[np.newaxis, :]
 
     @property
     def target_channel_names(self) -> tuple[str, ...]:
-        """Return target channel names in scoring order."""
+        """Target channel names in scoring order."""
         return tuple(variable.channel_name for variable in self.target_variables)
 
     def asdict(self) -> dict[str, Any]:

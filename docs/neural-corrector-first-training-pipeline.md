@@ -1,15 +1,20 @@
 # First Training Pipeline for a Dinosaur Neural Corrector
 
-Status: production-scale deterministic training implemented; production run active
+Status: production-scale deterministic training implemented; interface and joint gates active
 
 ## Decision
 
 The first model should be a minimal NeuralGCM-style hybrid:
 
 - freeze the optimized `dino_rskin_apv` dynamical core;
-- freeze the existing WeatherBench encoder and decoder;
+- freeze the existing WeatherBench encoder and raw Dinosaur decoder;
 - train one neural network that predicts additive tendencies for Dinosaur's
   prognostic variables;
+- train a small residual observation decoder that repairs the otherwise large
+  pressure-to-sigma-to-pressure reconstruction error without changing the
+  recurrent dycore state;
+- calibrate that decoder at lead zero with the mature corrector frozen before
+  joint recurrent training;
 - make both the dycore inner-step duration and neural-correction interval
   explicit configuration values;
 - initially evaluate the network every 30 minutes and hold its tendency fixed
@@ -26,8 +31,9 @@ The first model should be a minimal NeuralGCM-style hybrid:
 - use 2014–2018 for the first pipeline and stability pilot, while computing
   frozen statistics from 1979–2018 and expanding production training to that
   full period before the expensive multi-day stages;
-- use spectral accuracy, spectrum, and bias losses so that long-horizon
-  training does not reward smoothing.
+- use physical state and bias losses, normalized by each channel's six-hour
+  tendency scale, plus a spectral-power loss so long-horizon training cannot
+  hide large-scale drift or win merely by smoothing.
 
 This experiment answers the first scientific question cleanly:
 
@@ -47,9 +53,10 @@ Let:
 - $A_t$ be any causal auxiliary state carried by the optimized model, such as
   surface or land-skin state;
 - $B$ be static context such as orography, land fraction, and grid geometry;
-- $E$ and $D$ be the fixed Dinosaur encoder and decoder;
+- $E$ and $D$ be the fixed Dinosaur encoder and raw decoder;
 - $F_{\mathrm{Dino}}$ be the fixed optimized Dinosaur tendency;
-- $G_\theta$ be the trainable neural corrector.
+- $G_\theta$ be the trainable neural corrector;
+- $R_\phi$ be the trainable residual observation decoder.
 
 The forecast is initialized once:
 
@@ -61,6 +68,16 @@ The model then remains in Dinosaur's internal state space until an output is
 requested. It must not decode and re-encode the forecast at every internal
 step. The internal trajectory is a recurrent computational path, not a
 supervision target.
+
+Whenever an observation is requested, the public forecast is
+
+$$
+\widehat X_t=D(S_t,A_t)+R_\phi(H(S_t,A_t,B,t)).
+$$
+
+The residual decoder never feeds back into $S_t$. It therefore corrects the
+WeatherBench interface without creating a decode/re-encode loop or breaking
+the continuous on-policy trajectory.
 
 ### 1.1 Coupled tendency
 
@@ -200,16 +217,31 @@ parameters in total: 9,019,390 in its learned encoder, 4,235,903 in its learned
 decoder, and 5,088,287 in learned physics.
 
 The larger production candidate uses width 800 and eight residual blocks, for
-exactly 20,692,853 trainable parameters. Width 800 remains aligned for BF16
-matrix multiplication on H100 tensor cores. Dynamaxx still freezes its encoder
-and decoder, so this count belongs entirely to the learned corrector. The
-4.82M run remains the capacity control; throughput and forecast skill for the
-20.69M candidate must be measured separately rather than inferred from the
-smaller run.
+exactly 20,692,853 corrector parameters. Width 800 remains aligned for BF16
+matrix multiplication on H100 tensor cores. The interface decoder uses width
+256 and two residual blocks, adding 588,869 parameters. The active hybrid
+therefore has 21,281,722 trainable parameters while the Dinosaur encoder, raw
+decoder, and dynamical core remain frozen. The 4.82M run remains the capacity
+control; throughput and forecast skill for the 21.28M model are measured
+directly rather than inferred from the smaller run.
 
 The zero output initialization makes the initial hybrid forecast exactly the
 frozen Dinosaur forecast. It also makes degradation or instability introduced
 by training easy to identify.
+
+The normalized output is smoothly bounded as
+$4\tanh(q/4)$ before applying the fixed per-channel physical tendency scales.
+This is linear to first order at zero, preserves zero initialization, and
+prevents a short-horizon objective from defeating the conservative scales by
+growing unbounded output logits. Any rejected non-finite update is fatal to the
+stage rather than being counted as training progress.
+
+Hybrid training also propagates a non-finite off-centered SIL3 candidate to
+that fatal guard instead of tracing the centered SIL3 recovery branch. Under
+the trainer's vectorized batch this removes a redundant second dycore
+integration on every finite step. Public dycore inference retains the centered
+fallback; the training fast path is identical whenever the off-centered state
+is finite and fails visibly if it is not.
 
 A column model is appropriate for the first experiment because Dinosaur
 already handles resolved horizontal transport. The corrector can focus on
@@ -431,7 +463,31 @@ Before production training:
 These checks distinguish integration errors from optimization or modeling
 failures.
 
-### 4.2 Phase A: exact six-hour endpoint training
+### 4.2 Phase A: lead-zero interface calibration
+
+Before changing the mature tendency corrector, train only $R_\phi$ against the
+initial ERA5 state. The sampler requests only the zero-hour target, no dycore
+rollout is executed, and the optimizer masks every corrector update. Use the
+same training-period initial-state and target caches as recurrent training.
+
+The interface objective is the latitude-area-weighted mean squared error,
+normalized separately by each channel's frozen reconstruction RMS:
+
+$$
+\mathcal L_{\mathrm{interface}}
+=
+\frac{1}{\sum_v w_v}
+\sum_v w_v
+\frac{\sum_x a_x\left(\widehat X_{0,v,x}-X^*_{0,v,x}\right)^2}
+{s_v^2\sum_x a_x}.
+$$
+
+This loss includes the global mean mode directly. Do not use climatological
+spectral variance for lead zero: doing so can improve winds while allowing the
+large-scale Z500 or MSLP reconstruction bias to grow. Promote only when fixed
+2019 starts improve for every headline interface channel.
+
+### 4.3 Phase B: exact six-hour endpoint training
 
 Start directly with the recurrent model. Encode the initial real state, advance
 six hours, decode once, and compare with the next real state:
@@ -483,20 +539,20 @@ Start with ERA5 truth starts only. Rematerialize correction blocks to control
 memory, use the smallest stable per-device batch, and use gradient accumulation
 for the desired effective batch size.
 
-### 4.3 Phase B: logarithmic rollout curriculum
+### 4.4 Phase C: logarithmic rollout curriculum
 
 After six-hour training is stable, promote the continuous rollout through the
 following fixed horizons:
 
 | Stage | Rollout horizon | Supervised lead times | Maximum gradient history |
 | --- | ---: | --- | ---: |
-| A | 6 h | 6 h | 6 h |
-| B | 12 h | 6, 12 h | 12 h |
-| C | 24 h | 6, 12, 24 h | 24 h |
-| D | 48 h | 6, 12, 24, 48 h | 24 h |
-| E | 96 h / 4 d | 6, 12, 24, 48, 96 h | 24 h |
-| F | 192 h / 8 d | 6, 12, 24, 48, 96, 192 h | 24 h |
-| G | 360 h / 15 d | 6, 12, 24, 48, 96, 192, 360 h | 24 h |
+| A | 6 h | 0, 6 h | 6 h |
+| B | 12 h | 0, 6, 12 h | 12 h |
+| C | 24 h | 0, 6, 12, 24 h | 24 h |
+| D | 48 h | 0, 6, 12, 24, 48 h | 24 h |
+| E | 96 h / 4 d | 0, 6, 12, 24, 48, 96 h | 24 h |
+| F | 192 h / 8 d | 0, 6, 12, 24, 48, 96, 192 h | 24 h |
+| G | 360 h / 15 d | 0, 6, 12, 24, 48, 96, 192, 360 h | 24 h |
 
 The final promotion ends at the required 15-day forecast horizon rather than
 continuing the doubling sequence to 384 hours. Each stage retains every loss
@@ -516,7 +572,7 @@ teacher-forced, decoded and re-encoded, or replaced at a supervised lead. A
 decoded loss observes that state without modifying it, and all dycore and
 neural states between the listed lead times remain latent.
 
-### 4.4 Bounded BPTT on a continuous trajectory
+### 4.5 Bounded BPTT on a continuous trajectory
 
 The primary curriculum uses a configurable 24-hour BPTT window. Rollout events
 are the union of supervised lead times and fixed 24-hour detach boundaries. At
@@ -531,6 +587,15 @@ assignment, so full-horizon BPTT is retained as an ablation rather than treated
 as mathematically equivalent. The window is exposed as
 `--bptt-window-hours`; its production default is 24.
 
+For aligned long-horizon stages, implement the post-24-hour suffix as a nested
+scan over reusable 24-hour windows. The first window still decodes the 6-, 12-,
+and 24-hour leads exactly. Each later window advances the same continuous state,
+decodes its boundary, and detaches the state before the following window; only
+the requested logarithmic leads are retained for the loss. This traces one
+daily window body rather than one separate body per forecast day. It is an
+execution optimization only: the supervised leads, forward trajectory, and
+24-hour gradient boundaries remain unchanged.
+
 ## 5. Loss Function
 
 Pure, unfiltered long-horizon grid-space MSE should not be the objective. It
@@ -543,17 +608,19 @@ lead times decoded for a rollout horizon $T$. The curriculum defines
 $$
 \mathcal T_{\mathrm{obs}}(T)
 =
-\left\{6,12,24,48,96,192\right\}
-\cap (0,T]
+\left\{0,6,12,24,48,96,192\right\}
+\cap [0,T]
 $$
 
-in hours, with 360 hours appended when $T=360\ \mathrm{hours}$. Use the total
-loss
+in hours, with 360 hours appended when $T=360\ \mathrm{hours}$. Use the
+interface loss from Section 4.2 at $\tau=0$ and a three-term physical and
+spectral forecast loss at positive leads:
 
 $$
 \mathcal L_{\mathrm{WB2}}
 =
-\sum_{\tau\in\mathcal T_{\mathrm{obs}}(T)}
+\alpha_0\mathcal L_{\mathrm{interface}}
++\sum_{\tau\in\mathcal T_{\mathrm{obs}}(T)\setminus\{0\}}
 \alpha_\tau
 \left[
 \mathcal L_{\mathrm{state}}(\tau)
@@ -569,52 +636,51 @@ $$
 $$
 
 so adding a lead time does not increase the total loss merely by adding another
-term. Use uniform lead weights
-$\alpha_\tau=1/|\mathcal T_{\mathrm{obs}}(T)|$ for the baseline. Initially
-$\mathcal T_{\mathrm{obs}}(6\ \mathrm{h})=\{6\ \mathrm{h}\}$. Every term is
-computed from a decoded forecast and its corresponding real WeatherBench2
-state. All terms should be area-weighted and normalized by variable and level.
+term. With the interface decoder enabled, assign 0.1 to lead zero and 0.5 to
+the newly introduced positive lead; divide the remaining 0.4 uniformly among
+earlier positive leads. The 6-hour stage is the exception with weights
+$(0.1,0.9)$. Thus the 24-hour stage uses $(0.1,0.2,0.2,0.5)$ for
+$(0,6,12,24)$ hours. Every term is computed from a decoded forecast and its
+corresponding real WeatherBench2 state.
 
-### 5.1 Lead-dependent spectral state loss
+### 5.1 Six-hour-tendency-normalized physical state loss
 
-Let $a_{v\ell m}$ denote a spherical-harmonic coefficient of a decoded
-WeatherBench2 variable and level, where $v$ identifies the decoded channel,
-$\ell$ is total wavenumber, and $m$ is zonal wavenumber. Define
+Let $d_v$ be the frozen training-split RMS of the six-hour temporal difference
+for decoded channel $v$:
+
+$$
+d_v^2
+=
+\mathbb E_{t,x}
+\left[
+X^*_{t+6\mathrm{h},v,x}-X^*_{t,v,x}
+\right]^2.
+$$
+
+Use a small channel-standard-deviation floor when estimating $d_v$ so that an
+almost constant channel cannot create an unbounded normalized loss. For every
+positive lead, define
 
 $$
 \mathcal L_{\mathrm{state}}(\tau)
 =
-\sum_{v,\ell,m}
-w_v M_{\tau\ell}
+\frac{1}{\sum_v w_v}
+\sum_v w_v
 \frac{
-\left|\widehat a_{v\ell m}(\tau)-a^*_{v\ell m}(\tau)\right|^2
+\sum_x a_x
+\left(\widehat X_{\tau,v,x}-X^*_{\tau,v,x}\right)^2
 }{
-\sigma^2_{v\ell}+\epsilon
+d_v^2\sum_x a_x
 }.
 $$
 
-$M_{\tau\ell}$ is a smooth, lead-dependent spectral taper:
-
-- retain all resolved scales at short lead times;
-- progressively reduce the pointwise penalty on unpredictable high
-  wavenumbers at longer lead times;
-- do not remove those wavenumbers from the forecast itself.
-
-The implemented starting parameterization keeps full resolution through 24
-hours, moves the fully weighted cutoff logarithmically to 25% of the resolved
-wavenumber range by 360 hours, and uses a cosine transition spanning 15% of the
-range. These three values are explicit project starting choices, not values
-reported by NeuralGCM, and must be treated as controlled hyperparameters.
-
-This avoids penalizing a realistic small-scale feature twice merely because it
-is slightly displaced.
-
-For the initial truth-start updates,
-$\tau=\Delta t_{\mathrm{obs}}=6\ \mathrm{hours}$. Under bounded BPTT, $\tau$
-remains the absolute lead from the original ERA5 initial condition, not the
-length of the differentiable block containing that loss. This allows the loss
-to become less pointwise at later forecast times while the spectrum and bias
-terms continue to constrain realism.
+This is a true latitude-area-weighted error in the decoded physical fields. It
+keeps the global mean and low wavenumbers visible and uses a forecast-relevant
+scale instead of climatological coefficient variance. In the 24-hour gate,
+climatological spectral normalization allowed large Z500 and T850 drift while
+the scalar objective improved; the six-hour tendency normalization removed
+that failure. The separate spectrum term below remains the anti-smoothing
+constraint.
 
 Compute this loss only for decoded channels with corresponding real
 WeatherBench2 targets. Do not add a parallel loss on Dinosaur's native
@@ -650,34 +716,34 @@ state loss, the spectrum loss continues to constrain small-scale amplitude at
 long lead times. This is the primary guard against smoothing in the first
 deterministic model.
 
-### 5.3 Batch bias loss
+### 5.3 Batch physical-bias loss
 
-Penalize systematic modal error across the batch:
+Penalize systematic area-mean physical error across the batch, using the same
+six-hour tendency scale:
 
 $$
 \mathcal L_{\mathrm{bias}}
 =
-\sum_{v,\ell,m}
-\frac{
-\left|
-\mathbb E_{b}
+\frac{1}{\sum_v w_v}
+\sum_v w_v
+\left(
+\mathbb E_b
 \left[
-\widehat a^{(b)}_{v\ell m}-a^{*(b)}_{v\ell m}
+\frac{\sum_x a_x
+\left(\widehat X^{(b)}_{v,x}-X^{*(b)}_{v,x}\right)}
+{d_v\sum_x a_x}
 \right]
-\right|^2
-}{
-\sigma^2_{v\ell}+\epsilon
-}.
+\right)^2.
 $$
 
-This distinguishes persistent model drift from unpredictable trajectory error.
-The memory-safe implementation forms this expectation across the eight devices
-for each device-local microbatch, then averages the two accumulated bias losses.
-It does not run a separate forecast merely to form a sixteen-example bias
-reference. State and spectrum gradients are still accumulated over all sixteen
-examples. A single exact sixteen-example bias expectation can be used when two
-examples per device fit simultaneously; that execution variant must first pass
-the OOM gate.
+This directly distinguishes persistent large-scale drift from unpredictable
+trajectory error. The memory-safe implementation forms this expectation across
+the eight devices for each device-local microbatch, then averages the two
+accumulated bias losses. It does not run a separate forecast merely to form a
+sixteen-example bias reference. State and spectrum gradients are still
+accumulated over all sixteen examples. A single exact sixteen-example bias
+expectation can be used when two examples per device fit simultaneously; that
+execution variant must first pass the OOM gate.
 
 ### 5.4 Credit assignment through latent states
 
@@ -798,25 +864,43 @@ sharded batches directly to the eight devices.
 ### 6.1 Running one stage
 
 The executable trains one static horizon at a time. Its defaults use all local
-JAX devices, one example per device, two accumulated microbatches, the
-2014–2018 pilot interval, 2019 validation, and locally cached 1979–2018
-statistics:
+JAX devices, one example per device, two accumulated microbatches, 1979–2018
+training and statistics, and 2019 validation. A short 2014–2018 gate must set
+those dates explicitly.
+
+For a warm-started corrector, calibrate the interface first. This mode performs
+no rollout and freezes the corrector exactly:
 
 ```bash
-dynamaxx-train-hybrid \
+uv run dynamaxx-train-hybrid \
+  --horizon-hours 24 \
+  --decoder-only \
+  --steps 2000 \
+  --warmup-steps 100 \
+  --initialize-from /mnt/data/checkpoints/mature-corrector.pkl \
+  --output /mnt/data/dynamaxx-training-cache/checkpoints/interface-calibrated \
+  --wandb-project dynamaxx
+```
+
+Then initialize a recurrent stage from the selected local interface checkpoint:
+
+```bash
+uv run dynamaxx-train-hybrid \
   --dataset /mnt/data/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative \
   --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h \
   --hidden-size 800 \
   --residual-blocks 8 \
   --horizon-hours 6 \
-  --bptt-window-hours 24
+  --bptt-window-hours 24 \
+  --initialize-from /mnt/data/dynamaxx-training-cache/checkpoints/interface-calibrated/step_000002000.pkl \
+  --wandb-project dynamaxx
 ```
 
 The first launch builds the deterministic caches automatically. They can be
 built separately before opening a W&B run:
 
 ```bash
-dynamaxx-train-hybrid \
+uv run dynamaxx-train-hybrid \
   --dataset /mnt/data/processed-era5-1p5deg-6h-240x121-equiangular-with-poles-conservative \
   --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h \
   --horizon-hours 6 \
@@ -840,10 +924,14 @@ unchanged. For the 4.82M-parameter control model on eight H100s, sequential
 accumulation takes approximately 2.55 seconds per six-hour update; packing the
 same global batch of 16 takes approximately 2.06 seconds and sustains 7.66
 examples per second. The packed update and its physical-metric validation both
-complete without OOM. The curriculum runner tries packing first and falls back
-to sequential accumulation if a longer horizon exceeds memory. These timings
-do not yet describe the 20.69M candidate; it requires its own packed and
-sequential OOM/throughput smoke tests.
+complete without OOM. The 21.28M model's measured 24-hour joint update takes
+about 5.5 seconds after compilation, sustains about 2.9 examples per second at
+global batch 16, and occupies about 61.4 GiB on each 80 GiB H100. Decoder-only
+calibration skips the rollout and sustains roughly 400--490 examples per
+second. Trainer launches share a persistent JAX compilation cache beside the
+checkpoint stage directories, so an identical retry can reuse compiled
+executables. The curriculum runner tries packing first and falls back to
+sequential accumulation if a longer horizon exceeds memory.
 
 Validation logs WeatherBench2-compatible physical metrics in addition to the
 training objective. The scalar names are
@@ -859,14 +947,12 @@ in 2020 and daily leads through day 15.
 `WANDB_API_KEY` and, optionally, `WANDB_PROJECT` are read by W&B from the
 environment. `--wandb-project` can set the project explicitly. Use `--no-wandb`
 for a local-only run. `--resume` resumes the exact latest local checkpoint with
-the same configuration and W&B run. `--stop-at-step N` bounds a run at an
-absolute optimizer step while leaving the configured schedule and checkpoint
-compatible with a later `--resume`. After promotion criteria are met, start the
-next static horizon from the selected previous EMA without carrying optimizer
-state:
+the same configuration and W&B run. After promotion criteria are met, start
+the next static horizon from the selected previous EMA without carrying
+optimizer state:
 
 ```bash
-dynamaxx-train-hybrid \
+uv run dynamaxx-train-hybrid \
   --output /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/12h \
   --horizon-hours 12 \
   --initialize-from /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m/6h/step_000100000.pkl
@@ -909,14 +995,17 @@ Run or resume the complete sequence with:
 uv run dynamaxx-train-hybrid-curriculum \
   --output-root /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m \
   --reference-6h-steps 20000 \
+  --statistics-samples 512 \
   --bptt-window-hours 24 \
   --wandb-project dynamaxx
 ```
 
-The runner uses the existing configuration when a local stage checkpoint is
-present, stops that stage at its horizon-weighted maximum, selects its local
-best-validation EMA checkpoint, and starts the next horizon in a fresh JAX
-process. It logs scalar statistics to a separate W&B run per horizon. Packed
+The runner estimates one frozen 1979--2018 statistics archive under the output
+root and reuses it at every horizon, so normalization cannot shift at a
+promotion boundary. It uses the existing configuration when a local stage
+checkpoint is present, stops that stage at its horizon-weighted maximum,
+selects its local best-validation EMA checkpoint, and starts the next horizon
+in a fresh JAX process. It logs scalar statistics to a separate W&B run per horizon. Packed
 accumulation is attempted first; a device-memory failure automatically retries
 the same global batch with sequential accumulation. Any other failure stops
 the sequence and leaves the latest local checkpoint resumable.
@@ -975,7 +1064,7 @@ Only after these ablations should the project evaluate:
 
 - a second branch consuming a causal WeatherBench-like reference state;
 - recurrent neural memory;
-- learned encoder or decoder corrections;
+- learned encoder corrections or a larger non-local observation decoder;
 - non-local spherical networks;
 - stochastic tendencies trained with an ensemble proper score.
 
@@ -990,13 +1079,17 @@ NeuralGCM demonstrated three choices that are directly applicable here:
 - a curriculum from short to longer on-policy rollouts is important for
   accuracy and stability.
 
-It also used separate spectral accuracy, spectrum, and bias objectives to avoid
-turning long-range deterministic forecasting into a smoothing problem. The
-proposed pipeline preserves those useful inductive biases while keeping the
-optimized Dinosaur backbone and its encoder/decoder fixed.
+It also used separate accuracy, spectrum, and bias objectives to avoid turning
+long-range deterministic forecasting into a smoothing problem. This pipeline
+uses six-hour-tendency-normalized physical accuracy and bias for direct control
+of forecast drift, while preserving spectral power as an anti-smoothing
+inductive bias. The optimized Dinosaur backbone and encoder remain fixed. The
+compact observation residual is calibrated separately so interface
+reconstruction error is not misattributed to forecast dynamics.
 
-The verified six-hour data cadence makes six hours the shortest supervised
-rollout. Training begins with that exact decoded endpoint loss, then doubles
+The verified six-hour data cadence makes six hours the shortest recurrent
+supervised rollout. Training first calibrates the lead-zero interface, then
+begins with the exact six-hour decoded endpoint loss and doubles
 the rollout horizon while retaining earlier logarithmic lead losses and adding
 one new loss at 12, 24, 48, 96, and 192 hours before the final 360-hour lead.
 The intervening dycore states are latent and are allowed to take whatever values

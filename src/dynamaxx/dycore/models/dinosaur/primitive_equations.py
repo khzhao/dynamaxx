@@ -199,9 +199,7 @@ def _pressure_ramped_vertical_dse_increment_weight(
         physics_specs.nondimensionalize(hour),
         dtype=sim_time.dtype,
     )
-    ramp_start_time = (
-        PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS * nondimensional_hour
-    )
+    ramp_start_time = PRESSURE_RAMPED_VERTICAL_DSE_ZERO_HOURS * nondimensional_hour
     ramp_full_time = PRESSURE_RAMPED_VERTICAL_DSE_FULL_HOURS * nondimensional_hour
     ramp_fraction = jnp.clip(
         (sim_time - ramp_start_time) / (ramp_full_time - ramp_start_time),
@@ -260,8 +258,7 @@ def _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
         jnp.ones_like(weight_sum),
     )
     area_mean = (
-        jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1))
-        / safe_weight_sum
+        jnp.sum(nodal_field * quadrature_weights, axis=(-2, -1)) / safe_weight_sum
     )
     area_mean_component = area_mean[:, jnp.newaxis, jnp.newaxis]
     anomaly = nodal_field - area_mean_component
@@ -887,13 +884,13 @@ class PrimitiveEquationsBase(time_integration.ImplicitExplicitODE):
 
     @property
     def coriolis_parameter(self) -> Array:
-        """Returns the value `2Ω sin(θ)` associated with Coriolis force."""
+        """The value ``2Ω sin(θ)`` associated with the Coriolis force."""
         _, sin_lat = self.coords.horizontal.nodal_mesh
         return 2 * self.physics_specs.angular_velocity * sin_lat
 
     @property
     def T_ref(self) -> Array:
-        """Returns `reference_temperature` with spatial dimensions appended."""
+        """Reference temperature with spatial dimensions appended."""
         return self.reference_temperature[..., np.newaxis, np.newaxis]
 
     @jax.named_call
@@ -1476,7 +1473,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
 
     @property
     def _potential_temperature_reference_pressure(self) -> float:
-        """Return 1000 hPa in the same nondimensional pressure units as log(ps)."""
+        """A 1000 hPa reference in the nondimensional units used by log(ps)."""
         unit_registry = scales.units
         return float(
             self.physics_specs.nondimensionalize(
@@ -1542,10 +1539,9 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             self.coords.horizontal.quadrature_weights,
             dtype=dry_static_energy.dtype,
         )
-        layer_mean = (
-            jnp.sum(dry_static_energy * quadrature_weights, axis=(-2, -1))
-            / jnp.sum(quadrature_weights)
-        )
+        layer_mean = jnp.sum(
+            dry_static_energy * quadrature_weights, axis=(-2, -1)
+        ) / jnp.sum(quadrature_weights)
         dry_static_energy_anomaly = (
             dry_static_energy - layer_mean[:, jnp.newaxis, jnp.newaxis]
         )
@@ -1889,11 +1885,9 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             dse_vertical_temperature_tendency - theta_vertical_temperature_tendency
         )
         ramped_increment = vertical_temperature_increment * ramp_weight
-        low_mode_area_mean = (
-            _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
-                ramped_increment,
-                self.coords,
-            )
+        low_mode_area_mean = _pressure_ramped_vertical_dse_layerwise_low_mode_area_mean(
+            ramped_increment,
+            self.coords,
         )
         early_ramp_weight = 1.0 - ramp_weight
         pressure_guarded_increment = ramped_increment - (
@@ -1906,9 +1900,7 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
         valid_step = jnp.isfinite(step) & (step > 0.0)
         safe_step = jnp.where(valid_step, step, jnp.ones_like(step))
         temperature_unit = jnp.asarray(
-            self.physics_specs.nondimensionalize(
-                scales.units.Quantity(1.0, "kelvin")
-            ),
+            self.physics_specs.nondimensionalize(scales.units.Quantity(1.0, "kelvin")),
             dtype=pressure_guarded_increment.dtype,
         )
         max_temperature_tendency = (
@@ -2075,9 +2067,8 @@ class PrimitiveEquationsSigma(PrimitiveEquationsBase):
             jnp.finfo(layer_pressure_thickness.dtype).tiny,
             dtype=layer_pressure_thickness.dtype,
         )
-        valid_layer_pressure_thickness = (
-            jnp.isfinite(layer_pressure_thickness)
-            & (layer_pressure_thickness > tiny_pressure_thickness)
+        valid_layer_pressure_thickness = jnp.isfinite(layer_pressure_thickness) & (
+            layer_pressure_thickness > tiny_pressure_thickness
         )
         safe_layer_pressure_thickness = jnp.where(
             valid_layer_pressure_thickness,
@@ -3604,9 +3595,7 @@ class PrimitiveEquations(PrimitiveEquationsSigma):
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
             ),
-            use_dry_static_energy_hsl_transport=(
-                use_dry_static_energy_hsl_transport
-            ),
+            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
             ),
@@ -3669,9 +3658,7 @@ class MoistPrimitiveEquations(PrimitiveEquationsSigma):
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
             ),
-            use_dry_static_energy_hsl_transport=(
-                use_dry_static_energy_hsl_transport
-            ),
+            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
             ),
@@ -3731,9 +3718,7 @@ class MoistPrimitiveEquationsWithCloudMoisture(PrimitiveEquationsSigma):
             use_midpoint_semilagrangian_theta_departure=(
                 use_midpoint_semilagrangian_theta_departure
             ),
-            use_dry_static_energy_hsl_transport=(
-                use_dry_static_energy_hsl_transport
-            ),
+            use_dry_static_energy_hsl_transport=(use_dry_static_energy_hsl_transport),
             use_layer_mass_weighted_dse_hsl_transport=(
                 use_layer_mass_weighted_dse_hsl_transport
             ),

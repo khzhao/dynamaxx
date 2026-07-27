@@ -27,7 +27,7 @@ class EvalDeviceDispatch:
 
     @property
     def force_cpu(self) -> bool:
-        """Return whether workers should force JAX onto the CPU backend."""
+        """Whether workers should force JAX onto the CPU backend."""
         return self.mode == "cpu"
 
     def asdict(self) -> dict[str, Any]:
@@ -171,8 +171,6 @@ def _visible_cuda_devices(
         return ()
 
     requested_devices = tuple(
-        device.strip()
-        for device in stripped_devices.split(",")
-        if device.strip()
+        device.strip() for device in stripped_devices.split(",") if device.strip()
     )
     return requested_devices[:detected_gpu_count]

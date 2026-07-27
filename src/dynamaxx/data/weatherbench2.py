@@ -344,9 +344,7 @@ class WeatherBench2Source:
         if not (np.all(differences > 0.0) or np.all(differences < 0.0)):
             raise ValueError("latitude coordinates must be strictly monotonic")
         ascending_latitude = (
-            latitude_radians
-            if differences[0] > 0.0
-            else latitude_radians[::-1]
+            latitude_radians if differences[0] > 0.0 else latitude_radians[::-1]
         )
         latitude_bounds = np.concatenate(
             (

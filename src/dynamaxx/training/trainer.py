@@ -188,6 +188,29 @@ def _first_replica(tree: Any) -> Any:
     return jax.device_get(jax.tree_util.tree_map(lambda value: value[0], tree))
 
 
+def _raise_for_rejected_update(
+    replicated_metrics: dict[str, jax.Array],
+    *,
+    step: int,
+) -> None:
+    """Stop training when the numerical guard rejects an optimizer update."""
+    update_applied = float(jax.device_get(replicated_metrics["update/applied"][0]))
+    if update_applied == 1.0:
+        return
+    metrics = {
+        name: float(value) for name, value in _first_replica(replicated_metrics).items()
+    }
+    raise FloatingPointError(
+        "non-finite optimizer update rejected at "
+        f"step {step}: loss={metrics['loss']}, "
+        f"gradient_norm={metrics['gradient/global_norm']}, "
+        "forecast_nonfinite_fraction="
+        f"{metrics['forecast/nonfinite_fraction']}, "
+        f"correction_rms={metrics['correction/rms']}, "
+        f"correction_max_abs={metrics['correction/max_abs']}"
+    )
+
+
 class HybridTrainer:
     """Compile and execute one static logarithmic curriculum stage."""
 
@@ -201,7 +224,6 @@ class HybridTrainer:
         config: TrainingConfig,
         devices: list[jax.Device] | None = None,
         rematerialize_rollout: bool = True,
-        stop_at_step: int | None = None,
         pack_accumulation: bool = False,
         rematerialization_policy: str = "nothing",
         weatherbench_metrics: WeatherBenchValidationMetrics | None = None,
@@ -227,13 +249,6 @@ class HybridTrainer:
         self.execution_accumulation_steps = (
             1 if self.pack_accumulation else config.gradient_accumulation_steps
         )
-        self.stop_at_step = (
-            config.training_steps
-            if stop_at_step is None
-            else min(int(stop_at_step), config.training_steps)
-        )
-        if self.stop_at_step < 0:
-            raise ValueError("stop_at_step must be non-negative")
         if not self.devices:
             raise RuntimeError("training requires at least one local JAX device")
         if loss.bias_axis_name != _PMAP_AXIS_NAME:
@@ -267,7 +282,14 @@ class HybridTrainer:
         initial_state: Any,
         collect_tendency_statistics: bool | jax.Array,
     ) -> tuple[jax.Array, dict[str, jax.Array]]:
-        _, forecasts, tendency_statistics = (
+        if self.config.decoder_only:
+            initial_forecast = self.model.observe(parameters, initial_state)
+            zero = jnp.asarray(0.0, dtype=jnp.float32)
+            return initial_forecast.values[jnp.newaxis], {
+                "correction/rms": zero,
+                "correction/max_abs": zero,
+            }
+        _, positive_forecasts, tendency_statistics = (
             rollout_at_durations_with_tendency_statistics(
                 self.model,
                 parameters,
@@ -283,7 +305,18 @@ class HybridTrainer:
                 ),
             )
         )
-        return forecasts.values, tendency_statistics
+        if self.config.uses_interface_decoder:
+            initial_forecast = self.model.observe(parameters, initial_state)
+            forecast_values = jnp.concatenate(
+                (
+                    initial_forecast.values[jnp.newaxis],
+                    positive_forecasts.values,
+                ),
+                axis=0,
+            )
+        else:
+            forecast_values = positive_forecasts.values
+        return forecast_values, tendency_statistics
 
     def _microbatch_loss(
         self,
@@ -306,8 +339,9 @@ class HybridTrainer:
             lambda forecast, target: self.loss(
                 forecast,
                 target,
-                self.config.lead_hours,
+                self.config.loss_lead_hours,
                 targets_are_modal=targets_are_modal,
+                lead_weights=self.config.lead_loss_weights,
             )
         )(forecasts, targets)
         mean_metrics = jax.tree_util.tree_map(jnp.mean, metrics)
@@ -324,7 +358,7 @@ class HybridTrainer:
                     forecasts,
                     targets,
                     targets_are_modal=targets_are_modal,
-                    lead_hours=self.config.lead_hours,
+                    lead_hours=self.config.loss_lead_hours,
                 )
             )
         return jnp.mean(losses), mean_metrics
@@ -561,7 +595,7 @@ class HybridTrainer:
         accumulated_sample_wait_seconds = 0.0
         accumulated_prepare_seconds = 0.0
         accumulated_update_seconds = 0.0
-        for _ in range(start_step, self.stop_at_step):
+        for _ in range(start_step, self.config.training_steps):
             sample_start = time.monotonic()
             sampled = training_sampler.sample(self.global_update_batch_size)
             prepare_start = time.monotonic()
@@ -572,6 +606,7 @@ class HybridTrainer:
                 batch,
             )
             step = int(jax.device_get(replicated_state.step[0]))
+            _raise_for_rejected_update(replicated_metrics, step=step)
             update_end = time.monotonic()
             accumulated_sample_wait_seconds += prepare_start - sample_start
             accumulated_prepare_seconds += update_start - prepare_start
@@ -620,6 +655,15 @@ class HybridTrainer:
                 or step % self.config.checkpoint_every_steps == 0
             )
             host_state = _first_replica(replicated_state) if needs_host_state else None
+            if step % self.config.checkpoint_every_steps == 0:
+                assert host_state is not None
+                save_checkpoint(
+                    self.config.checkpoint_directory,
+                    host_state,
+                    sampler_state=training_sampler.state_dict(),
+                    validation_sampler_state=validation_sampler.state_dict(),
+                    metadata=mutable_checkpoint_metadata,
+                )
             if step % self.config.validate_every_steps == 0:
                 validation_metrics = self._validation_metrics(
                     replicated_state,
@@ -651,15 +695,6 @@ class HybridTrainer:
                         selected_path,
                         validation_loss=best_validation_loss,
                     )
-            if step % self.config.checkpoint_every_steps == 0:
-                assert host_state is not None
-                save_checkpoint(
-                    self.config.checkpoint_directory,
-                    host_state,
-                    sampler_state=training_sampler.state_dict(),
-                    validation_sampler_state=validation_sampler.state_dict(),
-                    metadata=mutable_checkpoint_metadata,
-                )
         final_state = _first_replica(replicated_state)
         save_checkpoint(
             self.config.checkpoint_directory,

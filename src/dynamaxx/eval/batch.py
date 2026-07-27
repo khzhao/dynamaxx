@@ -39,7 +39,7 @@ def build_weatherbench2_batch(
         longitude=longitude,
         latitude=latitude,
         initial_state=WeatherState(
-            values=initial_values,
+            values=jnp.asarray(initial_values),
             variables=initial_channel_names,
         ),
     )

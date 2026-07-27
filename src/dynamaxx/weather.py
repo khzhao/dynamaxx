@@ -32,12 +32,12 @@ class WeatherState:
 
     @property
     def leading_shape(self) -> tuple[int, ...]:
-        """Return axes before variable, longitude, and latitude."""
+        """Axes before variable, longitude, and latitude."""
         return tuple(self.values.shape[:-3])
 
     @property
     def spatial_shape(self) -> tuple[int, int]:
-        """Return longitude-latitude shape."""
+        """The longitude-latitude shape."""
         longitude_count, latitude_count = self.values.shape[-2:]
         return int(longitude_count), int(latitude_count)
 

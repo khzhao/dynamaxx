@@ -418,27 +418,27 @@ class HybridCoordinates:
 
     @property
     def pressure_thickness(self) -> np.ndarray:
-        """Returns thickness of pressure part of hybrid coordinates."""
+        """Thickness of the pressure part of the hybrid coordinates."""
         return np.diff(self.a_boundaries)
 
     @property
     def sigma_thickness(self) -> np.ndarray:
-        """Returns thickness of sigma part of hybrid coordinates."""
+        """Thickness of the sigma part of the hybrid coordinates."""
         return np.diff(self.b_boundaries)
 
     @property
     def a_centers(self) -> np.ndarray:
-        """Returns center values for pressure part of hybrid coordinates."""
+        """Center values for the pressure part of the hybrid coordinates."""
         return (self.a_boundaries[1:] + self.a_boundaries[:-1]) / 2
 
     @property
     def b_centers(self) -> np.ndarray:
-        """Returns center values for sigma part of hybrid coordinates."""
+        """Center values for the sigma part of the hybrid coordinates."""
         return (self.b_boundaries[1:] + self.b_boundaries[:-1]) / 2
 
     @property
     def center_to_center(self) -> np.ndarray:
-        """Returns center-to-center distance in sigma part of coordinates."""
+        """Center-to-center distance in the sigma part of the coordinates."""
         return np.diff(self.b_centers)
 
     def pressure_boundaries(self, surface_pressure: typing.Numeric) -> Array:

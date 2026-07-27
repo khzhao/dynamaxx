@@ -19,8 +19,7 @@ from dynamaxx.dycore.models.dinosaur import (
 from dynamaxx.dycore.models.dinosaur.adapter import (
     DinosaurPrimitiveEquationsDycoreModel,
     _nondimensionalize_seconds,
-    anticipated_pv_flux_dinosaur_dycore_model,
-    zero_mean_radiative_land_skin_energy_dinosaur_dycore_model,
+    production_dinosaur_dycore_model,
 )
 
 
@@ -129,18 +128,12 @@ def _assert_tree_array_equal(actual, expected):
         np.testing.assert_array_equal(actual_leaf, expected_leaf)
 
 
-def test_apvm_factory_changes_only_name_and_selector():
-    """The APVM factory changes only the incumbent name and selector."""
-    candidate = anticipated_pv_flux_dinosaur_dycore_model()
-    incumbent = zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
+def test_production_model_enables_anticipated_pv_flux():
+    """The production dycore retains its anticipated-PV transport."""
+    model = production_dinosaur_dycore_model()
 
-    assert candidate.name == "dino_rskin_apv"
-    assert candidate.apply_anticipated_pv_flux
-    assert not incumbent.apply_anticipated_pv_flux
-    for field_name in candidate.__dataclass_fields__:
-        if field_name in {"name", "apply_anticipated_pv_flux"}:
-            continue
-        assert getattr(candidate, field_name) == getattr(incumbent, field_name)
+    assert model.name == "dino_rskin_apv"
+    assert model.apply_anticipated_pv_flux
 
 
 def test_apvm_layer_pv_uses_surface_pressure_and_sigma_thickness():

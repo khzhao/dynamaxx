@@ -15,6 +15,7 @@ CoreState = TypeVar("CoreState")
 CorrectorInputs = TypeVar("CorrectorInputs")
 NodalTendency = TypeVar("NodalTendency")
 NativeTendency = TypeVar("NativeTendency")
+Observation = TypeVar("Observation")
 
 
 @jax.tree_util.register_pytree_node_class
@@ -76,6 +77,18 @@ class NeuralTendency(Protocol[Parameters, CorrectorInputs, NodalTendency]):
         """Predict additive prognostic tendencies in nodal coordinates."""
 
 
+class NeuralDecoder(Protocol[Parameters, CorrectorInputs, Observation]):
+    """Optional learned residual map from native state to observables."""
+
+    def __call__(
+        self,
+        parameters: Parameters,
+        inputs: CorrectorInputs,
+        raw_observation: Observation,
+    ) -> Observation:
+        """Return corrected observables without modifying recurrent dynamics."""
+
+
 class PreparedHybridCore(
     Protocol[CoreState, CorrectorInputs, NodalTendency, NativeTendency]
 ):
@@ -134,3 +147,10 @@ class HybridStepper(Protocol[Parameters, CoreState, NodalTendency]):
 
     def decode(self, state: HybridState[CoreState]) -> WeatherState:
         """Decode the current state without changing its recurrent carry."""
+
+    def observe(
+        self,
+        parameters: Parameters,
+        state: HybridState[CoreState],
+    ) -> WeatherState:
+        """Decode with the optional learned residual observation map."""

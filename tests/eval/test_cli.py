@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from dynamaxx import cli
@@ -6,11 +8,23 @@ from dynamaxx import cli
 def test_eval_cli_dispatches_fixed_protocol(monkeypatch):
     call = {}
 
-    def run_protocol(protocol, *, model_name, worker_count=1, resume=True):
+    def run_protocol(
+        protocol,
+        *,
+        model_name,
+        hybrid_checkpoint=None,
+        use_hybrid_ema=True,
+        worker_count=1,
+        resume=True,
+        output_directory=cli.OUTPUT_DIR,
+    ):
         call["protocol"] = protocol
         call["model_name"] = model_name
+        call["hybrid_checkpoint"] = hybrid_checkpoint
+        call["use_hybrid_ema"] = use_hybrid_ema
         call["worker_count"] = worker_count
         call["resume"] = resume
+        call["output_directory"] = output_directory
         return 0
 
     monkeypatch.setattr(cli, "run_protocol", run_protocol)
@@ -23,19 +37,34 @@ def test_eval_cli_dispatches_fixed_protocol(monkeypatch):
     assert call == {
         "protocol": "validation",
         "model_name": "custom_model",
+        "hybrid_checkpoint": None,
+        "use_hybrid_ema": True,
         "worker_count": 3,
         "resume": False,
+        "output_directory": cli.OUTPUT_DIR,
     }
 
 
 def test_eval_cli_uses_default_model(monkeypatch):
     call = {}
 
-    def run_protocol(protocol, *, model_name, worker_count=1, resume=True):
+    def run_protocol(
+        protocol,
+        *,
+        model_name,
+        hybrid_checkpoint=None,
+        use_hybrid_ema=True,
+        worker_count=1,
+        resume=True,
+        output_directory=cli.OUTPUT_DIR,
+    ):
         call["protocol"] = protocol
         call["model_name"] = model_name
+        call["hybrid_checkpoint"] = hybrid_checkpoint
+        call["use_hybrid_ema"] = use_hybrid_ema
         call["worker_count"] = worker_count
         call["resume"] = resume
+        call["output_directory"] = output_directory
         return 0
 
     monkeypatch.setattr(cli, "run_protocol", run_protocol)
@@ -44,8 +73,49 @@ def test_eval_cli_uses_default_model(monkeypatch):
     assert call == {
         "protocol": "fast",
         "model_name": "persistence",
+        "hybrid_checkpoint": None,
+        "use_hybrid_ema": True,
         "worker_count": 1,
         "resume": True,
+        "output_directory": cli.OUTPUT_DIR,
+    }
+
+
+def test_eval_cli_dispatches_hybrid_checkpoint(monkeypatch, tmp_path):
+    call = {}
+
+    def run_protocol(protocol, **kwargs):
+        call["protocol"] = protocol
+        call.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli, "run_protocol", run_protocol)
+    checkpoint = tmp_path / "step.pkl"
+    output_directory = tmp_path / "metrics"
+
+    assert (
+        cli.main(
+            [
+                "weatherbench2",
+                "--hybrid-checkpoint",
+                str(checkpoint),
+                "--raw-hybrid-parameters",
+                "--workers",
+                "8",
+                "--output-directory",
+                str(output_directory),
+            ]
+        )
+        == 0
+    )
+    assert call == {
+        "protocol": "weatherbench2",
+        "model_name": "persistence",
+        "hybrid_checkpoint": Path(checkpoint),
+        "use_hybrid_ema": False,
+        "worker_count": 8,
+        "resume": True,
+        "output_directory": Path(output_directory),
     }
 
 

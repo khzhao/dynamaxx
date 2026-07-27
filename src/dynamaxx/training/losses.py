@@ -160,8 +160,8 @@ def lead_time_spectral_taper(
     The taper affects only coefficient-error accuracy. The separate spectrum
     loss continues to constrain power at every represented wavenumber.
     """
-    if lead_hours <= 0:
-        raise ValueError("lead_hours must be positive")
+    if lead_hours < 0:
+        raise ValueError("lead_hours must be nonnegative")
     if maximum_wavenumber < 0:
         raise ValueError("maximum_wavenumber must be nonnegative")
     if not 0.0 < final_retained_fraction <= 1.0:
@@ -203,6 +203,10 @@ class HybridForecastLoss:
     full_resolution_hours: int = 24
     final_retained_fraction: float = 0.25
     taper_width_fraction: float = 0.15
+    interface_channel_scale: jax.Array | None = None
+    forecast_channel_scale: jax.Array | None = None
+    to_nodal: Callable[[jax.Array], jax.Array] | None = None
+    area_weights: jax.Array | None = None
 
     def __post_init__(self):
         total_wavenumber = jnp.asarray(self.total_wavenumber, dtype=jnp.int32)
@@ -225,8 +229,41 @@ class HybridForecastLoss:
             raise ValueError("final_retained_fraction must be in (0, 1]")
         if not 0.0 < self.taper_width_fraction <= 1.0:
             raise ValueError("taper_width_fraction must be in (0, 1]")
+        interface_channel_scale = self.interface_channel_scale
+        forecast_channel_scale = self.forecast_channel_scale
+        expected_shape = (self.statistics.coefficient_variance.shape[0],)
+        for scale_name, scale in (
+            ("interface_channel_scale", interface_channel_scale),
+            ("forecast_channel_scale", forecast_channel_scale),
+        ):
+            if scale is None:
+                continue
+            scale = jnp.asarray(scale, dtype=jnp.float32)
+            if scale.shape != expected_shape:
+                raise ValueError(f"{scale_name} must have shape {expected_shape}")
+            if not bool(jnp.all(jnp.isfinite(scale) & (scale > 0.0))):
+                raise ValueError(f"{scale_name} must be positive and finite")
+            if scale_name == "interface_channel_scale":
+                interface_channel_scale = scale
+            else:
+                forecast_channel_scale = scale
+        if interface_channel_scale is not None or forecast_channel_scale is not None:
+            if self.to_nodal is None or self.area_weights is None:
+                raise ValueError("physical losses require to_nodal and area_weights")
+            area_weights = jnp.asarray(self.area_weights, dtype=jnp.float32)
+            if area_weights.ndim != 2:
+                raise ValueError("area_weights must be two-dimensional")
+            if not bool(jnp.all(jnp.isfinite(area_weights) & (area_weights >= 0.0))):
+                raise ValueError("area_weights must be nonnegative and finite")
+            if not bool(jnp.any(area_weights > 0.0)):
+                raise ValueError("at least one area weight must be positive")
+        else:
+            area_weights = None
         object.__setattr__(self, "total_wavenumber", total_wavenumber)
         object.__setattr__(self, "modal_mask", modal_mask)
+        object.__setattr__(self, "interface_channel_scale", interface_channel_scale)
+        object.__setattr__(self, "forecast_channel_scale", forecast_channel_scale)
+        object.__setattr__(self, "area_weights", area_weights)
 
     def _one_lead(
         self,
@@ -240,6 +277,49 @@ class HybridForecastLoss:
         forecast_modal = self.to_modal(forecast)
         target_modal = target if target_is_modal else self.to_modal(target)
         modal_error = forecast_modal - target_modal
+        channel_scale = (
+            self.interface_channel_scale
+            if lead_hours == 0
+            else self.forecast_channel_scale
+        )
+        physical_state_loss = None
+        physical_bias_loss = None
+        if channel_scale is not None:
+            if self.area_weights.shape != forecast.shape[-2:]:
+                raise ValueError("area_weights must match the nodal spatial shape")
+            target_nodal = self.to_nodal(target_modal) if target_is_modal else target
+            normalized_area_weights = self.area_weights / jnp.sum(self.area_weights)
+            normalized_error = (forecast - target_nodal) / channel_scale[
+                :, jnp.newaxis, jnp.newaxis
+            ]
+            per_channel_error = jnp.sum(
+                jnp.square(normalized_error) * normalized_area_weights,
+                axis=(-2, -1),
+            )
+            physical_state_loss = jnp.sum(
+                self.statistics.channel_weights * per_channel_error
+            ) / jnp.maximum(
+                jnp.sum(self.statistics.channel_weights),
+                self.epsilon,
+            )
+            per_channel_bias = jnp.sum(
+                normalized_error * normalized_area_weights,
+                axis=(-2, -1),
+            )
+            if self.bias_axis_name is not None:
+                per_channel_bias = jax.lax.pmean(
+                    per_channel_bias,
+                    axis_name=self.bias_axis_name,
+                )
+            physical_bias_loss = jnp.sum(
+                self.statistics.channel_weights * jnp.square(per_channel_bias)
+            ) / jnp.maximum(
+                jnp.sum(self.statistics.channel_weights),
+                self.epsilon,
+            )
+        if lead_hours == 0 and physical_state_loss is not None:
+            zero = jnp.asarray(0.0, dtype=jnp.float32)
+            return physical_state_loss, zero, zero
         maximum_wavenumber = self.statistics.coefficient_variance.shape[1] - 1
         taper = lead_time_spectral_taper(
             self.total_wavenumber,
@@ -255,18 +335,21 @@ class HybridForecastLoss:
             axis=1,
         )
         channel_weights = self.statistics.channel_weights[:, jnp.newaxis, jnp.newaxis]
-        state_numerator = (
-            channel_weights
-            * taper
-            * self.modal_mask
-            * jnp.square(modal_error)
-            / (variance_by_mode + self.epsilon)
-        )
-        state_denominator = jnp.maximum(
-            jnp.sum(channel_weights * taper * self.modal_mask),
-            self.epsilon,
-        )
-        state_loss = jnp.sum(state_numerator) / state_denominator
+        if physical_state_loss is None:
+            state_numerator = (
+                channel_weights
+                * taper
+                * self.modal_mask
+                * jnp.square(modal_error)
+                / (variance_by_mode + self.epsilon)
+            )
+            state_denominator = jnp.maximum(
+                jnp.sum(channel_weights * taper * self.modal_mask),
+                self.epsilon,
+            )
+            state_loss = jnp.sum(state_numerator) / state_denominator
+        else:
+            state_loss = physical_state_loss
 
         wavenumber_count = self.statistics.climatological_power.shape[1]
         forecast_power = _power_by_total_wavenumber(
@@ -292,32 +375,35 @@ class HybridForecastLoss:
             self.epsilon,
         )
 
-        mean_modal_error = modal_error
-        if bias_reference is not None:
-            mean_modal_error = jax.lax.stop_gradient(bias_reference)
-        elif self.bias_axis_name is not None:
-            mean_modal_error = jax.lax.pmean(
-                mean_modal_error,
-                axis_name=self.bias_axis_name,
-            )
-        bias_numerator = jnp.sum(
-            channel_weights
-            * self.modal_mask
-            * jnp.square(mean_modal_error)
-            / (variance_by_mode + self.epsilon)
-        )
-        if bias_reference is not None:
-            bias_numerator += 2.0 * jnp.sum(
+        if physical_bias_loss is None:
+            mean_modal_error = modal_error
+            if bias_reference is not None:
+                mean_modal_error = jax.lax.stop_gradient(bias_reference)
+            elif self.bias_axis_name is not None:
+                mean_modal_error = jax.lax.pmean(
+                    mean_modal_error,
+                    axis_name=self.bias_axis_name,
+                )
+            bias_numerator = jnp.sum(
                 channel_weights
                 * self.modal_mask
-                * mean_modal_error
-                * (modal_error - jax.lax.stop_gradient(modal_error))
+                * jnp.square(mean_modal_error)
                 / (variance_by_mode + self.epsilon)
             )
-        bias_loss = bias_numerator / jnp.maximum(
-            jnp.sum(channel_weights * self.modal_mask),
-            self.epsilon,
-        )
+            if bias_reference is not None:
+                bias_numerator += 2.0 * jnp.sum(
+                    channel_weights
+                    * self.modal_mask
+                    * mean_modal_error
+                    * (modal_error - jax.lax.stop_gradient(modal_error))
+                    / (variance_by_mode + self.epsilon)
+                )
+            bias_loss = bias_numerator / jnp.maximum(
+                jnp.sum(channel_weights * self.modal_mask),
+                self.epsilon,
+            )
+        else:
+            bias_loss = physical_bias_loss
         return state_loss, spectrum_loss, bias_loss
 
     def __call__(
@@ -328,14 +414,31 @@ class HybridForecastLoss:
         bias_reference: jax.Array | None = None,
         *,
         targets_are_modal: bool = False,
+        lead_weights: tuple[float, ...] | None = None,
     ) -> tuple[jax.Array, dict[str, jax.Array]]:
-        """Return uniformly lead-averaged total loss and scalar components."""
+        """Return lead-weighted total loss and scalar components."""
         forecasts = jnp.asarray(forecasts, dtype=jnp.float32)
         targets = jnp.asarray(targets, dtype=jnp.float32)
         if not targets_are_modal and forecasts.shape != targets.shape:
             raise ValueError("forecasts and targets must have identical shapes")
         if forecasts.ndim != 4 or forecasts.shape[0] != len(lead_hours):
             raise ValueError("forecasts must have shape (lead, channel, lon, lat)")
+        if lead_weights is None:
+            lead_weights = tuple(1.0 / len(lead_hours) for _ in lead_hours)
+        if len(lead_weights) != len(lead_hours):
+            raise ValueError("lead_weights must match lead_hours")
+        host_lead_weights = np.asarray(lead_weights, dtype=np.float32)
+        if not bool(np.all(np.isfinite(host_lead_weights))):
+            raise ValueError("lead_weights must be finite")
+        if not bool(np.all(host_lead_weights >= 0.0)):
+            raise ValueError("lead_weights must be nonnegative")
+        weight_sum = float(np.sum(host_lead_weights))
+        if weight_sum <= 0.0:
+            raise ValueError("at least one lead weight must be positive")
+        normalized_lead_weights = jnp.asarray(
+            host_lead_weights / weight_sum,
+            dtype=jnp.float32,
+        )
         expected_modal_shape = (
             forecasts.shape[0],
             forecasts.shape[1],
@@ -359,9 +462,15 @@ class HybridForecastLoss:
                     target_is_modal=targets_are_modal,
                 )
             )
-        state_loss = jnp.mean(jnp.stack([value[0] for value in components]))
-        spectrum_loss = jnp.mean(jnp.stack([value[1] for value in components]))
-        bias_loss = jnp.mean(jnp.stack([value[2] for value in components]))
+        state_loss = jnp.sum(
+            normalized_lead_weights * jnp.stack([value[0] for value in components])
+        )
+        spectrum_loss = jnp.sum(
+            normalized_lead_weights * jnp.stack([value[1] for value in components])
+        )
+        bias_loss = jnp.sum(
+            normalized_lead_weights * jnp.stack([value[2] for value in components])
+        )
         total_loss = (
             state_loss
             + self.spectral_weight * spectrum_loss

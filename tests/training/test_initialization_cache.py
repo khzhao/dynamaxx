@@ -9,10 +9,12 @@ from dynamaxx.hybrid.api import HybridState
 from dynamaxx.training.initialization_cache import (
     InitializedStateCache,
     build_initialized_state_cache,
+    default_initialized_state_cache_directory,
 )
 from dynamaxx.training.target_cache import (
     ModalTargetCache,
     build_modal_target_cache,
+    default_modal_target_cache_directory,
 )
 
 
@@ -44,6 +46,35 @@ class _InitializationModel:
     def initialize(self, weather_state, initial_time):
         del initial_time
         return HybridState(core=weather_state.values * 2.0)
+
+
+def test_default_cache_directories_distinguish_timestamp_coverage(tmp_path):
+    """Full-period caches must not collide with shorter pilot caches."""
+    short_times = np.asarray(["2018-01-01"], dtype="datetime64[ns]")
+    full_times = np.asarray(
+        ["1979-01-01", "2018-01-01"],
+        dtype="datetime64[ns]",
+    )
+    dataset_path = str(tmp_path / "dataset")
+
+    assert default_initialized_state_cache_directory(
+        dataset_path,
+        "fingerprint",
+        times=short_times,
+    ) != default_initialized_state_cache_directory(
+        dataset_path,
+        "fingerprint",
+        times=full_times,
+    )
+    assert default_modal_target_cache_directory(
+        dataset_path,
+        "fingerprint",
+        times=short_times,
+    ) != default_modal_target_cache_directory(
+        dataset_path,
+        "fingerprint",
+        times=full_times,
+    )
 
 
 def test_initialized_state_cache_round_trip_preserves_requested_order(tmp_path):

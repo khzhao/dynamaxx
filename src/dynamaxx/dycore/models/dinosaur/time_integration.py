@@ -495,6 +495,7 @@ def imex_rk_sil3(
     time_step: float,
     *,
     implicit_offcentering: float = 0.0,
+    fallback_to_centered_on_nonfinite: bool = True,
 ) -> TimeStepFn:
     """Time stepping with the SIL3 implicit-explicit RK scheme.
 
@@ -507,6 +508,10 @@ def imex_rk_sil3(
       implicit_offcentering: optional row-sum-preserving shift of implicit
         weight from previous stages to the current implicit stage. The default
         value of 0 keeps the centered SIL3 tableau exactly unchanged.
+      fallback_to_centered_on_nonfinite: whether a non-finite off-centered step
+        is recomputed with centered SIL3. Training disables this fallback so a
+        non-finite candidate reaches its fatal numerical guard without tracing
+        a redundant centered integration under ``vmap``.
 
     Returns:
       Function that performs a time step.
@@ -539,6 +544,8 @@ def imex_rk_sil3(
         equation=equation,
         time_step=time_step,
     )
+    if not fallback_to_centered_on_nonfinite:
+        return offcentered_step
     return _guarded_nonfinite_fallback_step(offcentered_step, centered_step)
 
 

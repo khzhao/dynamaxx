@@ -142,18 +142,18 @@ class ShallowWaterEquations(time_integration.ImplicitExplicitODE):
 
     @property
     def coriolis_parameter(self) -> Array:
-        """Returns the value `2Ω sin(θ)` associated with Coriolis force."""
+        """The value ``2Ω sin(θ)`` associated with the Coriolis force."""
         _, sin_lat = self.coords.horizontal.nodal_mesh
         return 2 * self.physics_specs.angular_velocity * sin_lat
 
     @property
     def density_ratios(self) -> Array:
-        """Returns `density_ratios` with spatial dimensions appended."""
+        """Density ratios with spatial dimensions appended."""
         return get_density_ratios(self.densities)
 
     @property
     def ref_potential(self) -> Array:
-        """Returns `reference_potential` with spatial dimensions appended."""
+        """Reference potential with spatial dimensions appended."""
         return self.reference_potential[..., np.newaxis, np.newaxis]
 
     def explicit_terms(self, state: State) -> State:

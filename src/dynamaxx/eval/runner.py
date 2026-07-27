@@ -37,6 +37,7 @@ from dynamaxx.eval.metrics import (
 from dynamaxx.weather import ForecastInput
 
 logger = logging.getLogger("dynamaxx.eval.runner")
+_WORKER_MODEL_CACHE: dict[str, Any] = {}
 
 
 class ForecastModel(Protocol):
@@ -64,7 +65,7 @@ class EvaluationResult:
 
     @property
     def primary_score(self) -> float:
-        """Return mean candidate skill against persistence across all records."""
+        """Mean candidate skill against persistence across all records."""
         if self.diagnostics.failed:
             return float("-inf")
 
@@ -278,6 +279,7 @@ def evaluate_case_parallel(
         jobs.append(
             _ChunkJob(
                 model_factory=model_factory,
+                model_cache_key=model_name,
                 source_path=source_path,
                 chunk_index=chunk_index,
                 chunk_case=chunk_case,
@@ -409,6 +411,7 @@ class _ChunkJob:
     """One chunk evaluation unit sent to a worker process."""
 
     model_factory: Callable[[], ForecastModel]
+    model_cache_key: str
     source_path: str
     chunk_index: int
     chunk_case: EvalCase
@@ -417,7 +420,10 @@ class _ChunkJob:
 
 def _evaluate_chunk_job(job: _ChunkJob) -> EvaluationTotals:
     source = WeatherBench2Source(path=job.source_path)
-    model = job.model_factory()
+    model = _WORKER_MODEL_CACHE.get(job.model_cache_key)
+    if model is None:
+        model = job.model_factory()
+        _WORKER_MODEL_CACHE[job.model_cache_key] = model
     batch = build_weatherbench2_batch(source, job.chunk_case)
     totals = evaluate_batch_totals(model, batch)
     _write_chunk_result(job.result_path, chunk_index=job.chunk_index, totals=totals)

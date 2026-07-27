@@ -1,3 +1,5 @@
+# Copyright 2026 dynamaxx
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -29,6 +31,7 @@ def _loss():
 
 
 def test_exact_forecast_has_zero_three_term_loss():
+    """A perfect forecast must have zero state, spectrum, and bias loss."""
     values = jnp.arange(8, dtype=jnp.float32).reshape(2, 1, 2, 2)
 
     total, metrics = _loss()(values, values, (6, 12))
@@ -40,6 +43,7 @@ def test_exact_forecast_has_zero_three_term_loss():
 
 
 def test_forecast_error_contributes_to_every_loss_term():
+    """A uniform forecast error must activate all objective components."""
     targets = jnp.ones((1, 1, 2, 2))
     forecasts = 1.5 * targets
 
@@ -51,7 +55,80 @@ def test_forecast_error_contributes_to_every_loss_term():
     assert float(metrics["loss/bias"]) > 0.0
 
 
+def test_explicit_lead_weights_emphasize_the_selected_error():
+    """Lead weighting must change aggregate loss without changing components."""
+    targets = jnp.zeros((2, 1, 2, 2))
+    forecasts = targets.at[0].set(1.0).at[1].set(3.0)
+    loss = _loss()
+
+    early_total, _ = loss(
+        forecasts,
+        targets,
+        (0, 6),
+        lead_weights=(0.9, 0.1),
+    )
+    late_total, _ = loss(
+        forecasts,
+        targets,
+        (0, 6),
+        lead_weights=(0.1, 0.9),
+    )
+
+    assert float(late_total) > float(early_total)
+
+
+def test_lead_zero_uses_interface_reconstruction_scale():
+    """Lead-zero loss weights physical reconstruction errors per channel."""
+    loss = HybridForecastLoss(
+        to_modal=lambda values: values,
+        total_wavenumber=jnp.zeros((1, 1), dtype=jnp.int32),
+        modal_mask=jnp.ones((1, 1), dtype=jnp.float32),
+        statistics=SpectralLossStatistics(
+            coefficient_variance=jnp.ones((2, 1), dtype=jnp.float32),
+            climatological_power=jnp.ones((2, 1), dtype=jnp.float32),
+            channel_weights=jnp.ones((2,), dtype=jnp.float32),
+        ),
+        interface_channel_scale=jnp.asarray([2.0, 4.0]),
+        to_nodal=lambda values: values,
+        area_weights=jnp.ones((1, 1), dtype=jnp.float32),
+    )
+    forecasts = jnp.asarray([[[[2.0]], [[4.0]]]])
+    targets = jnp.zeros_like(forecasts)
+
+    value, metrics = loss(forecasts, targets, (0,))
+
+    np.testing.assert_allclose(value, 1.0)
+    np.testing.assert_allclose(metrics["loss/0h/state"], 1.0)
+    np.testing.assert_allclose(metrics["loss/0h/spectrum"], 0.0)
+    np.testing.assert_allclose(metrics["loss/0h/bias"], 0.0)
+
+
+def test_positive_lead_uses_temporal_difference_scale():
+    """Forecast state and bias terms track normalized physical errors."""
+    loss = HybridForecastLoss(
+        to_modal=lambda values: values,
+        total_wavenumber=jnp.zeros((1, 1), dtype=jnp.int32),
+        modal_mask=jnp.ones((1, 1), dtype=jnp.float32),
+        statistics=SpectralLossStatistics(
+            coefficient_variance=100.0 * jnp.ones((2, 1), dtype=jnp.float32),
+            climatological_power=jnp.ones((2, 1), dtype=jnp.float32),
+            channel_weights=jnp.ones((2,), dtype=jnp.float32),
+        ),
+        forecast_channel_scale=jnp.asarray([2.0, 4.0]),
+        to_nodal=lambda values: values,
+        area_weights=jnp.ones((1, 1), dtype=jnp.float32),
+    )
+    forecasts = jnp.asarray([[[[2.0]], [[4.0]]]])
+    targets = jnp.zeros_like(forecasts)
+
+    _, metrics = loss(forecasts, targets, (6,))
+
+    np.testing.assert_allclose(metrics["loss/6h/state"], 1.0)
+    np.testing.assert_allclose(metrics["loss/6h/bias"], 1.0)
+
+
 def test_precomputed_modal_targets_match_nodal_target_loss_and_gradient():
+    """Cached modal targets must preserve objective values and gradients."""
     targets = jnp.ones((1, 1, 2, 2))
     loss = _loss()
 
@@ -72,6 +149,7 @@ def test_precomputed_modal_targets_match_nodal_target_loss_and_gradient():
 
 
 def test_statistics_are_estimated_by_channel_and_total_wavenumber():
+    """Spectral normalizers must retain channel and wavenumber structure."""
     targets = jnp.asarray(
         [
             [[[1.0, 2.0], [3.0, 4.0]]],
@@ -91,6 +169,7 @@ def test_statistics_are_estimated_by_channel_and_total_wavenumber():
 
 
 def test_taper_preserves_short_leads_and_reduces_long_lead_high_modes():
+    """Lead tapering must preserve short-range detail and relax long leads."""
     total_wavenumber = jnp.arange(9)
 
     short_taper = lead_time_spectral_taper(
@@ -110,6 +189,7 @@ def test_taper_preserves_short_leads_and_reduces_long_lead_high_modes():
 
 
 def test_fixed_global_bias_reference_has_exact_batch_mean_gradient():
+    """A fixed global mean error must reproduce the exact bias gradient."""
     loss = HybridForecastLoss(
         to_modal=lambda values: values,
         total_wavenumber=jnp.zeros((1, 1), dtype=jnp.int32),

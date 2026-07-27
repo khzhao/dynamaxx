@@ -11,33 +11,10 @@ uv sync
 uv run pytest
 ```
 
-## Goal that I used to jumpstart Codex/Claude Code
-
-Due to some speed issues, I asked Codex to not run the "baseline" again and again after each change. This resulted in a change in the "protocol" but should be harmless for the result interpretation. 
-
-```
-Continuously improve the dycore by running the agentic optimization loop in roles/PROTOCOL.md and roles/ORCHESTRATOR.md, using Researcher, Evaluator, Implementer, and Scorer roles/subagents where available.
-
-Operational constraints include:
-
-- Keep producing research ideas continuously. Do not stop after one candidate.
-- Implement exactly one ready proposal per iteration.
-- Do not change fixed evaluation protocols during model-selection experiments.
-- Do not use golden for iterative selection.
-- Always compare candidate to incumbent.
-- Reuse cached incumbent scores from .logbook/leaderboard.json when valid; do not rerun incumbent just because candidate code is dirty.
-- Latest accepted commit is the best incumbent baseline.
-- Accepted candidates update leaderboard and are committed with the full working protocol body.
-- Rejected candidates get complete history artifacts, do not update leaderboard, and source changes are reverted.
-- Leave tracked worktree clean before starting the next iteration.
-- Report candidate slug, decision, score deltas, changed files, cleanup status, and next action after each iteration.
-```
-
 ## Data
 
-Default evaluations expect the processed ERA5 WeatherBench2 collection at:
-
-The path is configured in `src/dynamaxx/utils/consts.py`.
+Default evaluations use the processed ERA5 WeatherBench2 collection configured
+in `src/dynamaxx/utils/consts.py`.
 
 Real WeatherBench2 integration tests are opt-in:
 
@@ -63,6 +40,16 @@ uv run dynamaxx-eval validation --model dinosaur --workers 2
 
 Use `--restart` to discard compatible cached chunks for a run.
 
+Evaluate a trained hybrid checkpoint with the same fixed protocol. EMA weights
+are selected by default, and every checkpoint and metric artifact remains local:
+
+```bash
+uv run dynamaxx-eval weatherbench2 \
+  --hybrid-checkpoint /mnt/data/checkpoints/360h/step_000000323.pkl \
+  --workers 8 \
+  --output-directory /mnt/data/eval/weatherbench2-2020
+```
+
 ## Models
 
 Registered models live in `src/dynamaxx/dycore/registry.py`. List them with:
@@ -73,10 +60,20 @@ uv run python -c "from dynamaxx.dycore.registry import dycore_model_names; print
 
 ## Hybrid training
 
+The package-level hybrid API is deliberately limited to `HybridModel` for
+constructing a model and `load_hybrid_checkpoint` for local inference:
+
+```python
+from dynamaxx.hybrid import HybridModel, load_hybrid_checkpoint
+```
+
 The production frozen-Dinosaur neural-corrector pipeline is described in
 [`docs/neural-corrector-first-training-pipeline.md`](docs/neural-corrector-first-training-pipeline.md).
 The production default is a 20.69M-parameter, 800-wide learned-physics
-corrector with eight residual blocks. Run one static curriculum stage with:
+corrector plus a 0.59M-parameter learned observation residual, for 21.28M
+trainable parameters. Calibrate the observation interface with
+`--decoder-only` before running a recurrent curriculum stage. Run one static
+stage with:
 
 ```bash
 uv run dynamaxx-train-hybrid \
@@ -99,6 +96,7 @@ production compute plan with:
 uv run dynamaxx-train-hybrid-curriculum \
   --output-root /mnt/data/dynamaxx-training-cache/checkpoints/hybrid-production-20m \
   --reference-6h-steps 20000 \
+  --statistics-samples 512 \
   --bptt-window-hours 24 \
   --wandb-project dynamaxx
 ```
@@ -107,6 +105,7 @@ The stage maxima are 20,000, 10,000, 5,000, 2,500, 1,250, 625, and 334
 updates. BPTT is exact through the 24-hour stage; longer numerical rollouts stay
 continuous while the recurrent state is detached every 24 hours. Existing
 local stages resume automatically, and W&B still receives scalars only.
+All stages reuse one frozen 1979--2018 statistics archive under the output root.
 Validation scalars include WeatherBench2-compatible global RMSE and bias for
 headline forecast channels in physical units.
 

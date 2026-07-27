@@ -110,47 +110,12 @@ from dynamaxx.dycore.models.dinosaur.adapter import (
     _valid_land_sea_fraction_or_none,
     _zero_mean_radiative_land_skin_power,
     _zero_mean_radiative_land_skin_temperature_increment,
-    analysis_2m_initialized_land_skin_dinosaur_dycore_model,
-    analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model,
-    bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model,
-    coriolis_split_dinosaur_dycore_model,
-    coriolis_strang_split_dinosaur_dycore_model,
-    digital_filter_dinosaur_dycore_model,
-    digital_filter_surface_residual_dinosaur_dycore_model,
     dinosaur_state_to_weather_state,
-    dry_static_energy_hsl_transport_dinosaur_dycore_model,
-    ekman_coupled_dinosaur_dycore_model,
-    ekman_depth_dinosaur_dycore_model,
-    horizontal_semilagrangian_theta_transport_dinosaur_dycore_model,
-    hydrostatic_temperature_initialization_dinosaur_dycore_model,
     infer_dinosaur_pressure_levels,
-    land_ocean_low_mode_t2m_memory_dinosaur_dycore_model,
-    land_sea_surface_temperature_dinosaur_dycore_model,
-    late_ramped_land_skin_reservoir_dinosaur_dycore_model,
-    layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model,
-    layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model,
-    log_pressure_initialization_dinosaur_dycore_model,
-    midpoint_semilagrangian_theta_departure_dinosaur_dycore_model,
-    ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model,
-    ocean_bulk_sensible_heat_flux_dinosaur_dycore_model,
-    orographic_lift_lower_column_wind_dinosaur_dycore_model,
-    orographic_lift_theta_dinosaur_dycore_model,
-    pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model,
-    pressure_thickness_ri2m_temperature_dinosaur_dycore_model,
-    prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model,
-    richardson_10m_wind_diagnostic_dinosaur_dycore_model,
-    scale_separated_surface_residual_dinosaur_dycore_model,
-    semi_implicit_offcenter_dinosaur_dycore_model,
+    production_dinosaur_dycore_model,
     split_pressure_level_channel,
-    stability_aware_surface_residual_dinosaur_dycore_model,
     supported_output_variables,
-    terrain_work_form_drag_heating_dinosaur_dycore_model,
-    theta_mean_recenter_dinosaur_dycore_model,
-    theta_tendency_dinosaur_dycore_model,
-    tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model,
-    weak_held_suarez_dinosaur_dycore_model,
     weather_state_to_dinosaur_state,
-    zero_mean_radiative_land_skin_energy_dinosaur_dycore_model,
 )
 from dynamaxx.dycore.models.dinosaur.coordinates import grid_metadata
 from dynamaxx.utils.consts import SECONDS_PER_HOUR
@@ -268,732 +233,6 @@ def test_default_dinosaur_configuration_keeps_t80_with_stable_inner_step():
     )
 
 
-def test_digital_filter_dinosaur_factory_enables_fixed_initialization():
-    """The DFI candidate opts into the fixed short Lanczos initialization."""
-    model = digital_filter_dinosaur_dycore_model()
-
-    assert model.name == "dinosaur_dfi"
-    assert model.apply_digital_filter_initialization
-    assert not model.apply_near_surface_residual_correction
-    assert model.digital_filter_time_span_seconds == 6 * SECONDS_PER_HOUR
-    assert model.digital_filter_cutoff_seconds == 6 * SECONDS_PER_HOUR
-
-
-def test_digital_filter_surface_residual_factory_enables_guarded_correction():
-    """The near-surface residual candidate preserves DFI and opts into correction."""
-    model = digital_filter_surface_residual_dinosaur_dycore_model()
-
-    assert model.name == "dinosaur_dfi_surface_residual"
-    assert model.apply_digital_filter_initialization
-    assert model.apply_near_surface_residual_correction
-    assert model.near_surface_residual_decay_hours == 48.0
-
-
-def test_weak_held_suarez_factory_preserves_incumbent_corrections():
-    """The weak HS candidate keeps DFI and near-surface residual correction."""
-    model = weak_held_suarez_dinosaur_dycore_model()
-
-    assert model.name == "dinosaur_dfi_surface_residual_weak_hs"
-    assert model.apply_digital_filter_initialization
-    assert model.apply_near_surface_residual_correction
-    assert model.apply_weak_held_suarez_relaxation
-    assert not model.use_log_pressure_initialization
-    assert model.weak_held_suarez_kf_per_day == 0.0
-    assert model.weak_held_suarez_ka_timescale_days == 160.0
-    assert model.weak_held_suarez_ks_timescale_days == 16.0
-
-
-def test_log_pressure_initialization_factory_preserves_incumbent_settings():
-    """The log-pressure candidate keeps the accepted weak HS configuration."""
-    model = log_pressure_initialization_dinosaur_dycore_model()
-    incumbent = weak_held_suarez_dinosaur_dycore_model()
-
-    assert model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init"
-    assert model.apply_digital_filter_initialization
-    assert model.apply_near_surface_residual_correction
-    assert model.apply_weak_held_suarez_relaxation
-    assert model.use_log_pressure_initialization
-    assert not incumbent.use_log_pressure_initialization
-    assert model.inner_step_seconds == DEFAULT_INNER_STEP_SECONDS == 900.0
-    assert model.spectral_wavenumbers == DEFAULT_SPECTRAL_WAVENUMBERS == 80
-    assert model.apply_spectral_filter
-    assert model.horizontal_diffusion_order == 2
-    assert model.horizontal_diffusion_tau_seconds is None
-    assert model.include_vertical_advection
-    assert model.reference_temperature_kelvin == 250.0
-    assert model.output_variables is None
-    assert model.weak_held_suarez_kf_per_day == 0.0
-    assert model.weak_held_suarez_ka_timescale_days == 160.0
-    assert model.weak_held_suarez_ks_timescale_days == 16.0
-
-
-def test_hydrostatic_temperature_initialization_factory_extends_incumbent():
-    """The hydrostatic candidate preserves incumbent settings and adds one flag."""
-    model = hydrostatic_temperature_initialization_dinosaur_dycore_model()
-    incumbent = log_pressure_initialization_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init"
-    )
-    assert model.apply_digital_filter_initialization
-    assert model.apply_near_surface_residual_correction
-    assert model.apply_weak_held_suarez_relaxation
-    assert model.use_log_pressure_initialization
-    assert model.use_hydrostatic_temperature_initialization
-    assert not incumbent.use_hydrostatic_temperature_initialization
-    assert model.inner_step_seconds == incumbent.inner_step_seconds == 900.0
-    assert model.spectral_wavenumbers == incumbent.spectral_wavenumbers == 80
-    assert model.apply_spectral_filter == incumbent.apply_spectral_filter
-    assert model.horizontal_diffusion_order == incumbent.horizontal_diffusion_order
-    assert model.horizontal_diffusion_tau_seconds is None
-    assert model.include_vertical_advection == incumbent.include_vertical_advection
-    assert model.reference_temperature_kelvin == incumbent.reference_temperature_kelvin
-    assert model.output_variables == incumbent.output_variables
-    assert model.weak_held_suarez_kf_per_day == incumbent.weak_held_suarez_kf_per_day
-    assert (
-        model.weak_held_suarez_ka_timescale_days
-        == incumbent.weak_held_suarez_ka_timescale_days
-    )
-    assert (
-        model.weak_held_suarez_ks_timescale_days
-        == incumbent.weak_held_suarez_ks_timescale_days
-    )
-
-
-def test_layer_mean_hydrostatic_temperature_initialization_factory_extends_incumbent():
-    """The layer-mean candidate preserves incumbent settings and changes estimator."""
-    model = layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model()
-    incumbent = hydrostatic_temperature_initialization_dinosaur_dycore_model()
-
-    assert (
-        model.name
-        == "dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init"
-    )
-    assert model.apply_digital_filter_initialization
-    assert model.apply_near_surface_residual_correction
-    assert model.apply_weak_held_suarez_relaxation
-    assert model.use_log_pressure_initialization
-    assert model.use_hydrostatic_temperature_initialization
-    assert model.use_layer_mean_hydrostatic_temperature_initialization
-    assert not incumbent.use_layer_mean_hydrostatic_temperature_initialization
-    assert model.inner_step_seconds == incumbent.inner_step_seconds == 900.0
-    assert model.spectral_wavenumbers == incumbent.spectral_wavenumbers == 80
-    assert model.apply_spectral_filter == incumbent.apply_spectral_filter
-    assert model.horizontal_diffusion_order == incumbent.horizontal_diffusion_order
-    assert model.horizontal_diffusion_tau_seconds is None
-    assert model.include_vertical_advection == incumbent.include_vertical_advection
-    assert model.reference_temperature_kelvin == incumbent.reference_temperature_kelvin
-    assert model.output_variables == incumbent.output_variables
-    assert model.weak_held_suarez_kf_per_day == incumbent.weak_held_suarez_kf_per_day
-    assert (
-        model.weak_held_suarez_ka_timescale_days
-        == incumbent.weak_held_suarez_ka_timescale_days
-    )
-    assert (
-        model.weak_held_suarez_ks_timescale_days
-        == incumbent.weak_held_suarez_ks_timescale_days
-    )
-    assert not model.apply_exact_coriolis_rotation_split
-
-
-def test_coriolis_split_factory_preserves_incumbent_options_except_split():
-    """The split candidate changes only name and the exact-Coriolis option."""
-    model = coriolis_split_dinosaur_dycore_model()
-    incumbent = (
-        layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model()
-    )
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_split"
-    )
-    assert model.apply_exact_coriolis_rotation_split
-    assert not incumbent.apply_exact_coriolis_rotation_split
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_exact_coriolis_rotation_split"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_coriolis_strang_factory_preserves_incumbent_options_except_ordering():
-    """The Strang candidate changes only name and symmetric split ordering."""
-    model = coriolis_strang_split_dinosaur_dycore_model()
-    incumbent = coriolis_split_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang"
-    )
-    assert model.apply_exact_coriolis_rotation_split
-    assert model.apply_symmetric_exact_coriolis_rotation_split
-    assert not incumbent.apply_symmetric_exact_coriolis_rotation_split
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_symmetric_exact_coriolis_rotation_split"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_stability_aware_residual_factory_preserves_incumbent_except_decay():
-    """The candidate changes only the residual decay option and model name."""
-    model = stability_aware_surface_residual_dinosaur_dycore_model()
-    incumbent = coriolis_strang_split_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual"
-    )
-    assert model.use_stability_aware_near_surface_residual_decay
-    assert not incumbent.use_stability_aware_near_surface_residual_decay
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {
-            "name",
-            "use_stability_aware_near_surface_residual_decay",
-        }:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_richardson_10m_wind_factory_preserves_incumbent_except_diagnostic():
-    """The candidate changes only name and the raw 10 m wind diagnostic option."""
-    model = richardson_10m_wind_diagnostic_dinosaur_dycore_model()
-    incumbent = stability_aware_surface_residual_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind"
-    )
-    assert model.use_surface_layer_richardson_10m_wind_diagnostic
-    assert not incumbent.use_surface_layer_richardson_10m_wind_diagnostic
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {
-            "name",
-            "use_surface_layer_richardson_10m_wind_diagnostic",
-        }:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_theta_tendency_factory_preserves_incumbent_except_thermal_formulation():
-    """The theta candidate changes only name and thermodynamic tendency form."""
-    model = theta_tendency_dinosaur_dycore_model()
-    incumbent = richardson_10m_wind_diagnostic_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency"
-    )
-    assert (
-        model.temperature_tendency_formulation
-        == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
-    )
-    assert (
-        incumbent.temperature_tendency_formulation
-        == primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_TEMPERATURE
-    )
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "temperature_tendency_formulation"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_theta_mean_recenter_factory_preserves_incumbent_except_wrapper():
-    """The recentering candidate changes only name and the rollout wrapper."""
-    model = theta_mean_recenter_dinosaur_dycore_model()
-    incumbent = theta_tendency_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency_theta_mean_recenter"
-    )
-    assert model.apply_theta_layer_mean_recentering
-    assert not incumbent.apply_theta_layer_mean_recentering
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_theta_layer_mean_recentering"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_semi_implicit_offcenter_factory_preserves_incumbent_except_epsilon():
-    """The candidate changes only name and the SIL3 off-centering weight."""
-    model = semi_implicit_offcenter_dinosaur_dycore_model()
-    incumbent = theta_mean_recenter_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
-    )
-    assert (
-        model.semi_implicit_offcentering == DEFAULT_SEMI_IMPLICIT_OFFCENTERING == 0.05
-    )
-    assert incumbent.semi_implicit_offcentering == 0.0
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "semi_implicit_offcentering"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_scale_separated_residual_factory_preserves_incumbent_except_selector():
-    """The candidate changes only name and the residual scale selector."""
-    model = scale_separated_surface_residual_dinosaur_dycore_model()
-    incumbent = semi_implicit_offcenter_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-        "scale_surface_residual"
-    )
-    assert model.use_scale_separated_near_surface_residual
-    assert not incumbent.use_scale_separated_near_surface_residual
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_scale_separated_near_surface_residual"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_analysis_offset_hs_eq_factory_preserves_incumbent_except_selector():
-    """The candidate changes only name and the analysis-HS-equilibrium selector."""
-    model = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
-    incumbent = scale_separated_surface_residual_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-        "scale_surface_residual_analysis_hs_eq"
-    )
-    assert model.use_analysis_offset_weak_held_suarez_equilibrium
-    assert not incumbent.use_analysis_offset_weak_held_suarez_equilibrium
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {
-            "name",
-            "use_analysis_offset_weak_held_suarez_equilibrium",
-        }:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_land_sea_surface_temperature_factory_preserves_incumbent_except_selector():
-    """The candidate changes only name and the land-sea residual selector."""
-    model = land_sea_surface_temperature_dinosaur_dycore_model()
-    incumbent = analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-        "scale_surface_residual_analysis_hs_eq_landsea_surface"
-    )
-    assert model.use_land_sea_surface_temperature_residual
-    assert not incumbent.use_land_sea_surface_temperature_residual
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_land_sea_surface_temperature_residual"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_ocean_bulk_shf_factory_preserves_incumbent_except_selector():
-    """The candidate changes only name and the ocean bulk SHF selector."""
-    model = ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
-    incumbent = land_sea_surface_temperature_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-        "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-        "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-        "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
-    )
-    assert model.apply_ocean_bulk_sensible_heat_flux
-    assert not incumbent.apply_ocean_bulk_sensible_heat_flux
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_ocean_bulk_sensible_heat_flux"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_hsl_theta_factory_preserves_incumbent_except_selector():
-    """The short candidate changes only name and horizontal theta transport."""
-    model = horizontal_semilagrangian_theta_transport_dinosaur_dycore_model()
-    incumbent = ocean_bulk_sensible_heat_flux_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl_theta"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert not incumbent.use_horizontal_semilagrangian_theta_transport
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_horizontal_semilagrangian_theta_transport"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_hsl2_theta_factory_preserves_hsl_theta_except_midpoint_selector():
-    """The midpoint candidate changes only name and theta departure selector."""
-    model = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
-    incumbent = horizontal_semilagrangian_theta_transport_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_theta"
-    assert len(model.name) < 32
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert incumbent.use_horizontal_semilagrangian_theta_transport
-    assert not incumbent.use_midpoint_semilagrangian_theta_departure
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_midpoint_semilagrangian_theta_departure"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_dse_hsl_factory_preserves_hsl2_theta_except_selector():
-    """The DSE-HSL candidate changes only name and the DSE transport selector."""
-    model = dry_static_energy_hsl_transport_dinosaur_dycore_model()
-    incumbent = midpoint_semilagrangian_theta_departure_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_theta_dse_hsl"
-    assert len(model.name) < 32
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert not incumbent.use_dry_static_energy_hsl_transport
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_dry_static_energy_hsl_transport"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_layer_mass_dse_factory_preserves_dse_hsl_except_selector():
-    """The mass-DSE candidate changes only name and mass-DSE selector."""
-    model = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
-    incumbent = dry_static_energy_hsl_transport_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_mass_dse"
-    assert len(model.name) < 32
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert not incumbent.use_layer_mass_weighted_dse_hsl_transport
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_layer_mass_weighted_dse_hsl_transport"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_tropical_wtg_factory_preserves_mass_dse_except_selector():
-    """The WTG candidate changes only name and rollout WTG selector."""
-    model = tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
-    incumbent = layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_mass_dse_wtg"
-    assert len(model.name) < 32
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert not incumbent.apply_tropical_wtg_mass_dse_relaxation
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_tropical_wtg_mass_dse_relaxation"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_pressure_ramped_vertical_dse_factory_preserves_wtg_except_selector():
-    """The candidate changes only name and the vertical-DSE ramp selector."""
-    model = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
-    incumbent = tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert not incumbent.use_pressure_ramped_vertical_dse_increment
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_pressure_ramped_vertical_dse_increment"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_land_ocean_low_mode_t2m_memory_factory_preserves_ramp_except_selector():
-    """The candidate changes only name and the broad T2m memory selector."""
-    model = land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
-    incumbent = pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert model.use_land_ocean_low_mode_t2m_memory
-    assert not incumbent.use_land_ocean_low_mode_t2m_memory
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_land_ocean_low_mode_t2m_memory"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_bulk_richardson_2m_temperature_factory_preserves_incumbent_except_selector():
-    """The RI2m candidate changes only name and raw T2m diagnostic selector."""
-    model = bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model()
-    incumbent = land_ocean_low_mode_t2m_memory_dinosaur_dycore_model()
-
-    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert model.use_land_ocean_low_mode_t2m_memory
-    assert model.use_bulk_richardson_2m_temperature_diagnostic
-    assert not incumbent.use_bulk_richardson_2m_temperature_diagnostic
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_bulk_richardson_2m_temperature_diagnostic"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_ekman_coupled_factory_preserves_incumbent_except_selector():
-    """The Ekman candidate only opts into the coupled lower-boundary filter."""
-    model = ekman_coupled_dinosaur_dycore_model()
-    incumbent = bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model()
-
-    assert model.name == "dino_ri2m_ekman_coupled"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert model.use_land_ocean_low_mode_t2m_memory
-    assert model.use_bulk_richardson_2m_temperature_diagnostic
-    assert model.apply_coupled_ekman_surface_closure
-    assert not incumbent.apply_coupled_ekman_surface_closure
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_coupled_ekman_surface_closure"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_ekman_depth_factory_preserves_incumbent_except_depth_selector():
-    """The depth candidate preserves coupled Ekman settings except depth geometry."""
-    model = ekman_depth_dinosaur_dycore_model()
-    incumbent = ekman_coupled_dinosaur_dycore_model()
-
-    assert model.name == "dino_ri2m_ekman_depth"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert model.use_land_ocean_low_mode_t2m_memory
-    assert model.use_bulk_richardson_2m_temperature_diagnostic
-    assert model.apply_coupled_ekman_surface_closure
-    assert model.use_coriolis_scaled_ekman_depth
-    assert not incumbent.use_coriolis_scaled_ekman_depth
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_coriolis_scaled_ekman_depth"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_orographic_lift_factory_preserves_incumbent_except_selector():
-    """The orographic-lift candidate changes only name and thermal selector."""
-    model = orographic_lift_theta_dinosaur_dycore_model()
-    incumbent = ekman_depth_dinosaur_dycore_model()
-
-    assert model.name == "dino_ri2m_ekman_depth_orolift_theta"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert model.use_land_ocean_low_mode_t2m_memory
-    assert model.use_bulk_richardson_2m_temperature_diagnostic
-    assert model.apply_coupled_ekman_surface_closure
-    assert model.use_coriolis_scaled_ekman_depth
-    assert model.apply_orographic_lift_theta_tendency
-    assert not incumbent.apply_orographic_lift_theta_tendency
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_orographic_lift_theta_tendency"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_orographic_lift_lower_column_wind_factory_preserves_incumbent():
-    """The lower-column wind candidate only opts into weighted terrain wind."""
-    model = orographic_lift_lower_column_wind_dinosaur_dycore_model()
-    incumbent = orographic_lift_theta_dinosaur_dycore_model()
-
-    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind"
-    assert model.apply_orographic_lift_theta_tendency
-    assert model.use_depth_weighted_orographic_lift_wind
-    assert not incumbent.use_depth_weighted_orographic_lift_wind
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_depth_weighted_orographic_lift_wind"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_terrain_work_form_drag_factory_preserves_incumbent():
-    """The terrain-work drag candidate only enables the new drag selector."""
-    model = terrain_work_form_drag_heating_dinosaur_dycore_model()
-    incumbent = orographic_lift_lower_column_wind_dinosaur_dycore_model()
-
-    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag"
-    assert model.apply_orographic_lift_theta_tendency
-    assert model.use_depth_weighted_orographic_lift_wind
-    assert model.apply_terrain_work_form_drag_heating
-    assert not incumbent.apply_terrain_work_form_drag_heating
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_terrain_work_form_drag_heating"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_pressure_thickness_ri2m_factory_preserves_incumbent_except_selector():
-    """The pressure-thickness RI2m candidate only changes the raw T2m input."""
-    model = pressure_thickness_ri2m_temperature_dinosaur_dycore_model()
-    incumbent = terrain_work_form_drag_heating_dinosaur_dycore_model()
-
-    assert model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m"
-    assert model.use_bulk_richardson_2m_temperature_diagnostic
-    assert model.apply_terrain_work_form_drag_heating
-    assert model.use_pressure_thickness_weighted_ri2m_temperature
-    assert not incumbent.use_pressure_thickness_weighted_ri2m_temperature
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {
-            "name",
-            "use_pressure_thickness_weighted_ri2m_temperature",
-        }:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_late_skin_factory_preserves_pressure_thickness_incumbent():
-    """The late skin candidate adds only its external-reservoir selector."""
-    model = late_ramped_land_skin_reservoir_dinosaur_dycore_model()
-    incumbent = pressure_thickness_ri2m_temperature_dinosaur_dycore_model()
-
-    assert (
-        model.name
-        == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"
-    )
-    assert model.apply_land_skin_reservoir
-    assert not incumbent.apply_land_skin_reservoir
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "apply_land_skin_reservoir"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_prognostic_skin_ri2m_factory_preserves_late_skin_incumbent():
-    """The skin-aware candidate changes only its output observer selector."""
-    model = prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model()
-    incumbent = late_ramped_land_skin_reservoir_dinosaur_dycore_model()
-
-    assert (
-        model.name
-        == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-        "pthick_ri2m_lateskin_skri"
-    )
-    assert model.apply_land_skin_reservoir
-    assert model.use_pressure_thickness_weighted_ri2m_temperature
-    assert model.use_prognostic_skin_ri2m_lower_boundary
-    assert not incumbent.use_prognostic_skin_ri2m_lower_boundary
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_prognostic_skin_ri2m_lower_boundary"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_analysis_2m_land_skin_factory_preserves_exact_incumbent():
-    """The analysis initializer changes only its name and default-false selector."""
-    model = analysis_2m_initialized_land_skin_dinosaur_dycore_model()
-    incumbent = prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-        "pthick_ri2m_lateskin_skri_a2si"
-    )
-    assert model.use_analysis_2m_initialized_land_skin
-    assert not incumbent.use_analysis_2m_initialized_land_skin
-    assert (
-        replace(
-            model,
-            name=incumbent.name,
-            use_analysis_2m_initialized_land_skin=False,
-        )
-        == incumbent
-    )
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_analysis_2m_initialized_land_skin"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_ocean_anchor_ri2m_factory_preserves_exact_incumbent():
-    """The ocean observer changes only its name and default-false selector."""
-    model = ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model()
-    incumbent = analysis_2m_initialized_land_skin_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-        "pthick_ri2m_lateskin_skri_a2si_ori"
-    )
-    assert model.use_ocean_anchor_ri2m_lower_boundary
-    assert not incumbent.use_ocean_anchor_ri2m_lower_boundary
-    assert (
-        replace(
-            model,
-            name=incumbent.name,
-            use_ocean_anchor_ri2m_lower_boundary=False,
-        )
-        == incumbent
-    )
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {"name", "use_ocean_anchor_ri2m_lower_boundary"}:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
-def test_zero_mean_radiative_land_skin_factory_preserves_exact_incumbent():
-    """The radiative skin candidate changes only its name and selector."""
-    model = zero_mean_radiative_land_skin_energy_dinosaur_dycore_model()
-    incumbent = ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model()
-
-    assert (
-        model.name == "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-        "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
-    )
-    assert model.apply_zero_mean_radiative_land_skin_energy
-    assert not incumbent.apply_zero_mean_radiative_land_skin_energy
-    assert (
-        replace(
-            model,
-            name=incumbent.name,
-            apply_zero_mean_radiative_land_skin_energy=False,
-        )
-        == incumbent
-    )
-    for field_name in DinosaurPrimitiveEquationsDycoreModel.__dataclass_fields__:
-        if field_name in {
-            "name",
-            "apply_zero_mean_radiative_land_skin_energy",
-        }:
-            continue
-        assert getattr(model, field_name) == getattr(incumbent, field_name)
-
-
 def test_imex_rk_sil3_zero_offcentering_matches_centered_step():
     """SIL3 epsilon=0 keeps the incumbent centered tableau path unchanged."""
     equation = _linear_implicit_oscillator_equation(frequency=2.0)
@@ -1082,6 +321,63 @@ def test_imex_rk_sil3_offcentered_step_falls_back_on_nonfinite_state():
     )
 
 
+def test_imex_rk_sil3_can_propagate_nonfinite_offcentered_state():
+    """Training can expose an invalid candidate to its fatal numerical guard."""
+
+    def explicit_terms(state):
+        return jnp.zeros_like(state)
+
+    def implicit_terms(state):
+        return state
+
+    def implicit_inverse(state, step_size):
+        return jnp.where(
+            step_size > 0.36,
+            jnp.full_like(state, jnp.nan),
+            state,
+        )
+
+    equation = time_integration.ImplicitExplicitODE.from_functions(
+        explicit_terms,
+        implicit_terms,
+        implicit_inverse,
+    )
+    initial_state = jnp.asarray([1.0, -0.5], dtype=jnp.float32)
+    step = time_integration.imex_rk_sil3(
+        equation,
+        time_step=1.0,
+        implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+        fallback_to_centered_on_nonfinite=False,
+    )
+
+    assert not bool(jnp.all(jnp.isfinite(step(initial_state))))
+
+
+def test_imex_rk_sil3_propagation_matches_fallback_for_finite_vmap():
+    """The training fast path is unchanged while every candidate is finite."""
+    equation = _linear_implicit_oscillator_equation(frequency=2.0)
+    initial_states = jnp.asarray(
+        [[1.0, 0.25], [-0.5, 0.75]],
+        dtype=jnp.float32,
+    )
+    fallback_step = time_integration.imex_rk_sil3(
+        equation,
+        time_step=0.1,
+        implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+    )
+    propagation_step = time_integration.imex_rk_sil3(
+        equation,
+        time_step=0.1,
+        implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
+        fallback_to_centered_on_nonfinite=False,
+    )
+
+    np.testing.assert_array_equal(
+        jax.vmap(propagation_step)(initial_states),
+        jax.vmap(fallback_step)(initial_states),
+    )
+
+
 def test_dinosaur_forecast_returns_requested_channels():
     """Dinosaur forecasts return requested channels in requested order."""
     output_variables = (
@@ -1119,699 +415,6 @@ def test_dinosaur_forecast_returns_requested_channels():
         forecast.values[0, 0, 6],
         np.full((4, 3), 100000.0),
         rtol=1e-5,
-    )
-
-
-def test_dinosaur_forecast_with_digital_filter_initialization_is_finite(monkeypatch):
-    """DFI preserves the forecast contract and emits finite requested outputs."""
-    dfi_calls = []
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        dfi_calls.append(
-            {
-                "equation": equation,
-                "ode_solver": ode_solver,
-                "filters": filters,
-                "time_span": time_span,
-                "cutoff_period": cutoff_period,
-                "dt": dt,
-            }
-        )
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "temperature_250",
-        "u_component_of_wind_750",
-        "mean_sea_level_pressure",
-    )
-    model = DinosaurPrimitiveEquationsDycoreModel(
-        inner_step_seconds=3600.0,
-        output_variables=output_variables,
-        include_vertical_advection=False,
-        apply_digital_filter_initialization=True,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0, 1))
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    assert len(dfi_calls) == 1
-
-
-def test_weak_held_suarez_forecast_returns_finite_requested_channels(monkeypatch):
-    """The forced DFI path preserves requested output channels and shapes."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = DinosaurPrimitiveEquationsDycoreModel(
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        include_vertical_advection=False,
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("2m_temperature",)).values[0],
-        forecast_input.initial_state.select(("2m_temperature",)).values,
-    )
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_log_pressure_initialization_candidate_forecast_is_finite(monkeypatch):
-    """The side-by-side log-pressure candidate runs a small non-JIT forecast."""
-    log_pressure_calls = []
-    real_log_pressure_interpolation = (
-        vertical_interpolation.interp_pressure_to_sigma_log_pressure
-    )
-
-    def record_log_pressure_interpolation(*args, **kwargs):
-        log_pressure_calls.append(True)
-        return real_log_pressure_interpolation(*args, **kwargs)
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        vertical_interpolation,
-        "interp_pressure_to_sigma_log_pressure",
-        record_log_pressure_interpolation,
-    )
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        log_pressure_initialization_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert log_pressure_calls == [True]
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_hydrostatic_temperature_initialization_candidate_forecast_is_finite(
-    monkeypatch,
-):
-    """The side-by-side hydrostatic candidate runs a small non-JIT forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        hydrostatic_temperature_initialization_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_coriolis_split_candidate_forecast_is_finite(monkeypatch):
-    """The exact-Coriolis split candidate runs a small non-JIT forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        coriolis_split_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_coriolis_strang_split_candidate_forecast_is_finite(monkeypatch):
-    """The symmetric exact-Coriolis split runs a small non-JIT forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        coriolis_strang_split_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_stability_aware_surface_residual_candidate_forecast_is_finite(monkeypatch):
-    """The stability-aware residual candidate runs a small non-JIT forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        stability_aware_surface_residual_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_richardson_10m_wind_candidate_forecast_is_finite(monkeypatch):
-    """The Richardson 10 m wind candidate runs a small non-JIT forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        richardson_10m_wind_diagnostic_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_theta_tendency_candidate_forecast_is_finite(monkeypatch):
-    """The theta-tendency candidate runs a small non-JIT smoke forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        theta_tendency_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_theta_mean_recenter_candidate_forecast_is_finite(monkeypatch):
-    """The theta-recenter candidate runs a small non-JIT smoke forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        theta_mean_recenter_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_semi_implicit_offcenter_candidate_forecast_is_finite(monkeypatch):
-    """The offcentered SIL3 candidate runs a small non-JIT smoke forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        semi_implicit_offcenter_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_scale_separated_residual_candidate_forecast_is_finite(monkeypatch):
-    """The scale-separated residual candidate runs a small non-JIT forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        scale_separated_surface_residual_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("2m_temperature",)).values[0],
-        forecast_input.initial_state.select(("2m_temperature",)).values,
-    )
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_analysis_offset_hs_eq_candidate_forecast_is_finite(monkeypatch):
-    """The analysis-offset HS-equilibrium candidate runs a non-JIT smoke forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("2m_temperature",)).values[0],
-        forecast_input.initial_state.select(("2m_temperature",)).values,
-    )
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
-    )
-
-
-def test_land_sea_surface_temperature_candidate_forecast_is_finite(monkeypatch):
-    """The land-sea T2m residual candidate runs a non-JIT smoke forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "10m_v_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        land_sea_surface_temperature_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-    np.testing.assert_array_equal(
-        forecast.select(("2m_temperature",)).values[0],
-        forecast_input.initial_state.select(("2m_temperature",)).values,
-    )
-    np.testing.assert_array_equal(
-        forecast.select(("10m_u_component_of_wind",)).values[0],
-        forecast_input.initial_state.select(("10m_u_component_of_wind",)).values,
     )
 
 
@@ -3122,9 +1725,7 @@ def test_prognostic_skin_ri2m_ramp_mask_fallback_and_cap():
     )
     time_count = 4
     point_count = 6
-    layer_temperature = jnp.asarray(
-        [240.0, 262.0, 286.0, 296.0], dtype=jnp.float32
-    )
+    layer_temperature = jnp.asarray([240.0, 262.0, 286.0, 296.0], dtype=jnp.float32)
     temperature = jnp.broadcast_to(
         layer_temperature[jnp.newaxis, :, jnp.newaxis, jnp.newaxis],
         (time_count, 4, 1, point_count),
@@ -3141,9 +1742,11 @@ def test_prognostic_skin_ri2m_ramp_mask_fallback_and_cap():
         ],
         temperature.shape,
     )
-    surface_pressure_hpa = jnp.full(
-        (time_count, 1, point_count), 1000.0, dtype=jnp.float32
-    ).at[:, 0, 5].set(-1.0)
+    surface_pressure_hpa = (
+        jnp.full((time_count, 1, point_count), 1000.0, dtype=jnp.float32)
+        .at[:, 0, 5]
+        .set(-1.0)
+    )
     incumbent = _bulk_richardson_2m_temperature(
         temperature=temperature,
         u_wind=u_wind,
@@ -3153,14 +1756,10 @@ def test_prognostic_skin_ri2m_ramp_mask_fallback_and_cap():
         use_pressure_thickness_weighted_ri2m_temperature=True,
     )
     skin_temperature = jnp.full_like(incumbent, 275.0).at[:, 0, 4].set(jnp.nan)
-    land_weight = jnp.asarray(
-        [[1.0, 0.0, jnp.nan, 1.1, 1.0, 1.0]], dtype=jnp.float32
-    )
+    land_weight = jnp.asarray([[1.0, 0.0, jnp.nan, 1.1, 1.0, 1.0]], dtype=jnp.float32)
     physics_specs = units.SimUnits.from_si()
     hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
-    forecast_time = (
-        jnp.asarray([0.0, 120.0, 180.0, 240.0], dtype=jnp.float32) * hour
-    )
+    forecast_time = jnp.asarray([0.0, 120.0, 180.0, 240.0], dtype=jnp.float32) * hour
 
     candidate = _prognostic_skin_ri2m_temperature(
         incumbent_temperature=incumbent,
@@ -3479,318 +2078,6 @@ def test_dinosaur_forecast_handles_multiple_initial_times():
     assert forecast.variables == ("temperature_250",)
     assert forecast.values.shape == (1, 2, 1, 4, 3)
     np.testing.assert_allclose(forecast.values[0, :, 0], 250.0, atol=1e-4)
-
-
-def test_radiative_land_skin_multi_initial_forecast_uses_each_sample_phase(
-    monkeypatch,
-):
-    """A batched forecast matches separate runs while retaining distinct phases."""
-
-    def deterministic_solver(equation, *, time_step):
-        del equation
-
-        def advance_sim_time(state):
-            return replace(state, sim_time=state.sim_time + time_step)
-
-        return advance_sim_time
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
-
-    def missing_ocean_temperature_anchor(*args, **kwargs):
-        del args, kwargs
-        return None
-
-    captured_offsets = []
-    captured_skin_trajectories = []
-    real_time_offset = _radiative_land_skin_initial_time_offset
-    real_state_packing = dinosaur_state_to_weather_state
-
-    def capture_time_offset(*args, **kwargs):
-        time_offset = real_time_offset(*args, **kwargs)
-        captured_offsets.append(time_offset)
-        return time_offset
-
-    def capture_state_packing(*args, **kwargs):
-        captured_skin_trajectories.append(kwargs["prognostic_skin_temperature"])
-        return real_state_packing(*args, **kwargs)
-
-    monkeypatch.setattr(
-        DinosaurPrimitiveEquationsDycoreModel,
-        "_ode_solver",
-        lambda self: deterministic_solver,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_radiative_land_skin_initial_time_offset",
-        capture_time_offset,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_ocean_bulk_sensible_heat_flux_temperature_anchor",
-        missing_ocean_temperature_anchor,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "dinosaur_state_to_weather_state",
-        capture_state_packing,
-    )
-    step_hours = 240
-    step_seconds = step_hours * SECONDS_PER_HOUR
-    initial_times = np.asarray(
-        ["2020-03-20T00:00:00", "2020-03-20T12:00:00"],
-        dtype="datetime64[ns]",
-    )
-    valid_times = initial_times[:, np.newaxis] + np.timedelta64(step_hours, "h")
-    forecast_input = ForecastInput(
-        initial_times=initial_times,
-        valid_times=valid_times,
-        lead_steps=(1,),
-        lead_hours=(step_hours,),
-        step_seconds=step_seconds,
-        longitude=np.array([0.0, 90.0, 180.0, 270.0]),
-        latitude=np.array([90.0, 0.0, -90.0]),
-        initial_state=_structured_initial_state(init_count=2),
-    )
-    output_variables = (
-        "2m_temperature",
-        "temperature_500",
-        "mean_sea_level_pressure",
-    )
-    model = replace(
-        zero_mean_radiative_land_skin_energy_dinosaur_dycore_model(),
-        inner_step_seconds=step_seconds,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        include_vertical_advection=False,
-        apply_spectral_filter=False,
-        apply_digital_filter_initialization=False,
-        apply_weak_held_suarez_relaxation=False,
-        apply_near_surface_residual_correction=False,
-        apply_ocean_bulk_sensible_heat_flux=True,
-        apply_exact_coriolis_rotation_split=False,
-        apply_symmetric_exact_coriolis_rotation_split=False,
-        apply_theta_layer_mean_recentering=False,
-        use_horizontal_semilagrangian_theta_transport=False,
-        use_midpoint_semilagrangian_theta_departure=False,
-        use_dry_static_energy_hsl_transport=False,
-        use_layer_mass_weighted_dse_hsl_transport=False,
-        use_pressure_ramped_vertical_dse_increment=False,
-        apply_tropical_wtg_mass_dse_relaxation=False,
-        apply_coupled_ekman_surface_closure=False,
-        apply_orographic_lift_theta_tendency=False,
-        apply_terrain_work_form_drag_heating=False,
-        jit_forecast=True,
-    )
-
-    batch_forecast = model.forecast(forecast_input)
-    separate_forecasts = [
-        model.forecast(forecast_input.slice_initial_time(initial_index))
-        for initial_index in range(initial_times.size)
-    ]
-
-    assert batch_forecast.variables == output_variables
-    assert batch_forecast.values.shape == (1, 2, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(batch_forecast.values).all())
-    for initial_index, separate_forecast in enumerate(separate_forecasts):
-        np.testing.assert_allclose(
-            batch_forecast.values[:, initial_index],
-            separate_forecast.values[:, 0],
-            rtol=2.0e-6,
-            atol=2.0e-6,
-        )
-    assert len(captured_offsets) == 4
-    assert float(captured_offsets[0]) == 0.0
-    assert float(captured_offsets[1]) > 0.0
-    assert float(captured_offsets[2]) == 0.0
-    assert float(captured_offsets[3]) == 0.0
-    assert len(captured_skin_trajectories) == 4
-    assert not bool(
-        jnp.allclose(
-            captured_skin_trajectories[0][1],
-            captured_skin_trajectories[1][1],
-            rtol=0.0,
-            atol=1.0e-7,
-        )
-    )
-    np.testing.assert_allclose(
-        captured_skin_trajectories[0],
-        captured_skin_trajectories[2],
-        rtol=2.0e-6,
-        atol=2.0e-6,
-    )
-    np.testing.assert_allclose(
-        captured_skin_trajectories[1],
-        captured_skin_trajectories[3],
-        rtol=2.0e-6,
-        atol=2.0e-6,
-    )
-    for variable_name in ("temperature_500", "mean_sea_level_pressure"):
-        variable_index = output_variables.index(variable_name)
-        np.testing.assert_array_equal(
-            batch_forecast.values[0, 0, variable_index],
-            batch_forecast.values[0, 1, variable_index],
-        )
-
-
-def test_analysis_2m_land_skin_keeps_public_forecast_contract_and_trajectory_count(
-    monkeypatch,
-):
-    """Analysis and ocean descendants keep one trajectory per initialization."""
-    real_trajectory_from_step = time_integration.trajectory_from_step
-    real_analysis_extraction = _analysis_2m_land_skin_temperature
-    active_model = {"name": "incumbent"}
-    trajectory_counts = {"incumbent": 0, "candidate": 0, "ocean_candidate": 0}
-    extracted_temperatures = []
-
-    def counting_trajectory_from_step(*args, **kwargs):
-        trajectory_fn = real_trajectory_from_step(*args, **kwargs)
-
-        def counted_trajectory(*trajectory_args, **trajectory_kwargs):
-            trajectory_counts[active_model["name"]] += 1
-            return trajectory_fn(*trajectory_args, **trajectory_kwargs)
-
-        return counted_trajectory
-
-    def capture_analysis_extraction(*args, **kwargs):
-        analyzed_temperature = real_analysis_extraction(*args, **kwargs)
-        extracted_temperatures.append(analyzed_temperature)
-        return analyzed_temperature
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        del equation, ode_solver, filters, time_span, cutoff_period, dt
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.ones((longitude.size, latitude.size), dtype=jnp.float32)
-
-    def fake_terrain_height(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "trajectory_from_step",
-        counting_trajectory_from_step,
-    )
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_analysis_2m_land_skin_temperature",
-        capture_analysis_extraction,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_surface_geopotential_height_for_grid",
-        fake_terrain_height,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    runtime_overrides = {
-        "inner_step_seconds": 3600.0,
-        "spectral_wavenumbers": None,
-        "output_variables": output_variables,
-        "apply_spectral_filter": False,
-        "jit_forecast": False,
-    }
-    incumbent = replace(
-        prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model(),
-        **runtime_overrides,
-    )
-    candidate = replace(
-        analysis_2m_initialized_land_skin_dinosaur_dycore_model(),
-        **runtime_overrides,
-    )
-    ocean_candidate = replace(
-        ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model(),
-        **runtime_overrides,
-    )
-    initial_state = _structured_initial_state(init_count=2)
-    temperature_index = int(initial_state.variable_indices(("2m_temperature",))[0])
-    initial_state = WeatherState(
-        values=initial_state.values.at[1, temperature_index].add(5.0),
-        variables=initial_state.variables,
-    )
-    forecast_input = _forecast_input(initial_state, lead_steps=(0,))
-    initial_values = forecast_input.initial_state.values
-
-    incumbent_forecast = incumbent.forecast(forecast_input)
-    active_model["name"] = "candidate"
-    candidate_forecast = candidate.forecast(forecast_input)
-    active_model["name"] = "ocean_candidate"
-    ocean_candidate_forecast = ocean_candidate.forecast(forecast_input)
-
-    assert isinstance(candidate_forecast, WeatherState)
-    assert (
-        candidate_forecast.variables == incumbent_forecast.variables == output_variables
-    )
-    assert (
-        candidate_forecast.values.shape
-        == incumbent_forecast.values.shape
-        == (
-            1,
-            2,
-            len(output_variables),
-            4,
-            3,
-        )
-    )
-    np.testing.assert_array_equal(candidate_forecast.values, incumbent_forecast.values)
-    np.testing.assert_array_equal(
-        ocean_candidate_forecast.values,
-        candidate_forecast.values,
-    )
-    np.testing.assert_array_equal(forecast_input.initial_state.values, initial_values)
-    assert trajectory_counts == {
-        "incumbent": 2,
-        "candidate": 2,
-        "ocean_candidate": 2,
-    }
-    assert len(extracted_temperatures) == 4
-    assert all(temperature.shape == (4, 3) for temperature in extracted_temperatures)
-    np.testing.assert_array_equal(
-        extracted_temperatures[1] - extracted_temperatures[0],
-        jnp.full(
-            (4, 3),
-            5.0 * _unit_factor(units.SimUnits.from_si(), "kelvin"),
-            dtype=jnp.float32,
-        ),
-    )
-    np.testing.assert_array_equal(
-        extracted_temperatures[2:],
-        extracted_temperatures[:2],
-    )
-    assert all("skin" not in variable for variable in candidate_forecast.variables)
-    assert all(
-        "anchor" not in variable for variable in ocean_candidate_forecast.variables
-    )
 
 
 def test_weather_state_to_dinosaur_state_regrids_pressure_levels_to_sigma():
@@ -6532,8 +4819,7 @@ def test_land_skin_reservoir_ramp_is_zero_through_day_five():
     physics_specs = units.SimUnits.from_si()
     hour = _nondimensionalize_seconds(physics_specs, SECONDS_PER_HOUR)
     sim_time = (
-        jnp.asarray([-24.0, 0.0, 120.0, 180.0, 240.0, 300.0], dtype=jnp.float32)
-        * hour
+        jnp.asarray([-24.0, 0.0, 120.0, 180.0, 240.0, 300.0], dtype=jnp.float32) * hour
     )
 
     ramp = _land_skin_reservoir_forecast_time_ramp(sim_time, physics_specs)
@@ -6944,9 +5230,7 @@ def test_land_skin_reservoir_restore_and_zero_ramp_are_bounded():
 
 def test_land_skin_reservoir_is_external_and_inactive_through_120_hours():
     """The auxiliary carry is not a tracer and cannot alter the early state."""
-    coords, physics_specs, _, state = _synthetic_ekman_coupled_state(
-        wind_scale=1.0
-    )
+    coords, physics_specs, _, state = _synthetic_ekman_coupled_state(wind_scale=1.0)
     reference_temperature = _reference_temperature(
         layer_count=coords.vertical.layers,
         temperature_kelvin=250.0,
@@ -6996,9 +5280,7 @@ def test_land_skin_reservoir_is_external_and_inactive_through_120_hours():
 
 def test_land_skin_reservoir_changes_only_temperature_after_full_ramp():
     """At 240 h the internal reservoir changes temperature with safe fallback."""
-    coords, physics_specs, _, state = _synthetic_ekman_coupled_state(
-        wind_scale=1.0
-    )
+    coords, physics_specs, _, state = _synthetic_ekman_coupled_state(wind_scale=1.0)
     reference_temperature = _reference_temperature(
         layer_count=coords.vertical.layers,
         temperature_kelvin=250.0,
@@ -7034,8 +5316,7 @@ def test_land_skin_reservoir_changes_only_temperature_after_full_ramp():
     )
     assert not bool(jnp.array_equal(updated_skin[0], skin[0]))
     nodal_air_increment = coords.horizontal.to_nodal(
-        corrected_state.temperature_variation
-        - active_state.temperature_variation
+        corrected_state.temperature_variation - active_state.temperature_variation
     )[-1]
     combined_exchange = (
         _LAND_SKIN_RESERVOIR_HEAT_CAPACITY_RATIO * nodal_air_increment
@@ -8890,7 +7171,9 @@ def test_dse_hsl_default_hsl2_theta_behavior_is_unchanged():
         use_dry_static_energy_hsl_transport=False,
     )
 
-    assert not midpoint_semilagrangian_theta_departure_dinosaur_dycore_model().use_dry_static_energy_hsl_transport
+    assert (
+        not DinosaurPrimitiveEquationsDycoreModel().use_dry_static_energy_hsl_transport
+    )
     default_tendency = default_equation.explicit_terms(state)
     explicit_false_tendency = explicit_false_equation.explicit_terms(state)
 
@@ -9616,12 +7899,13 @@ def test_ocean_bulk_shf_composes_rollout_not_dfi(monkeypatch):
         "_load_land_sea_fraction_for_grid",
         fake_land_sea_fraction,
     )
-    model = replace(
-        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         output_variables=("2m_temperature",),
         apply_spectral_filter=False,
+        apply_digital_filter_initialization=True,
+        apply_ocean_bulk_sensible_heat_flux=True,
         jit_forecast=False,
     )
     forecast_input = _forecast_input(
@@ -9632,294 +7916,6 @@ def test_ocean_bulk_shf_composes_rollout_not_dfi(monkeypatch):
 
     assert forecast.variables == ("2m_temperature",)
     assert len(ocean_compose_calls) == 1
-
-
-def test_hsl_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
-    """The registered candidate runs a small non-JIT finite forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        del equation, ode_solver, filters, time_span, cutoff_period, dt
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        apply_spectral_filter=False,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert model.name == "dino_hsl_theta"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_hsl2_theta_non_jit_forecast_smoke_is_finite(monkeypatch):
-    """The midpoint departure candidate runs a small non-JIT finite forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        del equation, ode_solver, filters, time_span, cutoff_period, dt
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        apply_spectral_filter=False,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert model.name == "dino_hsl2_theta"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_dse_hsl_non_jit_forecast_smoke_is_finite(monkeypatch):
-    """The DSE-HSL candidate runs a small non-JIT finite forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        del equation, ode_solver, filters, time_span, cutoff_period, dt
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        dry_static_energy_hsl_transport_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        apply_spectral_filter=False,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert model.name == "dino_hsl2_theta_dse_hsl"
-    assert model.use_horizontal_semilagrangian_theta_transport
-    assert model.use_midpoint_semilagrangian_theta_departure
-    assert model.use_dry_static_energy_hsl_transport
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_tropical_wtg_mass_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
-    """The WTG mass-DSE candidate runs a small non-JIT finite forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        del equation, ode_solver, filters, time_span, cutoff_period, dt
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        apply_spectral_filter=False,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert model.name == "dino_hsl2_mass_dse_wtg"
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
-
-
-def test_pressure_ramped_vertical_dse_non_jit_forecast_smoke_is_finite(monkeypatch):
-    """The pressure-ramped vertical-DSE candidate runs a small finite forecast."""
-
-    def fake_digital_filter_initialization(
-        equation,
-        ode_solver,
-        filters,
-        time_span,
-        cutoff_period,
-        dt,
-    ):
-        del equation, ode_solver, filters, time_span, cutoff_period, dt
-        return lambda dinosaur_state: dinosaur_state
-
-    def fake_land_sea_fraction(*, longitude, latitude, initial_time):
-        del initial_time
-        return jnp.zeros((longitude.size, latitude.size), dtype=jnp.float32)
-
-    monkeypatch.setattr(
-        time_integration,
-        "digital_filter_initialization",
-        fake_digital_filter_initialization,
-    )
-    monkeypatch.setattr(
-        dinosaur_adapter,
-        "_load_land_sea_fraction_for_grid",
-        fake_land_sea_fraction,
-    )
-    output_variables = (
-        "2m_temperature",
-        "10m_u_component_of_wind",
-        "mean_sea_level_pressure",
-        "geopotential_500",
-    )
-    model = replace(
-        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        output_variables=output_variables,
-        apply_spectral_filter=False,
-        jit_forecast=False,
-    )
-    forecast_input = _forecast_input(
-        _structured_initial_state(init_count=1),
-        lead_steps=(0, 1),
-    )
-
-    forecast = model.forecast(forecast_input)
-
-    assert model.name == "dino_hsl2_mass_dse_wtg_vdse_ramp"
-    assert model.use_dry_static_energy_hsl_transport
-    assert model.use_layer_mass_weighted_dse_hsl_transport
-    assert model.apply_tropical_wtg_mass_dse_relaxation
-    assert model.use_pressure_ramped_vertical_dse_increment
-    assert forecast.variables == output_variables
-    assert forecast.values.shape == (2, 1, len(output_variables), 4, 3)
-    assert bool(jnp.isfinite(forecast.values).all())
 
 
 def test_analysis_2m_land_skin_trajectory_keeps_analysis_offset_and_ocean_anchor(
@@ -9982,9 +7978,12 @@ def test_analysis_2m_land_skin_trajectory_keeps_analysis_offset_and_ocean_anchor
         temperature_kelvin=250.0,
     )
     model = replace(
-        analysis_2m_initialized_land_skin_dinosaur_dycore_model(),
+        production_dinosaur_dycore_model(),
         inner_step_seconds=3600.0,
         apply_spectral_filter=False,
+        use_ocean_anchor_ri2m_lower_boundary=False,
+        apply_zero_mean_radiative_land_skin_energy=False,
+        apply_anticipated_pv_flux=False,
         jit_forecast=False,
     )
     ocean_weight = jnp.ones(coords.horizontal.nodal_shape, dtype=jnp.float32)
@@ -10028,13 +8027,17 @@ def test_analysis_2m_land_skin_trajectory_keeps_analysis_offset_and_ocean_anchor
 def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
     monkeypatch,
 ):
-    """The candidate passes one initial-state offset into rollout and DFI forcing."""
+    """Rollout and DFI receive the same analysis-offset thermal forcing."""
     compose_calls = []
+    composed_equations = []
+    dfi_equations = []
     real_compose_equations = time_integration.compose_equations
 
     def capture_compose_equations(equations):
         compose_calls.append(tuple(equations))
-        return real_compose_equations(equations)
+        composed = real_compose_equations(equations)
+        composed_equations.append(composed)
+        return composed
 
     def fake_digital_filter_initialization(
         equation,
@@ -10044,6 +8047,8 @@ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
         cutoff_period,
         dt,
     ):
+        del ode_solver, filters, time_span, cutoff_period, dt
+        dfi_equations.append(equation)
         return lambda dinosaur_state: dinosaur_state
 
     monkeypatch.setattr(
@@ -10086,11 +8091,14 @@ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
         use_hydrostatic_temperature_initialization=True,
         use_layer_mean_hydrostatic_temperature_initialization=True,
     )
-    model = replace(
-        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         apply_spectral_filter=False,
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        use_analysis_offset_weak_held_suarez_equilibrium=True,
+        apply_exact_coriolis_rotation_split=True,
         jit_forecast=False,
     )
     trajectory_fn = model._trajectory_function(
@@ -10105,12 +8113,17 @@ def test_analysis_offset_hs_eq_trajectory_uses_offset_for_rollout_and_dfi(
     trajectory_fn(dinosaur_state)
 
     assert len(compose_calls) == 2
+    equilibrium_offsets = []
     for primitive_equation, forcing in compose_calls:
         assert isinstance(primitive_equation, primitive_equations.PrimitiveEquations)
         assert isinstance(forcing, _TracerSafeHeldSuarezForcingSigma)
         assert forcing.equilibrium_temperature_offset is not None
         assert forcing.equilibrium_temperature_offset.shape == grid.coords.nodal_shape
         assert bool(jnp.isfinite(forcing.equilibrium_temperature_offset).all())
+        equilibrium_offsets.append(forcing.equilibrium_temperature_offset)
+    np.testing.assert_array_equal(equilibrium_offsets[0], equilibrium_offsets[1])
+    assert len(dfi_equations) == 1
+    assert dfi_equations[0] is composed_equations[1]
 
 
 def test_trajectory_function_matches_direct_dinosaur_package_call():
@@ -10386,19 +8399,17 @@ def test_trajectory_function_threads_offcentered_solver_to_rollout_and_dfi(
         layer_count=2,
         temperature_kelvin=250.0,
     )
-    incumbent = replace(
-        theta_mean_recenter_dinosaur_dycore_model(),
+    incumbent = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         spectral_wavenumbers=None,
         include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_theta_layer_mean_recentering=True,
         jit_forecast=False,
     )
     candidate = replace(
-        semi_implicit_offcenter_dinosaur_dycore_model(),
-        inner_step_seconds=3600.0,
-        spectral_wavenumbers=None,
-        include_vertical_advection=False,
-        jit_forecast=False,
+        incumbent,
+        semi_implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     )
 
     for model in (incumbent, candidate):
@@ -10474,10 +8485,11 @@ def test_trajectory_function_splits_rollout_and_dfi_coriolis_physics(monkeypatch
         "digital_filter_initialization",
         fake_digital_filter_initialization,
     )
-    model = replace(
-        coriolis_split_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
         jit_forecast=False,
     )
     forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
@@ -10593,10 +8605,12 @@ def test_trajectory_function_uses_strang_rollout_and_unsplit_dfi(monkeypatch):
         "digital_filter_initialization",
         fake_digital_filter_initialization,
     )
-    model = replace(
-        coriolis_strang_split_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
         jit_forecast=False,
     )
     forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
@@ -10671,10 +8685,11 @@ def test_trajectory_function_applies_theta_recenter_to_rollout_only(monkeypatch)
         "digital_filter_initialization",
         fake_digital_filter_initialization,
     )
-    model = replace(
-        theta_mean_recenter_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_theta_layer_mean_recentering=True,
         jit_forecast=False,
     )
     forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))
@@ -10740,10 +8755,12 @@ def test_trajectory_function_applies_tropical_wtg_to_rollout_only(monkeypatch):
         fake_digital_filter_initialization,
     )
     coords, physics_specs, _, dinosaur_state = _synthetic_wtg_mass_dse_state()
-    model = replace(
-        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
+        apply_theta_layer_mean_recentering=True,
+        apply_tropical_wtg_mass_dse_relaxation=True,
         jit_forecast=False,
     )
 
@@ -10819,10 +8836,10 @@ def test_trajectory_function_keeps_normal_incumbent_physics_when_split_disabled(
         "digital_filter_initialization",
         fake_digital_filter_initialization,
     )
-    model = replace(
-        layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model(),
+    model = DinosaurPrimitiveEquationsDycoreModel(
         inner_step_seconds=3600.0,
         include_vertical_advection=False,
+        apply_digital_filter_initialization=True,
         jit_forecast=False,
     )
     forecast_input = _forecast_input(_initial_state(init_count=1), lead_steps=(0,))

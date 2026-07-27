@@ -981,14 +981,20 @@ class DinosaurPrimitiveEquationsDycoreModel:
                 trajectory_fn = build_trajectory()
         return jax.jit(trajectory_fn) if self.jit_forecast else trajectory_fn
 
-    def _ode_solver(self) -> Any:
-        """Return the SIL3 solver, off-centered only for explicit opt-in models."""
+    def _ode_solver(
+        self,
+        *,
+        fallback_to_centered_on_nonfinite: bool = True,
+    ) -> Any:
+        """Return SIL3 with the requested off-centered non-finite policy."""
         if self.semi_implicit_offcentering == 0.0:
             return time_integration.imex_rk_sil3
-        return partial(
-            time_integration.imex_rk_sil3,
-            implicit_offcentering=self.semi_implicit_offcentering,
-        )
+        solver_arguments = {
+            "implicit_offcentering": self.semi_implicit_offcentering,
+        }
+        if not fallback_to_centered_on_nonfinite:
+            solver_arguments["fallback_to_centered_on_nonfinite"] = False
+        return partial(time_integration.imex_rk_sil3, **solver_arguments)
 
 
 def _analysis_offset_weak_held_suarez_equilibrium(
@@ -3423,525 +3429,49 @@ def default_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
     return DinosaurPrimitiveEquationsDycoreModel()
 
 
-def digital_filter_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
-    """Return the side-by-side Dinosaur candidate with fixed short DFI enabled."""
+def production_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
+    """Return the frozen production dycore used by the hybrid model."""
     return DinosaurPrimitiveEquationsDycoreModel(
-        name="dinosaur_dfi",
-        apply_digital_filter_initialization=True,
-    )
-
-
-def digital_filter_surface_residual_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the DFI candidate with decaying near-surface diagnostic residuals."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name="dinosaur_dfi_surface_residual",
-        apply_digital_filter_initialization=True,
-        apply_near_surface_residual_correction=True,
-    )
-
-
-def weak_held_suarez_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
-    """Return the DFI plus residual candidate with weak thermal HS relaxation."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name="dinosaur_dfi_surface_residual_weak_hs",
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-    )
-
-
-def log_pressure_initialization_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with log-pressure pressure-to-sigma initialization."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name="dinosaur_dfi_surface_residual_weak_hs_logp_init",
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_log_pressure_initialization=True,
-    )
-
-
-def hydrostatic_temperature_initialization_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent plus hydrostatic-thickness temperature initialization."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name="dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_init",
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-    )
-
-
-def layer_mean_hydrostatic_temperature_initialization_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the hydrostatic candidate with layer-mean temperature estimates."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name="dinosaur_dfi_surface_residual_weak_hs_logp_init_hydrostatic_layer_init",
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-    )
-
-
-def coriolis_split_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
-    """Return the incumbent with rollout-only exact Coriolis rotation splitting."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_split"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-    )
-
-
-def coriolis_strang_split_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the exact-Coriolis split with symmetric rollout ordering."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-        apply_symmetric_exact_coriolis_rotation_split=True,
-    )
-
-
-def stability_aware_surface_residual_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the Strang incumbent with stability-aware residual decay."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_stability_aware_near_surface_residual_decay=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-        apply_symmetric_exact_coriolis_rotation_split=True,
-    )
-
-
-def richardson_10m_wind_diagnostic_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the stability residual incumbent with Richardson 10 m wind output."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_stability_aware_near_surface_residual_decay=True,
-        use_surface_layer_richardson_10m_wind_diagnostic=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-        apply_symmetric_exact_coriolis_rotation_split=True,
-    )
-
-
-def theta_tendency_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
-    """Return the Richardson 10 m incumbent with theta-form thermal tendency."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_stability_aware_near_surface_residual_decay=True,
-        use_surface_layer_richardson_10m_wind_diagnostic=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-        apply_symmetric_exact_coriolis_rotation_split=True,
-        temperature_tendency_formulation=(
-            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
-        ),
-    )
-
-
-def theta_mean_recenter_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the theta incumbent with rollout-only theta mean recentering."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency_theta_mean_recenter"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_stability_aware_near_surface_residual_decay=True,
-        use_surface_layer_richardson_10m_wind_diagnostic=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-        apply_symmetric_exact_coriolis_rotation_split=True,
-        temperature_tendency_formulation=(
-            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
-        ),
-        apply_theta_layer_mean_recentering=True,
-    )
-
-
-def semi_implicit_offcenter_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the theta incumbent with fixed SIL3 implicit off-centering."""
-    return DinosaurPrimitiveEquationsDycoreModel(
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter"
-        ),
-        apply_digital_filter_initialization=True,
-        apply_weak_held_suarez_relaxation=True,
-        apply_near_surface_residual_correction=True,
-        use_stability_aware_near_surface_residual_decay=True,
-        use_surface_layer_richardson_10m_wind_diagnostic=True,
-        use_log_pressure_initialization=True,
-        use_hydrostatic_temperature_initialization=True,
-        use_layer_mean_hydrostatic_temperature_initialization=True,
-        apply_exact_coriolis_rotation_split=True,
-        apply_symmetric_exact_coriolis_rotation_split=True,
-        temperature_tendency_formulation=(
-            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
-        ),
-        apply_theta_layer_mean_recentering=True,
-        semi_implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
-    )
-
-
-def scale_separated_surface_residual_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the offcenter incumbent with scale-separated residual memory."""
-    return replace(
-        semi_implicit_offcenter_dinosaur_dycore_model(),
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-            "scale_surface_residual"
-        ),
-        use_scale_separated_near_surface_residual=True,
-    )
-
-
-def analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the scale-residual incumbent with analysis-offset HS equilibrium."""
-    return replace(
-        scale_separated_surface_residual_dinosaur_dycore_model(),
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-            "scale_surface_residual_analysis_hs_eq"
-        ),
-        use_analysis_offset_weak_held_suarez_equilibrium=True,
-    )
-
-
-def land_sea_surface_temperature_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with land-sea-aware 2 m temperature residual memory."""
-    return replace(
-        analysis_offset_held_suarez_equilibrium_dinosaur_dycore_model(),
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-            "scale_surface_residual_analysis_hs_eq_landsea_surface"
-        ),
-        use_land_sea_surface_temperature_residual=True,
-    )
-
-
-def ocean_bulk_sensible_heat_flux_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with weak ocean-only bulk sensible heat exchange."""
-    return replace(
-        land_sea_surface_temperature_dinosaur_dycore_model(),
-        name=(
-            "dinosaur_dfi_surface_residual_weak_hs_logp_init_"
-            "hydrostatic_layer_init_coriolis_strang_stability_surface_residual_"
-            "ri_10m_wind_theta_tendency_theta_mean_recenter_si_offcenter_"
-            "scale_surface_residual_analysis_hs_eq_landsea_surface_ocean_bulk_shf"
-        ),
-        apply_ocean_bulk_sensible_heat_flux=True,
-    )
-
-
-def horizontal_semilagrangian_theta_transport_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the ocean-bulk incumbent with horizontal SL theta transport."""
-    return replace(
-        ocean_bulk_sensible_heat_flux_dinosaur_dycore_model(),
-        name="dino_hsl_theta",
-        use_horizontal_semilagrangian_theta_transport=True,
-    )
-
-
-def midpoint_semilagrangian_theta_departure_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return HSL theta with midpoint departure estimates for theta only."""
-    return replace(
-        horizontal_semilagrangian_theta_transport_dinosaur_dycore_model(),
-        name="dino_hsl2_theta",
-        use_midpoint_semilagrangian_theta_departure=True,
-    )
-
-
-def dry_static_energy_hsl_transport_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return HSL2 theta with dry-static-energy horizontal thermal transport."""
-    return replace(
-        midpoint_semilagrangian_theta_departure_dinosaur_dycore_model(),
-        name="dino_hsl2_theta_dse_hsl",
-        use_dry_static_energy_hsl_transport=True,
-    )
-
-
-def layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return DSE-HSL with layer-mass-weighted horizontal thermal transport."""
-    return replace(
-        dry_static_energy_hsl_transport_dinosaur_dycore_model(),
-        name="dino_hsl2_mass_dse",
-        use_layer_mass_weighted_dse_hsl_transport=True,
-    )
-
-
-def tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return mass-DSE HSL with rollout-only tropical WTG thermal relaxation."""
-    return replace(
-        layer_mass_weighted_dse_hsl_transport_dinosaur_dycore_model(),
-        name="dino_hsl2_mass_dse_wtg",
-        apply_tropical_wtg_mass_dse_relaxation=True,
-    )
-
-
-def pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return WTG mass-DSE with guarded pressure-ramped vertical-DSE transport."""
-    return replace(
-        tropical_wtg_mass_dse_relaxation_dinosaur_dycore_model(),
-        name="dino_hsl2_mass_dse_wtg_vdse_ramp",
-        use_pressure_ramped_vertical_dse_increment=True,
-    )
-
-
-def land_ocean_low_mode_t2m_memory_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return vertical-DSE incumbent with late broad land/ocean T2m memory."""
-    return replace(
-        pressure_ramped_vertical_dse_wtg_dinosaur_dycore_model(),
-        name="dino_hsl2_mass_dse_wtg_vdse_t2m_lomem",
-        use_land_ocean_low_mode_t2m_memory=True,
-    )
-
-
-def bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the low-mode T2m incumbent with bounded raw 2 m temperature output."""
-    return replace(
-        land_ocean_low_mode_t2m_memory_dinosaur_dycore_model(),
-        name="dino_hsl2_mass_dse_wtg_vdse_t2m_lomem_ri2m",
-        use_bulk_richardson_2m_temperature_diagnostic=True,
-    )
-
-
-def ekman_coupled_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
-    """Return the RI2m incumbent with weak coupled Ekman stress and pumping."""
-    return replace(
-        bulk_richardson_2m_temperature_diagnostic_dinosaur_dycore_model(),
-        name="dino_ri2m_ekman_coupled",
-        apply_coupled_ekman_surface_closure=True,
-    )
-
-
-def ekman_depth_dinosaur_dycore_model() -> DinosaurPrimitiveEquationsDycoreModel:
-    """Return coupled Ekman with bounded Coriolis-scaled stress depth."""
-    return replace(
-        ekman_coupled_dinosaur_dycore_model(),
-        name="dino_ri2m_ekman_depth",
-        use_coriolis_scaled_ekman_depth=True,
-    )
-
-
-def orographic_lift_theta_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the Ekman-depth incumbent with thermal orographic lift enabled."""
-    return replace(
-        ekman_depth_dinosaur_dycore_model(),
-        name="dino_ri2m_ekman_depth_orolift_theta",
-        apply_orographic_lift_theta_tendency=True,
-    )
-
-
-def orographic_lift_lower_column_wind_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return orographic lift with depth-weighted lower-column terrain wind."""
-    return replace(
-        orographic_lift_theta_dinosaur_dycore_model(),
-        name="dino_ri2m_ekman_depth_orolift_lwind",
-        use_depth_weighted_orographic_lift_wind=True,
-    )
-
-
-def terrain_work_form_drag_heating_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return lower-column orographic lift with terrain-work drag and heat return."""
-    return replace(
-        orographic_lift_lower_column_wind_dinosaur_dycore_model(),
-        name="dino_ri2m_ekman_depth_orolift_lwind_twork_drag",
-        apply_terrain_work_form_drag_heating=True,
-    )
-
-
-def pressure_thickness_ri2m_temperature_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return terrain-work drag with pressure-thickness weighted RI2m inputs."""
-    return replace(
-        terrain_work_form_drag_heating_dinosaur_dycore_model(),
-        name="dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m",
-        use_pressure_thickness_weighted_ri2m_temperature=True,
-    )
-
-
-def late_ramped_land_skin_reservoir_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with late-ramped prognostic land skin memory."""
-    return replace(
-        pressure_thickness_ri2m_temperature_dinosaur_dycore_model(),
-        name=("dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin"),
-        apply_land_skin_reservoir=True,
-    )
-
-
-def prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the late-skin incumbent with skin-aware RI2m output packing."""
-    return replace(
-        late_ramped_land_skin_reservoir_dinosaur_dycore_model(),
-        name=(
-            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_pthick_ri2m_lateskin_skri"
-        ),
-        use_prognostic_skin_ri2m_lower_boundary=True,
-    )
-
-
-def analysis_2m_initialized_land_skin_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with land skin/deep initialized from analyzed T2m."""
-    return replace(
-        prognostic_skin_ri2m_lower_boundary_dinosaur_dycore_model(),
-        name=(
-            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-            "pthick_ri2m_lateskin_skri_a2si"
-        ),
-        use_analysis_2m_initialized_land_skin=True,
-    )
-
-
-def ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with an ocean-anchor RI2m output endpoint."""
-    return replace(
-        analysis_2m_initialized_land_skin_dinosaur_dycore_model(),
-        name=(
-            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-            "pthick_ri2m_lateskin_skri_a2si_ori"
-        ),
-        use_ocean_anchor_ri2m_lower_boundary=True,
-    )
-
-
-def zero_mean_radiative_land_skin_energy_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the incumbent with zero-net radiative land-skin energy."""
-    return replace(
-        ocean_anchor_ri2m_lower_boundary_dinosaur_dycore_model(),
-        name=(
-            "dino_ri2m_ekman_depth_orolift_lwind_twork_drag_"
-            "pthick_ri2m_lateskin_skri_a2si_ori_rskin"
-        ),
-        apply_zero_mean_radiative_land_skin_energy=True,
-    )
-
-
-def anticipated_pv_flux_dinosaur_dycore_model() -> (
-    DinosaurPrimitiveEquationsDycoreModel
-):
-    """Return the radiative-skin incumbent with rollout-only APVM flux."""
-    return replace(
-        zero_mean_radiative_land_skin_energy_dinosaur_dycore_model(),
         name="dino_rskin_apv",
+        use_log_pressure_initialization=True,
+        use_hydrostatic_temperature_initialization=True,
+        use_layer_mean_hydrostatic_temperature_initialization=True,
+        apply_digital_filter_initialization=True,
+        apply_weak_held_suarez_relaxation=True,
+        use_analysis_offset_weak_held_suarez_equilibrium=True,
+        apply_near_surface_residual_correction=True,
+        use_stability_aware_near_surface_residual_decay=True,
+        use_scale_separated_near_surface_residual=True,
+        use_land_sea_surface_temperature_residual=True,
+        use_land_ocean_low_mode_t2m_memory=True,
+        apply_ocean_bulk_sensible_heat_flux=True,
+        apply_land_skin_reservoir=True,
+        use_analysis_2m_initialized_land_skin=True,
+        apply_zero_mean_radiative_land_skin_energy=True,
+        use_surface_layer_richardson_10m_wind_diagnostic=True,
+        use_bulk_richardson_2m_temperature_diagnostic=True,
+        use_pressure_thickness_weighted_ri2m_temperature=True,
+        use_prognostic_skin_ri2m_lower_boundary=True,
+        use_ocean_anchor_ri2m_lower_boundary=True,
+        apply_exact_coriolis_rotation_split=True,
+        apply_symmetric_exact_coriolis_rotation_split=True,
+        temperature_tendency_formulation=(
+            primitive_equations.TEMPERATURE_TENDENCY_FORMULATION_POTENTIAL_TEMPERATURE
+        ),
+        apply_theta_layer_mean_recentering=True,
+        use_horizontal_semilagrangian_theta_transport=True,
+        use_midpoint_semilagrangian_theta_departure=True,
+        use_dry_static_energy_hsl_transport=True,
+        use_layer_mass_weighted_dse_hsl_transport=True,
+        use_pressure_ramped_vertical_dse_increment=True,
         apply_anticipated_pv_flux=True,
+        apply_tropical_wtg_mass_dse_relaxation=True,
+        apply_coupled_ekman_surface_closure=True,
+        use_coriolis_scaled_ekman_depth=True,
+        apply_orographic_lift_theta_tendency=True,
+        use_depth_weighted_orographic_lift_wind=True,
+        apply_terrain_work_form_drag_heating=True,
+        semi_implicit_offcentering=DEFAULT_SEMI_IMPLICIT_OFFCENTERING,
     )
 
 

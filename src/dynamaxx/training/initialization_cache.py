@@ -44,16 +44,20 @@ def initialized_state_cache_fingerprint(
 def default_initialized_state_cache_directory(
     dataset_path: str,
     fingerprint: str,
+    *,
+    times: np.ndarray | None = None,
 ) -> Path:
     """Place large local caches beside a filesystem-backed source dataset."""
     if "://" in dataset_path:
         raise ValueError("remote datasets require an explicit --state-cache-directory")
     dataset = Path(dataset_path).expanduser().resolve()
+    cache_label = fingerprint[:20]
+    if times is not None:
+        normalized_times = np.unique(np.asarray(times, dtype="datetime64[ns]"))
+        time_digest = hashlib.sha256(normalized_times.astype(np.int64).tobytes())
+        cache_label = f"{fingerprint[:12]}-{time_digest.hexdigest()[:8]}"
     return (
-        dataset.parent
-        / "dynamaxx-training-cache"
-        / "initialized-states"
-        / fingerprint[:20]
+        dataset.parent / "dynamaxx-training-cache" / "initialized-states" / cache_label
     )
 
 
